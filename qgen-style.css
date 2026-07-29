@@ -56,6 +56,7 @@ body{font-family:'Inter','Noto Sans Devanagari',sans-serif;background:var(--bg);
 .side-panel::-webkit-scrollbar{width:3px}
 .side-panel::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
 .hidden{display:none!important}
+#bulkPreviewBox{flex-shrink:0}
 
 /* Bank search */
 .bank-search-wrap{display:flex;flex-direction:column;gap:6px}
@@ -190,14 +191,14 @@ body{font-family:'Inter','Noto Sans Devanagari',sans-serif;background:var(--bg);
 
 .pq-header{display:flex;align-items:flex-start;gap:10px}
 .pq-num{font-size:13px;font-weight:800;color:var(--pacc);min-width:28px;padding-top:1px;flex-shrink:0}
-.pq-text{font-size:13px;font-weight:500;color:var(--ptxt);line-height:1.65;font-family:'Noto Sans Devanagari','Inter',sans-serif;flex:1}
+.pq-text{font-size:13px;font-weight:500;color:var(--ptxt);line-height:1.65;font-family:'Noto Sans Devanagari','Inter',sans-serif;flex:1;min-width:0;overflow-wrap:anywhere;word-break:break-word}
 
 .pq-opts{display:grid;grid-template-columns:1fr 1fr;gap:5px 14px;padding-left:38px;margin-top:3px}
-.pq-opt{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--ptxt);font-family:'Noto Sans Devanagari','Inter',sans-serif;padding:4px 8px;border-radius:4px;background:var(--opt);border:1px solid var(--opt-border);line-height:1.5}
+.pq-opt{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--ptxt);font-family:'Noto Sans Devanagari','Inter',sans-serif;padding:4px 8px;border-radius:4px;background:var(--opt);border:1px solid var(--opt-border);line-height:1.5;min-width:0;overflow-wrap:anywhere;word-break:break-word}
 .pq-opt.correct{background:#f0fdf4;border-color:#22c55e}
 .opt-tag{font-weight:700;color:var(--pacc);font-size:11.5px;background:#4a0e8f14;border-radius:3px;padding:1px 6px;border:1px solid #4a0e8f22;white-space:nowrap;flex-shrink:0}
 .pq-opt.correct .opt-tag{background:#22c55e;color:#fff;border-color:#22c55e}
-.pq-subjective-badge{margin-left:38px;margin-top:3px;display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:#92400e;background:#fef3c7;border:1px solid #fde68a;border-radius:6px;padding:4px 10px}
+.pq-subjective-badge{margin-left:38px;margin-top:3px;display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:#92400e;background:#fef3c7;border:1px solid #fde68a;border-radius:6px;padding:4px 10px;max-width:calc(100% - 38px);overflow-wrap:anywhere;word-break:break-word}
 .bank-subjective-tag{color:#92400e;font-weight:600}
 
 .pq-actions{position:absolute;top:10px;right:0;display:flex;gap:4px;opacity:0;transition:opacity .2s}
@@ -247,9 +248,16 @@ body{font-family:'Inter','Noto Sans Devanagari',sans-serif;background:var(--bg);
 .ak-ans{font-size:17px;font-weight:800;color:var(--pacc);background:#4a0e8f10;border-radius:50%;width:32px;height:32px;display:flex;align-items:center;justify-content:center}
 .ak-item-subjective{grid-column:1/-1;display:flex;flex-direction:column;gap:4px;padding:12px 14px;border:1.5px solid #fde68a;border-radius:8px;background:#fffbeb;animation:fadeUp .25s ease}
 .ak-item-subjective .ak-sub-head{display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:700;color:#92400e}
-.ak-item-subjective .ak-sub-q{font-size:13px;color:var(--ptxt);font-family:'Noto Sans Devanagari','Inter',sans-serif}
-.ak-item-subjective .ak-sub-model{font-size:12.5px;color:#334155;background:#fff;border:1px dashed #fde68a;border-radius:6px;padding:8px 10px;font-family:'Noto Sans Devanagari','Inter',sans-serif}
+.ak-item-subjective .ak-sub-q{font-size:13px;color:var(--ptxt);font-family:'Noto Sans Devanagari','Inter',sans-serif;overflow-wrap:anywhere;word-break:break-word}
+.ak-item-subjective .ak-sub-model{font-size:12.5px;color:#334155;background:#fff;border:1px dashed #fde68a;border-radius:6px;padding:8px 10px;font-family:'Noto Sans Devanagari','Inter',sans-serif;overflow-wrap:anywhere;word-break:break-word}
 .ak-item-subjective .ak-sub-model-label{font-weight:700;color:#92400e;margin-right:4px}
+
+/* KaTeX can render formulas (fractions, matrices, long expressions) wider
+   than a phone screen. Clipping that with overflow-x:hidden made math in
+   the preview effectively invisible on mobile — scroll it horizontally
+   inside its own line instead of losing it. */
+.katex-display{overflow-x:auto;overflow-y:hidden;max-width:100%}
+.pq-text .katex,.pq-opt .katex,.ak-sub-q .katex,.ak-sub-model .katex{max-width:100%}
 
 /* Toast */
 .toast{position:fixed;bottom:24px;right:24px;background:linear-gradient(135deg,var(--acc),#9333ea);color:#fff;padding:11px 18px;border-radius:10px;font-size:13px;font-weight:600;box-shadow:0 4px 18px rgba(0,0,0,.4);transform:translateY(60px);opacity:0;transition:all .32s cubic-bezier(.34,1.56,.64,1);z-index:9999;pointer-events:none;max-width:280px}
@@ -302,7 +310,7 @@ body{font-family:'Inter','Noto Sans Devanagari',sans-serif;background:var(--bg);
   .topbar-right .badge{display:flex;align-items:center;justify-content:center}
   .pq-opts{grid-template-columns:1fr}
   .ak-grid{grid-template-columns:repeat(4,1fr)}
-  .main-content{padding:10px;overflow-x:hidden}
+  .main-content{padding:10px;overflow-x:auto}
   .paper-outer{width:100%;max-width:100%}
   .paper-header-top{flex-wrap:wrap;justify-content:center;padding:12px 12px 8px;gap:8px}
   .paper-header-top .htopic{order:1;flex:1 0 100%;font-size:14px;letter-spacing:.04em}

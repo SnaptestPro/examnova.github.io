@@ -168,12 +168,13 @@ Model Answer: समाजवाद एक आर्थिक व्यवस्
 (घ) कोई नहीं
 उत्तर– (क)"></textarea>
         <div style="font-size:.78rem;color:#64748b;margin-top:4px;line-height:1.5;">
-          💡 Har question naye number se shuru karein (1. ya Q1.). MCQ ke liye A)/B)/C)/D) options aur "Ans: A" line. Subjective ke liye options ki jagah <b>"Marks: 5"</b> aur (optional) <b>"Model Answer: ..."</b> line likhein — options na hone par wo khud subjective maan liya jayega.
+          💡 Har question naye number se shuru karein (1. ya Q1.). MCQ ke liye A)/B)/C)/D) options aur "Ans: A" line. Subjective ke liye options ki jagah <b>"Marks: 5"</b> aur (optional) <b>"Model Answer: ..."</b> line likhein — options na hone par wo khud subjective maan liya jayega, chahe Marks line di ho ya nahi.
         </div>
       </div>
       <button class="btn btn-outline full" onclick="previewBulkQuestions_QG()">🔍 Preview</button>
-      <div id="bulkPreviewBox" class="hidden" style="margin-top:10px;max-height:280px;overflow-y:auto;border:1px solid #e2e8f0;border-radius:8px;padding:8px;background:#f8fafc;"></div>
+      <div id="bulkPreviewBox" class="hidden" style="margin-top:10px;max-height:280px;overflow-y:auto;overflow-wrap:anywhere;word-break:break-word;border:1px solid #e2e8f0;border-radius:8px;padding:8px;background:#f8fafc;"></div>
       <button class="btn btn-primary full mt6" id="bulkUploadBtn" onclick="confirmBulkUpload_QG()" disabled style="opacity:.5;">🚀 Upload All (Bank + Paper)</button>
+      <button class="btn btn-outline full mt6 hidden" id="bulkUndoBtn" onclick="undoLastBulkUpload_QG()">↩️ Undo Last Upload</button>
       <div id="bulkUploadLog" class="hidden" style="margin-top:10px;font-size:.8rem;color:#475569;max-height:160px;overflow-y:auto;"></div>
     </div>
 

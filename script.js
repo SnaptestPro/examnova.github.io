@@ -4117,6 +4117,10 @@ function syncBank() {
     window.questionBank = questionBank;
     console.log("[syncBank] Loaded", questionBank.length, "questions from Firebase");
     renderBank();
+    // Bank aur Bulk Upload tab ke "existing subject/chapter" select dropdowns
+    // ko bhi refresh karo, taaki abhi-abhi Firestore se aaye naye subjects/
+    // chapters turant dikhne lagein (pehle sirf localStorage/builtin dikhte the).
+    if (typeof refreshExistingSubjectChapterDropdowns === "function") refreshExistingSubjectChapterDropdowns();
     if (window.scheduleAutoDuplicateCheck) window.scheduleAutoDuplicateCheck();
   }, (err) => {
     console.warn("[syncBank] Firestore error:", err);

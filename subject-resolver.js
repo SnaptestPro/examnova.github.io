@@ -187,8 +187,11 @@
   }
 
   function getSubjectFilterOptions(items, resolver) {
+    // Sirf wahi subjects jo actual question bank data mein maujood hain —
+    // STANDARD_SUBJECTS list ab yahan add nahi hoti, sirf sorting order
+    // decide karne ke liye reference ke roop mein use hoti hai.
     const fromData = [...new Set(items.map(q => resolver(q)))].filter(Boolean);
-    return [...new Set([...STANDARD_SUBJECTS, ...fromData])].sort((a, b) => {
+    return fromData.sort((a, b) => {
       const ai = STANDARD_SUBJECTS.indexOf(a);
       const bi = STANDARD_SUBJECTS.indexOf(b);
       if (ai >= 0 && bi >= 0) return ai - bi;

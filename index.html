@@ -2197,13 +2197,35 @@ function deleteChapter(subject,chapter) {
   try{var all=JSON.parse(localStorage.getItem('savya_custom_chapters')||'{}');if(all[subject]){all[subject]=all[subject].filter(function(c){return c!==chapter;});localStorage.setItem('savya_custom_chapters',JSON.stringify(all));}}catch(e){}
   if((BUILTIN_CHAPTERS[subject]||[]).includes(chapter)){try{var d=JSON.parse(localStorage.getItem('savya_deleted_chapters')||'{}');if(!d[subject])d[subject]=[];if(!d[subject].includes(chapter)){d[subject].push(chapter);localStorage.setItem('savya_deleted_chapters',JSON.stringify(d));}}catch(e){}}
 }
+// Actual question bank (Firestore se load hua) ke andar jo subjects/chapters
+// already istemal ho rahe hain, unhe bhi list mein shamil karte hain — sirf
+// builtin + is browser ke localStorage cache par depend nahi karte. Isse
+// dusre device/browser se ya seeder script se add hue subjects/chapters bhi
+// dropdown mein "existing" ke roop mein dikhte hain.
+function getBankSubjectsFromData() {
+  if (typeof questionBank === 'undefined' || !Array.isArray(questionBank)) return [];
+  var resolve = (typeof getQuestionSubject === 'function') ? getQuestionSubject : function(q){ return (q && q.subject) || ''; };
+  return [...new Set(questionBank.map(resolve).filter(Boolean))];
+}
+function getBankChaptersFromData(subject) {
+  if (typeof questionBank === 'undefined' || !Array.isArray(questionBank)) return [];
+  var resolve = (typeof getQuestionSubject === 'function') ? getQuestionSubject : function(q){ return (q && q.subject) || ''; };
+  return [...new Set(questionBank.filter(function(q){ return resolve(q) === subject; }).map(function(q){ return q.chapter; }).filter(Boolean))];
+}
+
 function getAllSubjects() {
   var del=getDeletedSubjects();
-  return [...new Set([...BUILTIN_SUBJECTS,...getCustomSubjects()])].filter(function(s){return!del.includes(s);});
+  return getBankSubjectsFromData().filter(function(s){return!del.includes(s);}).sort(function(a,b){
+    var ai=BUILTIN_SUBJECTS.indexOf(a), bi=BUILTIN_SUBJECTS.indexOf(b);
+    if(ai>=0&&bi>=0) return ai-bi;
+    if(ai>=0) return -1;
+    if(bi>=0) return 1;
+    return a.localeCompare(b);
+  });
 }
 function getAllChapters(subject) {
   var del=getDeletedChapters(subject);
-  return [...new Set([...(BUILTIN_CHAPTERS[subject]||[]),...getCustomChapters(subject)])].filter(function(c){return!del.includes(c);});
+  return getBankChaptersFromData(subject).filter(function(c){return!del.includes(c);}).sort();
 }
 
 function populateBankSubjectDropdown(sel_val) {
@@ -2263,6 +2285,20 @@ function onBulkSubjectSelectChange() {
 function onBulkChapterSelectChange() {
   var sel=document.getElementById('bulk-chapter-select'),inp=document.getElementById('bulk-chapter');
   if(sel.value)inp.value=sel.value;
+}
+function refreshExistingSubjectChapterDropdowns() {
+  var bankSubjInp=document.getElementById('bank-subject');
+  var bulkSubjInp=document.getElementById('bulk-subject');
+  if(document.getElementById('bank-subject-select')){
+    var bSubj=(bankSubjInp&&bankSubjInp.value||'').trim();
+    populateBankSubjectDropdown(bSubj);
+    populateBankChapterDropdown(bSubj,(document.getElementById('bank-chapter')||{}).value);
+  }
+  if(document.getElementById('bulk-subject-select')){
+    var kSubj=(bulkSubjInp&&bulkSubjInp.value||'').trim();
+    populateBulkSubjectDropdown(kSubj);
+    populateBulkChapterDropdown(kSubj,(document.getElementById('bulk-chapter')||{}).value);
+  }
 }
 function levenshtein(a, b) {
   a = (a || '').toLowerCase(); b = (b || '').toLowerCase();

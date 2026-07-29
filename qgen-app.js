@@ -212,9 +212,24 @@ function slugQG(s) {
 
 // Same free-text format as the Admin "📦 Bulk Upload" tab (script.js /
 // index.html), so questions can be copy-pasted between the two tools.
-// Extended here to also recognise a "Marks:" (or "अंक:") line — if a
-// question block never gets a 2nd option, but has a Marks line, it's
-// treated as subjective instead of being dropped.
+// Extended here to also recognise subjective (long-answer) questions —
+// via a "Marks:" (or "अंक:") line, a "Model Answer:" line, an inline
+// "(5 marks)" tag on the question line itself, an explicit
+// "Type: Subjective" tag, or simply because the block never came out
+// looking like a real, complete MCQ (see pushCurrent below).
+//
+// Root cause of "subjective ban kar MCQ jaisa dikhta hai": a subjective
+// question's rough answer/explanation is very often written as lettered
+// points — "(a) ... (b) ... (c) ..." — which is *exactly* the same
+// syntax as MCQ options. If no "Marks:"/"Model Answer:" line was given
+// either, the old parser had no way to tell the two apart and quietly
+// filed it as a 4-option MCQ with "A" as the (wrong, made-up) answer.
+// The fix: a block only counts as a real MCQ if it has 2+ options *and*
+// an explicit answer-key line ("Ans: A" / "उत्तर: क") was found — a real
+// MCQ always needs a marked correct answer, so its absence is a strong
+// signal the "options" were actually explanation bullets. In that case
+// we reclassify as subjective and fold those bullets into the model
+// answer instead of losing them.
 function parseBulkQuestionsQG(text) {
   const lines = text.split('\n')
     .map(l => l.trim()
@@ -231,7 +246,19 @@ function parseBulkQuestionsQG(text) {
 
   function pushCurrent() {
     if (!currentQ) return;
-    if (currentQ.qType === 'subjective' || currentQ.options.length >= 2) questions.push(currentQ);
+    if (currentQ.qType === 'subjective') { questions.push(currentQ); return; }
+    if (currentQ.options.length >= 2 && currentQ._hasAnswerKey) { questions.push(currentQ); return; }
+    // Not a confirmed MCQ (either <2 options, or no "Ans:" key was ever
+    // given) — treat as subjective rather than guessing/dropping it.
+    if (currentQ.text && currentQ.text.trim()) {
+      currentQ.qType = 'subjective';
+      if (currentQ.options.length && !currentQ.modelAnswer) {
+        // Fold what looked like MCQ options into the model answer so the
+        // content isn't lost — they were most likely explanation points.
+        currentQ.modelAnswer = currentQ.options.join(' ');
+      }
+      questions.push(currentQ);
+    }
   }
 
   for (let i = 0; i < lines.length; i++) {
@@ -240,10 +267,25 @@ function parseBulkQuestionsQG(text) {
     const qMatch = line.match(/^(?:प्र(?:श्‍?न)?\.?\s*|Q\.?\s*)?(\d+)[\.)\-\s]\s*(.+)/i);
     if (qMatch) {
       pushCurrent();
-      currentQ = { text: qMatch[2].trim(), options: [], answer: 0, qType: 'mcq', marks: null, modelAnswer: '' };
+      currentQ = { text: qMatch[2].trim(), options: [], answer: 0, qType: 'mcq', marks: null, modelAnswer: '', _hasAnswerKey: false };
+      // Inline marks tag on the question line itself, e.g. "... (5 marks)"
+      const inlineMarks = currentQ.text.match(/[\(\[]\s*(\d+)\s*(?:marks?|अंक)\s*[\)\]]\s*$/i);
+      if (inlineMarks) {
+        currentQ.marks = parseInt(inlineMarks[1]);
+        currentQ.qType = 'subjective';
+        currentQ.text = currentQ.text.replace(inlineMarks[0], '').trim();
+      }
       continue;
     }
     if (!currentQ) continue;
+
+    // Explicit type tag: "Type: Subjective" / "(Subjective)" / "प्रकार: विषयनिष्ठ"
+    const typeTagMatch = line.match(/^(?:type|प्रकार)\s*[:\-]\s*(subjective|विषयनिष्ठ|वर्णनात्मक|long\s*answer|short\s*answer)/i) ||
+                          line.match(/^[\(\[]\s*subjective\s*[\)\]]\s*$/i);
+    if (typeTagMatch) {
+      currentQ.qType = 'subjective';
+      continue;
+    }
 
     const marksMatch = line.match(/^(?:marks|अंक)\s*[:\-]\s*(\d+)/i);
     if (marksMatch) {
@@ -259,10 +301,22 @@ function parseBulkQuestionsQG(text) {
       continue;
     }
 
-    const ansMatch = line.match(/^(?:उत्तर[\u2013\u2014\-:\s]*|ans(?:wer)?[\s:\-]*|correct[\s:\-]*|सही\s*उत्तर[\s:\-]*)\s*[\(\[]?([कखगघङA-E1-4])[\)\]]?/i);
+    // MCQ-style single-letter answer key, e.g. "Ans: A" / "उत्तर: क"
+    const ansMatch = line.match(/^(?:उत्तर[\u2013\u2014\-:\s]*|ans(?:wer)?[\s:\-]*|correct[\s:\-]*|सही\s*उत्तर[\s:\-]*)\s*[\(\[]?([कखगघङA-E1-4])[\)\]]?\s*$/i);
     if (ansMatch) {
       const key = ansMatch[1];
       currentQ.answer = hindiOptMap[key] ?? hindiOptMap[key.toUpperCase()] ?? 0;
+      currentQ._hasAnswerKey = true;
+      continue;
+    }
+
+    // Free-text answer, e.g. "Answer: Because of typhoid..." — this is a
+    // subjective (written) answer, not an MCQ option key, so route it
+    // into modelAnswer instead of falling through to option parsing.
+    const looseAnsMatch = line.match(/^(?:उत्तर[\u2013\u2014\-:\s]*|ans(?:wer)?[\s:\-]*|correct[\s:\-]*|सही\s*उत्तर[\s:\-]*)(.+)/i);
+    if (looseAnsMatch) {
+      currentQ.qType = 'subjective';
+      currentQ.modelAnswer = (currentQ.modelAnswer ? currentQ.modelAnswer + " " : "") + looseAnsMatch[1].trim();
       continue;
     }
 
@@ -283,7 +337,12 @@ function parseBulkQuestionsQG(text) {
       continue;
     }
 
-    if (currentQ.options.length === 0 && currentQ.qType !== 'subjective') {
+    // Plain continuation line — goes to the model answer while capturing
+    // a subjective answer, otherwise appends to the question text (only
+    // while no options have been seen yet).
+    if (currentQ.qType === 'subjective') {
+      currentQ.modelAnswer = (currentQ.modelAnswer ? currentQ.modelAnswer + " " : "") + line;
+    } else if (currentQ.options.length === 0) {
       currentQ.text += " " + line;
     }
   }
@@ -322,6 +381,12 @@ function previewBulkQuestions_QG() {
   btn.style.opacity = '1';
 }
 
+// Remembers what the *last* bulk upload created (Firestore docIds + the
+// paper-question ids they were auto-added as), so a mistaken paste can be
+// undone in one click instead of having to hunt down and delete each
+// question by hand.
+let lastBulkUploadBatch = [];
+
 async function confirmBulkUpload_QG() {
   if (!bulkParsedQG.length) { toast('⚠️ Pehle Preview karein'); return; }
   const db = window.vishnuFirebase?.db;
@@ -339,6 +404,7 @@ async function confirmBulkUpload_QG() {
   btn.textContent = '⏳ Uploading...';
 
   let ok = 0, failed = 0;
+  const thisBatch = [];
   for (let i = 0; i < bulkParsedQG.length; i++) {
     const q = bulkParsedQG[i];
     // Same collision-safe naming pattern the Admin Bulk Upload tab already
@@ -352,7 +418,8 @@ async function confirmBulkUpload_QG() {
       const bankArr = [q.text, q.opts, q.ans, chapter, docId, subject, q.qType, q.marks, q.modelAnswer || ''];
       const bankIdx = window.QUESTION_BANK.length;
       window.QUESTION_BANK.push(bankArr);
-      addQFromBank(bankArr, bankIdx);
+      const newQ = addQFromBank(bankArr, bankIdx);
+      thisBatch.push({ docId, paperQId: newQ?.id ?? null, inSection: isSectionMode() ? getActiveSectionObj()?.id : null });
       ok++;
       log.innerHTML += `<div>✅ Q${i+1} uploaded${q.qType==='subjective'?' (subjective)':''}</div>`;
     } catch (e) {
@@ -362,6 +429,10 @@ async function confirmBulkUpload_QG() {
     log.scrollTop = log.scrollHeight;
   }
 
+  lastBulkUploadBatch = thisBatch;
+  const undoBtn = document.getElementById('bulkUndoBtn');
+  if (undoBtn) undoBtn.classList.toggle('hidden', thisBatch.length === 0);
+
   btn.textContent = '🚀 Upload All (Bank + Paper)';
   btn.disabled = true;
   btn.style.opacity = '.5';
@@ -370,6 +441,41 @@ async function confirmBulkUpload_QG() {
   document.getElementById('bulkRawText').value = '';
   document.getElementById('bulkPreviewBox').classList.add('hidden');
   buildBankList();
+}
+
+// Undo the most recent bulk upload: deletes those questions from
+// Firestore, from the local bank array, and from the paper/section they
+// were auto-added to. Only the last batch is remembered (single-level
+// undo), which matches how the button is presented in the UI.
+async function undoLastBulkUpload_QG() {
+  if (!lastBulkUploadBatch.length) { toast('⚠️ Undo karne ke liye kuch nahi hai'); return; }
+  const db = window.vishnuFirebase?.db;
+  const batch = lastBulkUploadBatch;
+  const undoBtn = document.getElementById('bulkUndoBtn');
+  if (undoBtn) { undoBtn.disabled = true; undoBtn.textContent = '⏳ Undo ho raha hai...'; }
+
+  let removed = 0, failed = 0;
+  for (const item of batch) {
+    try {
+      if (db) await db.collection('questionBank').doc(item.docId).delete();
+      window.QUESTION_BANK = (window.QUESTION_BANK || []).filter(q => q[4] !== item.docId);
+      paperQuestions = paperQuestions.filter(p => p.firestoreId !== item.docId);
+      if (Array.isArray(sections)) {
+        sections.forEach(sec => {
+          if (Array.isArray(sec.questions)) sec.questions = sec.questions.filter(p => p.firestoreId !== item.docId);
+        });
+      }
+      removed++;
+    } catch (e) {
+      failed++;
+    }
+  }
+
+  lastBulkUploadBatch = [];
+  if (undoBtn) { undoBtn.classList.add('hidden'); undoBtn.disabled = false; undoBtn.textContent = '↩️ Undo Last Upload'; }
+  reRenderPaper();
+  buildBankList();
+  toast(`↩️ ${removed} question(s) hata diye${failed?`, ❌ ${failed} fail hue`:''}`);
 }
 
 
@@ -1832,23 +1938,49 @@ function docxOptionCell(label, text) {
   });
 }
 
+// Blank ruled line used as writing space under subjective questions in
+// the exported Word paper (a bottom border on an empty paragraph draws
+// the line — same trick used for a signature line).
+function docxBlankLine() {
+  return new docx.Paragraph({
+    spacing: { after: 260 },
+    border: { bottom: { color: "999999", space: 1, style: docx.BorderStyle.SINGLE, size: 4 } },
+    text: ""
+  });
+}
+
 function docxQuestionBlock(num, q) {
   const blocks = [];
   const titleRuns = [new docx.TextRun({ text: `${num}. `, bold: true })]
     .concat(htmlToDocxRuns(mathToWordHtml(q.text), { bold: true }));
   blocks.push(new docx.Paragraph({ children: titleRuns, spacing: { after: 100 } }));
-  blocks.push(new docx.Table({
-    width: { size: 100, type: docx.WidthType.PERCENTAGE },
-    borders: {
-      top: { style: docx.BorderStyle.NONE }, bottom: { style: docx.BorderStyle.NONE },
-      left: { style: docx.BorderStyle.NONE }, right: { style: docx.BorderStyle.NONE },
-      insideHorizontal: { style: docx.BorderStyle.NONE }, insideVertical: { style: docx.BorderStyle.NONE }
-    },
-    rows: [
-      new docx.TableRow({ children: [docxOptionCell('A', q.opts[0]), docxOptionCell('B', q.opts[1])] }),
-      new docx.TableRow({ children: [docxOptionCell('C', q.opts[2]), docxOptionCell('D', q.opts[3])] })
-    ]
-  }));
+
+  if (q.qType === 'subjective') {
+    // Subjective questions have no options — showing empty [A][B][C][D]
+    // boxes (the old behaviour) was confusing since there was nothing to
+    // fill in. Show the marks instead, plus blank ruled lines to write
+    // the answer on.
+    const marksLabel = (q.marks !== undefined && q.marks !== null && q.marks !== '') ? `[${q.marks} Marks]` : '[Subjective]';
+    blocks.push(new docx.Paragraph({
+      children: [ new docx.TextRun({ text: marksLabel, italics: true, color: "555555" }) ],
+      spacing: { after: 150 }
+    }));
+    for (let i = 0; i < 4; i++) blocks.push(docxBlankLine());
+  } else {
+    blocks.push(new docx.Table({
+      width: { size: 100, type: docx.WidthType.PERCENTAGE },
+      borders: {
+        top: { style: docx.BorderStyle.NONE }, bottom: { style: docx.BorderStyle.NONE },
+        left: { style: docx.BorderStyle.NONE }, right: { style: docx.BorderStyle.NONE },
+        insideHorizontal: { style: docx.BorderStyle.NONE }, insideVertical: { style: docx.BorderStyle.NONE }
+      },
+      rows: [
+        new docx.TableRow({ children: [docxOptionCell('A', q.opts[0]), docxOptionCell('B', q.opts[1])] }),
+        new docx.TableRow({ children: [docxOptionCell('C', q.opts[2]), docxOptionCell('D', q.opts[3])] })
+      ]
+    }));
+  }
+
   blocks.push(new docx.Paragraph({ text: "", spacing: { after: 200 } }));
   return blocks;
 }
@@ -2043,10 +2175,31 @@ function convertLatexInner(latex) {
   return s.trim();
 }
 
+// Every question destined for a draft needs a stable id that both the
+// flat `questions[]` list AND `sections[].questionIds` agree on. Bank
+// questions already have one (firestoreId). Custom/manually-typed
+// questions (e.g. most subjective questions, which are usually typed
+// directly rather than pulled from the bank) don't — so we mint one here
+// and write it back onto the in-memory question object itself. This must
+// run once, before buildDraftQuestionsPayload() and buildSectionsPayload()
+// are both called, otherwise each of them independently invents a
+// *different* random id for the same question and the section's
+// questionIds end up pointing at ids that don't exist in questions[] —
+// which is what caused mixed MCQ+subjective sectioned papers to lose/
+// scramble questions when the draft was reloaded.
+function ensureDraftQuestionIds() {
+  const list = isSectionMode() ? getAllQuestionsFlat() : paperQuestions;
+  list.forEach(pq => {
+    if (!pq.firestoreId) {
+      pq.firestoreId = "q-" + Date.now() + "-" + Math.random().toString(36).substr(2, 9);
+    }
+  });
+}
+
 function buildDraftQuestionsPayload() {
   const list = isSectionMode() ? getAllQuestionsFlat() : paperQuestions;
   return list.map(pq => ({
-    id: pq.firestoreId || ("q-" + Date.now() + "-" + Math.random().toString(36).substr(2, 9)),
+    id: pq.firestoreId,
     subject: pq.subject || "General",
     chapter: pq.chapter || "Mixed",
     text: pq.text || "",
@@ -2069,9 +2222,7 @@ function buildSectionsPayload() {
   return sections.map(sec => ({
     id: sec.id,
     name: sec.name,
-    questionIds: sec.questions.map(q =>
-      q.firestoreId || ("q-" + Date.now() + "-" + Math.random().toString(36).substr(2, 9))
-    )
+    questionIds: sec.questions.map(q => q.firestoreId)
   }));
 }
 
@@ -2094,6 +2245,7 @@ async function savePaperAsDraft() {
   const title = prompt("Test ka naam likhein (e.g. Weekly Test 1):", defaultTitle);
   if (!title) return;
 
+  ensureDraftQuestionIds();
   const questions = buildDraftQuestionsPayload();
   const sectionsPayload = buildSectionsPayload();
   const timeMin = Number(document.getElementById('timeMin').value || 30);
@@ -2159,6 +2311,9 @@ function loadDraftIntoPaper(testId) {
     ans: parseInt(q.answer ?? 0),
     chapter: q.chapter || 'Mixed',
     subject: q.subject || 'General',
+    qType: q.qType === 'subjective' ? 'subjective' : 'mcq',
+    marks: q.qType === 'subjective' ? (q.marks ?? null) : null,
+    modelAnswer: q.qType === 'subjective' ? (q.modelAnswer || '') : '',
     bankIdx: -1
   }));
 
