@@ -1,0 +1,2920 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="UTF-8" />
+
+  <!-- ══════════════════════════════════════════════════════════════
+       AUTO HARD-REFRESH
+       ----------------------------------------------------------------
+       Jab bhi koi ye site pehli baar (naya tab/session) kholta hai,
+       ye script:
+         1) Sabhi purane Service Worker cache clear karta hai
+         2) Service Worker ko update ke liye kehta hai
+         3) Page ko ek fresh cache-busting URL (?_hr=timestamp) ke
+            saath reload karta hai — jisse browser purana disk-cache
+            HTML/JS/CSS use na kare aur hamesha latest version load ho.
+       sessionStorage flag ki wajah se ye sirf EK BAAR chalta hai
+       (naya tab/session per) — infinite reload loop nahi banega.
+       ══════════════════════════════════════════════════════════════ -->
+  <script>
+    (function () {
+      try {
+        var FLAG = "sa_hard_refreshed_v1";
+        if (sessionStorage.getItem(FLAG)) return; // is session mein already ho chuka
+        sessionStorage.setItem(FLAG, "1");
+
+        // Cache-clear aur Service-Worker-update BACKGROUND mein karte hain —
+        // reload inka wait nahi karta, isliye refresh turant (instant) hota
+        // hai. Service Worker ka fetch handler pehle se hi {cache:'no-store'}
+        // use karta hai, to fresh files milna sirf isi background-cleanup
+        // par depend nahi karta — ye bas extra safety hai.
+        try {
+          if (window.caches && caches.keys) {
+            caches.keys().then(function (keys) {
+              keys.forEach(function (k) { caches.delete(k); });
+            }).catch(function () {});
+          }
+        } catch (e) {}
+        try {
+          if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+            navigator.serviceWorker.getRegistrations().then(function (regs) {
+              regs.forEach(function (r) { r.update().catch(function () {}); });
+            }).catch(function () {});
+          }
+        } catch (e) {}
+
+        // Turant reload — kisi bhi cleanup ka wait nahi.
+        var url = new URL(location.href);
+        url.searchParams.set("_hr", Date.now().toString());
+        location.replace(url.toString());
+      } catch (e) {
+        // Kuch bhi fail ho jaaye to bhi site normal load ho jaaye
+      }
+    })();
+  </script>
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#1e1b4b" />
+  <title>Savyasachi Coaching Test – Board Exam Platform</title>
+  <meta name="description" content="Board Exam Practice Platform by Savyasachi Coaching. Bilingual (Hindi/English) MCQ tests with result sheet, solution review and chapter-wise analysis." />
+
+  <!-- Open Graph -->
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="Savyasachi Coaching Test – Board Exam Platform" />
+  <meta property="og:description" content="Practice board exam questions, take tests, and track your rank on the leaderboard with Savyasachi Coaching." />
+  <meta property="og:image" content="icon-512.png" />
+  <meta property="og:url" content="https://magnificent-malabi-e6a752.netlify.app/" />
+
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Savyasachi Coaching Test – Board Exam Platform" />
+  <meta name="twitter:description" content="Practice board exam questions, take tests, and track your rank on the leaderboard with Savyasachi Coaching." />
+  <meta name="twitter:image" content="icon-512.png" />
+
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="icon" href="icon-192.png" />
+
+  <!-- iOS: bina in tags ke "Add to Home Screen" sirf ek plain bookmark-
+       shortcut banata hai (Safari address-bar ke saath khulta hai).
+       Ye tags hone par woh proper full-screen standalone app ki tarah
+       khulta hai, apna alag icon/status-bar ke saath. -->
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Savyasachi" />
+  <link rel="apple-touch-icon" sizes="192x192" href="icon-192.png" />
+  <link rel="apple-touch-icon" sizes="512x512" href="icon-512.png" />
+
+  <!-- Android/Chromium: purana tag hai lekin kuch launchers ab bhi
+       isko dekhte hain — manifest.webmanifest ke saath extra safety -->
+  <meta name="mobile-web-app-capable" content="yes" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css?v=8">
+  <link rel="stylesheet" href="theme-picker.css">
+  
+  <!-- CDNs for Mega Update Features -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/docx@9.7.1/dist/index.iife.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+  <!-- KaTeX for automatic Math Equation rendering -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/contrib/auto-render.min.js"></script>
+</head>
+<body>
+
+<!-- ═══════════════════════ HOME SCREEN ═══════════════════════ -->
+<div id="home-screen">
+  <!-- HEADER -->
+  <header class="site-header">
+    <div class="logo-area">
+      <img src="savyasachi-coaching-logo.png" alt="Savyasachi Coaching" class="logo-img" />
+      <div>
+        <div class="site-title">Savyasachi Coaching Test</div>
+        <div class="site-sub">Board Exam Practice Platform</div>
+      </div>
+    </div>
+    <nav class="main-tabs">
+      <button id="student-tab" class="tab active">📝 Student</button>
+      <button id="leaderboard-tab" class="tab">🏆 Leaderboard</button>
+      <button id="admin-tab" class="tab">⚙️ Admin</button>
+      <button id="install-app-btn" class="tab hidden" style="background:linear-gradient(135deg,#16a34a,#15803d);color:#fff;">⬇️ App Install Karein</button>
+      <button id="theme-toggle" class="tab theme-toggle" title="Choose Theme" onclick="ThemeManager.togglePicker()">🎨</button>
+    </nav>
+  </header>
+
+  <!-- Universal "Install App" popup — har device/browser ke liye, har visit par dikhta hai jab tak app installed na ho -->
+  <div id="app-install-modal" class="hidden" style="position:fixed;inset:0;background:rgba(15,15,30,.55);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;">
+    <div style="background:#fff;border-radius:16px;max-width:380px;width:100%;padding:22px 20px;box-shadow:0 12px 40px rgba(0,0,0,.3);text-align:center;">
+      <div style="font-size:2.4rem;line-height:1;margin-bottom:8px;">📲</div>
+      <h3 style="margin:0 0 8px;color:#1e1b4b;font-size:1.1rem;">Savyasachi Coaching App Install Karein</h3>
+      <p id="app-install-modal-text" style="margin:0 0 16px;color:#374151;font-size:.9rem;line-height:1.5;"></p>
+      <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
+        <button id="app-install-modal-action-btn" type="button" style="background:linear-gradient(135deg,#16a34a,#15803d);color:#fff;border:none;border-radius:10px;padding:10px 20px;font-weight:600;cursor:pointer;font-size:.9rem;">⬇️ Install Karein</button>
+        <button type="button" onclick="dismissAppInstallModal()" style="background:#f3f4f6;color:#374151;border:none;border-radius:10px;padding:10px 20px;cursor:pointer;font-size:.9rem;">Baad Mein</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═════════════ THEME PICKER MODAL ═════════════ -->
+  <div id="theme-picker-modal" onclick="if(event.target===this)ThemeManager.hidePicker()">
+    <div class="theme-picker-panel">
+      <div class="theme-picker-header">
+        <h3>🎨 Choose Your Theme (100 Live Themes)</h3>
+        <button class="theme-picker-close" onclick="ThemeManager.hidePicker()">✕</button>
+      </div>
+      <div id="theme-picker-grid"></div>
+    </div>
+  </div>
+
+  <main class="main-wrap">
+
+    <!-- ── STUDENT AUTH (Register / Login / Forgot Password) ── -->
+    <div id="student-auth-screen" class="hidden">
+      <div class="card hero-card">
+        <h2 class="section-title">🎓 Student Account</h2>
+
+        <div class="mode-btns">
+          <button id="student-login-mode-btn" type="button" class="mode-btn active">🔑 Login</button>
+          <button id="student-register-mode-btn" type="button" class="mode-btn">📝 Register</button>
+        </div>
+
+        <!-- LOGIN -->
+        <form id="student-login-form" autocomplete="off">
+          <div class="field-row">
+            <label>WhatsApp / Mobile Number</label>
+            <input id="login-mobile" type="tel" placeholder="jaise: 9876543210" required />
+          </div>
+          <div class="field-row">
+            <label>Password</label>
+            <input id="login-password" type="password" placeholder="Password" required />
+          </div>
+          <button type="submit" class="btn-primary">Login</button>
+          <button type="button" id="student-forgot-link" style="background:none;border:none;color:#2563eb;text-decoration:underline;cursor:pointer;margin-top:10px;font-size:.85rem;display:block;">Password bhool gaye?</button>
+        </form>
+
+        <!-- REGISTER -->
+        <form id="student-register-form" class="hidden" autocomplete="off">
+          <div class="field-row">
+            <label>Name</label>
+            <input id="register-name" type="text" placeholder="Apna naam likhein" required />
+          </div>
+          <div class="field-row">
+            <label>WhatsApp / Mobile Number</label>
+            <input id="register-mobile" type="tel" placeholder="jaise: 9876543210" required />
+          </div>
+          <div class="field-row">
+            <label>Password</label>
+            <input id="register-password" type="password" placeholder="Kam se kam 4 characters" required />
+          </div>
+          <div class="field-row">
+            <label>Confirm Password</label>
+            <input id="register-password-confirm" type="password" placeholder="Password dobara likhein" required />
+          </div>
+          <div class="field-row">
+            <label>Security PIN (4 digit)</label>
+            <input id="register-pin" type="password" inputmode="numeric" maxlength="4" placeholder="jaise: 4517 — password bhool jaane par ye chahiye hoga" required />
+          </div>
+          <button type="submit" class="btn-primary">Register</button>
+        </form>
+
+        <!-- FORGOT PASSWORD -->
+        <form id="student-forgot-form" class="hidden" autocomplete="off">
+          <div class="field-row">
+            <label>WhatsApp / Mobile Number</label>
+            <input id="forgot-mobile" type="tel" placeholder="jaise: 9876543210" required />
+          </div>
+          <div class="field-row">
+            <label>Security PIN (4 digit)</label>
+            <input id="forgot-pin" type="password" inputmode="numeric" maxlength="4" placeholder="Registration ke waqt daala hua PIN" required />
+          </div>
+          <div class="field-row">
+            <label>Naya Password</label>
+            <input id="forgot-new-password" type="password" placeholder="Kam se kam 4 characters" required />
+          </div>
+          <div class="field-row">
+            <label>Naya Password (dobara)</label>
+            <input id="forgot-new-password-confirm" type="password" placeholder="Password dobara likhein" required />
+          </div>
+          <button type="submit" class="btn-primary">Reset Password</button>
+          <button type="button" id="student-forgot-back-link" style="background:none;border:none;color:#2563eb;text-decoration:underline;cursor:pointer;margin-top:10px;font-size:.85rem;display:block;">← Login par wapas jaayein</button>
+        </form>
+      </div>
+    </div>
+
+    <!-- ── STUDENT FORM ── -->
+    <form id="student-form" class="hidden" autocomplete="off">
+      <div class="card hero-card">
+        <h2 class="section-title">🎯 Start Your Test</h2>
+
+        <div id="student-welcome-bar" style="display:flex;align-items:center;justify-content:space-between;background:#f0fdf4;border:1px solid #86efac;border-radius:10px;padding:10px 14px;margin-bottom:14px;">
+          <span>👋 <strong id="student-welcome-name"></strong> <span id="student-streak-badge" style="display:none;background:#fff7ed;border:1px solid #fdba74;color:#c2410c;border-radius:999px;padding:2px 10px;font-size:.78rem;font-weight:700;margin-left:6px;"></span></span>
+          <button type="button" id="student-logout-btn" style="background:none;border:none;color:#dc2626;text-decoration:underline;cursor:pointer;font-size:.85rem;">Logout</button>
+        </div>
+
+        <div class="field-row" style="display:none">
+          <label>Name</label>
+          <input id="student-name" type="text" placeholder="Apna naam likhein" required />
+        </div>
+        <div class="field-row" style="display:none">
+          <label>WhatsApp Number <span style="color:#ef4444">*</span></label>
+          <input id="student-mobile" type="tel" placeholder="jaise: 9876543210" required />
+        </div>
+
+        <!-- Saved test -->
+        <div id="saved-test-fields">
+          <div class="field-row">
+            <label>Select Test</label>
+            <select id="test-select"></select>
+          </div>
+        </div>
+
+        <button id="student-submit" type="submit" class="btn-primary big-btn">Start Test →</button>
+      </div>
+
+      <div class="card" id="student-results-card">
+        <h3 class="section-title">📊 Result Sheet</h3>
+        <p class="muted-text">Apne test ka rank aur marks dekhein — sabhi students ka result ek hi sheet mein.</p>
+        <div class="field-row">
+          <label>Select Test</label>
+          <select id="result-test-select">
+            <option value="">— Test chunein —</option>
+          </select>
+        </div>
+        <div id="student-result-sheet" class="board-result-sheet-wrap"></div>
+      </div>
+
+      <div class="card" id="my-result-detail-card">
+        <h3 class="section-title">🧾 Mera Result — Sahi/Galat Dekhein</h3>
+        <p class="muted-text">Apna WhatsApp number daalein — jo bhi test aapne diya hai (online ho, OMR ho, ya offline sheet check karke chadhaya gaya ho), sabme aapne kaun sa sawaal sahi kiya aur kaun sa galat, wo yahan dikhega.</p>
+        <div class="field-row">
+          <label>WhatsApp Number</label>
+          <input id="my-result-mobile-input" type="tel" placeholder="10-digit number" maxlength="10" />
+        </div>
+        <button type="button" id="my-result-lookup-btn" class="btn-primary">🔍 Mera Result Dekhein</button>
+        <div id="my-result-list" style="margin-top:12px;"></div>
+      </div>
+
+      <!-- ── PRACTICE MODE (unlimited, no timer pressure, no leaderboard) ── -->
+      <div class="card" id="practice-mode-card">
+        <h3 class="section-title">🎯 Practice Mode</h3>
+        <p class="muted-text">Bina time-pressure ke practice karo — turant sahi/galat pata chalega, koi leaderboard rank nahi banti.</p>
+        <div class="field-row">
+          <label>Subject</label>
+          <select id="practice-subject-filter"></select>
+        </div>
+        <div class="field-row">
+          <label>Chapters (ek se zyada select kar sakte hain — kuch bhi select na karein to sabhi chapters shamil honge)</label>
+        </div>
+        <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
+          <button type="button" id="practice-select-all-chapters" class="btn-secondary" style="font-size:.78rem;padding:5px 12px;">☑️ Sabhi Select Karein</button>
+          <button type="button" id="practice-clear-all-chapters" class="btn-secondary" style="font-size:.78rem;padding:5px 12px;">◻️ Sab Hatayein</button>
+        </div>
+        <div id="practice-chapter-list" class="chapter-grid"></div>
+        <div class="field-row">
+          <label>Questions Count</label>
+          <input id="practice-question-count" type="number" min="1" value="10" />
+        </div>
+        <button type="button" id="practice-start-btn" class="btn-primary">▶️ Practice Shuru Karein</button>
+      </div>
+
+      <!-- ── MY PROGRESS (score trend across all tests) ── -->
+      <div class="card" id="my-progress-card">
+        <h3 class="section-title">📈 My Progress</h3>
+        <p class="muted-text">Aapke saare tests ka score trend — dekhein aap time ke saath improve kar rahe hain ya nahi.</p>
+        <div id="my-progress-empty" class="muted-text">Abhi tak koi test attempt nahi hua.</div>
+        <canvas id="my-progress-chart" height="140" style="display:none;"></canvas>
+      </div>
+
+      <!-- ── MY MISTAKES (auto-collected wrong answers, revise anytime) ── -->
+      <div class="card" id="my-mistakes-card">
+        <h3 class="section-title">❌ My Mistakes</h3>
+        <p class="muted-text">Jo bhi question kisi test mein galat hua, wo yahan automatically save ho jata hai — revise karke "Maine sikh liya" dabayein.</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+          <button type="button" id="refresh-mistakes-btn" class="btn-secondary">🔄 Refresh</button>
+          <button type="button" id="practice-mistakes-btn" class="btn-primary" style="background:linear-gradient(135deg,#f59e0b,#d97706);">🔁 Inhe Practice Karein</button>
+        </div>
+        <div id="my-mistakes-list"></div>
+      </div>
+
+      <!-- ── DOUBT BOX (student asks, admin replies) ── -->
+      <div class="card" id="doubt-box-card">
+        <h3 class="section-title">❓ Doubt Box</h3>
+        <p class="muted-text">Kisi bhi question par doubt ho to yahan pucho — Admin seedha yahin reply karega.</p>
+        <div id="doubt-submit-form">
+          <div class="field-row">
+            <label>Test / Chapter (optional)</label>
+            <input id="doubt-context-input" type="text" placeholder="jaise: Mathematics — Trigonometry" />
+          </div>
+          <div class="field-row">
+            <label>Aapka Doubt</label>
+            <textarea id="doubt-text-input" rows="3" placeholder="Apna doubt yahan likhein..."></textarea>
+          </div>
+          <button type="button" id="doubt-submit-btn" class="btn-primary">📤 Doubt Bhejein</button>
+        </div>
+        <h4 style="margin-top:16px;">Mere Doubts</h4>
+        <div id="my-doubts-list"></div>
+      </div>
+    </form>
+
+
+
+    <!-- ── LEADERBOARD ── -->
+    <div id="leaderboard-section" class="hidden">
+      <div class="card">
+        <h3 class="section-title">🏆 Leaderboard — Top Students</h3>
+        <div class="field-row">
+          <label>Test Select karein</label>
+          <select id="leaderboard-test-select">
+            <option value="">— Test chunein —</option>
+          </select>
+        </div>
+        <div id="leaderboard-list"></div>
+      </div>
+    </div>
+
+    <!-- ── ADMIN LOGIN ── -->
+    <form id="admin-login-form" class="hidden card" autocomplete="off">
+      <h2 class="section-title">🔐 Admin Login</h2>
+      <div class="field-row">
+        <label>Admin ID</label>
+        <input id="admin-id" type="text" placeholder="Admin Email (ya legacy Admin ID)" />
+      </div>
+      <div class="field-row">
+        <label>Password</label>
+        <input id="admin-password" type="password" placeholder="Password" />
+      </div>
+      <button type="submit" class="btn-primary">Login</button>
+      <button type="button" id="forgot-password-link" style="background:none;border:none;color:#2563eb;text-decoration:underline;cursor:pointer;margin-top:10px;font-size:.85rem;display:block;">🔑 Password bhool gaye?</button>
+    </form>
+
+    <!-- ── ADMIN PANEL ── -->
+    <div id="admin-panel" class="hidden">
+      <!-- Seed Button -->
+      <div class="card" style="background:linear-gradient(135deg,#eff6ff,#dbeafe);border:1.5px solid #93c5fd;margin-bottom:12px;padding:14px 18px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+        <div>
+          <strong style="color:#1e40af;">📥 Firebase Question Bank Seed</strong>
+          <p style="font-size:.82rem;color:#3730a3;margin-top:3px;">Pehli baar click karo — sare subjects (Math &amp; History) ke questions Firebase mein save/update ho jayenge.</p>
+        </div>
+        <button id="seed-questions-btn" class="btn-primary" style="background:linear-gradient(135deg,#2563eb,#1d4ed8);">🌱 Seed All Questions to Firebase</button>
+      </div>
+      <div class="card" style="background:linear-gradient(135deg,#fff7ed,#ffedd5);border:1.5px solid #fdba74;margin-bottom:12px;padding:12px 18px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+        <div>
+          <strong style="color:#9a3412;">🔐 Admin Password</strong>
+          <p style="font-size:.82rem;color:#7c2d12;margin-top:3px;">Password ab Firebase mein save hoga, isliye har device par same rahega.</p>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button id="change-admin-password-btn" class="btn-primary" style="background:linear-gradient(135deg,#ea580c,#c2410c);">🔁 Change Password</button>
+          <button id="set-recovery-btn" class="btn-primary" style="background:linear-gradient(135deg,#0891b2,#0e7490);">ℹ️ Recovery Info</button>
+        </div>
+      </div>
+
+      <div class="admin-tabs">
+        <button id="tests-tab" class="tab active">📋 Tests</button>
+        <button id="bank-tab" class="tab">🏦 Question Bank</button>
+        <button id="bulk-upload-tab" class="tab">📦 Bulk Upload</button>
+        <button id="records-tab" class="tab">📁 Records</button>
+        <button id="generator-tab" class="tab" style="background: linear-gradient(135deg,#8b5cf6,#6d28d9); color: white;">📄 Paper Generator</button>
+        <button id="doubts-tab" class="tab" style="background: linear-gradient(135deg,#0891b2,#0e7490); color: white;">💬 Doubts <span id="doubts-open-count" style="display:none;background:#fff;color:#0e7490;border-radius:999px;padding:0 6px;font-size:.75rem;margin-left:2px;"></span></button>
+        <button id="omr-tab" class="tab" style="background: linear-gradient(135deg,#059669,#047857); color: white;">🔲 OMR</button>
+        <button id="grade-tab" class="tab" style="background: linear-gradient(135deg,#f59e0b,#b45309); color: white;">📝 Grade Subjective</button>
+        <button id="trash-tab" class="tab" onclick="showAdminTab('trash')" style="background: linear-gradient(135deg,#ef4444,#dc2626); color: white;">🗑️ Recycle Bin</button>
+      </div>
+
+      <!-- Tests -->
+      <div id="tests-area">
+        <form id="test-form" class="card">
+          <h3 class="section-title">Create / Edit Test</h3>
+          <div class="field-row"><label>Test Title</label><input id="test-title" type="text" required /></div>
+          <div class="field-row"><label>Duration (min)</label><input id="test-minutes" type="number" value="30" /></div>
+          <div class="field-row"><label>Marks / Question</label><input id="test-marks" type="number" value="2" step="0.25" /></div>
+          <div class="field-row">
+            <label>Attempt Limit (optional)</label>
+            <input id="test-attempt-limit" type="number" min="1" placeholder="e.g. 90 (blank = sab attempt karo)" />
+            <small style="color:#6b7280;font-size:.78rem;">Agar bharoge (jaise 90), toh student total questions me se koi bhi utne hi attempt kar sakta hai — us limit ke baad extra answers count nahi honge. Khaali chhodo agar sab questions attempt karne hai.</small>
+          </div>
+          <div class="field-row">
+            <label>Negative Marking</label>
+
+            <select id="test-negative-enabled"><option value="no">No</option><option value="yes">Yes</option></select>
+          </div>
+          <div id="negative-marks-field" class="field-row hidden">
+            <label>Negative Marks</label>
+            <input id="test-negative" type="number" value="0.5" step="0.25" />
+          </div>
+          <div class="field-row">
+            <label>Test Schedule (optional)</label>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              <input id="test-start-time" type="datetime-local" style="flex:1;" title="Test kab se available hoga" />
+              <input id="test-end-time" type="datetime-local" style="flex:1;" title="Test kab band hoga" />
+            </div>
+            <small style="color:#6b7280;font-size:.78rem;">Blank chhodo = hamesha available. Start time se pehle test lock rahega.</small>
+          </div>
+
+          <hr />
+          <h4>Test Sections (Section-wise Paper)</h4>
+          <p class="muted-text">Ek hi test mein Section A, B, C alag-alag bana sakte hain.</p>
+          <div id="test-sections-list" class="sections-list"></div>
+          <button type="button" id="add-test-section" class="btn-secondary" style="margin-bottom:12px;">➕ Add Section</button>
+          <div class="field-row">
+            <label>Active Section (questions yahan add honge)</label>
+            <select id="active-section-select"></select>
+          </div>
+          <hr />
+          <h4>Add Questions</h4>
+          <!-- From bank -->
+          <div class="field-row">
+            <label>Subject Filter</label>
+            <select id="test-bank-subject-filter"></select>
+          </div>
+          <div id="test-bank-chapter-row" class="field-row" style="align-items:center;display:none;">
+            <label>Chapter Filter</label>
+            <div style="display:flex;gap:8px;align-items:center;flex:1;">
+              <select id="test-bank-chapter-filter" style="flex:1;"></select>
+              <button type="button" id="delete-chapter-btn" onclick="deleteSelectedChapter()" style="display:none;background:linear-gradient(135deg,#dc2626,#b91c1c);color:#fff;border:none;border-radius:8px;padding:6px 12px;font-size:.8rem;cursor:pointer;font-weight:700;white-space:nowrap;">🗑️ Delete Chapter</button>
+            </div>
+          </div>
+          <div id="test-bank-list" class="list-box"></div>
+          <hr />
+          <h4>Manual Question (HI)</h4>
+          <div class="field-row"><label>Subject</label>
+            <select id="question-subject">
+              <option>Mathematics</option><option>Reasoning</option><option>English</option>
+              <option>General Awareness</option><option>History</option><option>Geography</option>
+            </select>
+          </div>
+          <div class="field-row"><label>Question Type</label>
+            <select id="question-type" onchange="onQuestionTypeChange()">
+              <option value="mcq">Objective (MCQ)</option>
+              <option value="subjective">Subjective (Likhkar jawab)</option>
+            </select>
+          </div>
+          <div class="field-row"><label>Question (HI)</label><textarea id="question-text-hi" rows="2"></textarea></div>
+          <div id="question-mcq-fields">
+            <div class="two-col">
+              <div class="field-row"><label>Option A (HI)</label><input id="option-0-hi" type="text" /></div>
+              <div class="field-row"><label>Option B (HI)</label><input id="option-1-hi" type="text" /></div>
+              <div class="field-row"><label>Option C (HI)</label><input id="option-2-hi" type="text" /></div>
+              <div class="field-row"><label>Option D (HI)</label><input id="option-3-hi" type="text" /></div>
+            </div>
+            <div class="field-row"><label>Correct Answer</label>
+              <select id="answer-index"><option value="0">A</option><option value="1">B</option><option value="2">C</option><option value="3">D</option></select>
+            </div>
+          </div>
+          <div id="question-subjective-fields" class="field-row hidden">
+            <label>Max Marks (is question ke liye)</label>
+            <input id="question-marks" type="number" min="0" step="0.5" placeholder="Khaali = test ke default marks/question" />
+            <small style="color:#6b7280;font-size:.78rem;">Student text mein jawab likhega, teacher baad mein manually check karke marks denge.</small>
+          </div>
+          <div class="field-row"><label>Explanation (HI)</label><textarea id="explanation-text-hi" rows="2"></textarea></div>
+          <button type="button" id="add-question" class="btn-secondary">Add Question to Test</button>
+          <div id="draft-count" class="badge-info">0 questions added</div>
+          <div id="draft-list" class="list-box"></div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:4px;">
+            <button type="submit" class="btn-primary">💾 Save Test Online</button>
+            <button type="button" id="save-draft-btn" class="btn-draft">📝 Save as Draft</button>
+          </div>
+          <div id="draft-save-status" style="display:none;margin-top:8px;padding:8px 12px;border-radius:8px;font-size:.85rem;font-weight:600;"></div>
+        </form>
+        <div class="card">
+          <h3 class="section-title">All Tests</h3>
+          <div id="test-list" class="list-box"></div>
+        </div>
+      </div>
+
+      <!-- Bank -->
+      <div id="bank-box" class="hidden">
+        <!-- "Add Question to Bank" (manual naya question add karne wala form) hata diya gaya hai.
+             Neeche wala modal ab SIRF do jagah se khulta hai: (1) Question Bank list mein
+             kisi existing question par "Edit" dabane par, (2) AppScript draft "Edit" dabane par
+             approve karne se pehle. Naya question seedhe manually add karne ka koi button
+             ab nahi hai — uske liye Bulk Upload use karein. -->
+        <div id="bank-edit-modal" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999;align-items:center;justify-content:center;padding:16px;">
+          <form id="bank-form" class="card" style="max-width:640px;width:100%;max-height:90vh;overflow-y:auto;margin:0;">
+            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:4px;">
+              <h3 id="bank-form-title" class="section-title" style="margin:0;">Edit Question</h3>
+              <button type="button" id="bank-modal-close-x" style="background:#f3f4f6;color:#374151;border:none;border-radius:50%;width:28px;height:28px;cursor:pointer;font-weight:700;">✕</button>
+            </div>
+            <div class="field-row"><label>Subject</label>
+              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                <select id="bank-subject-select" style="flex:1;min-width:160px;" onchange="onBankSubjectSelectChange()">
+                  <option value="">-- Subject chunein --</option>
+                </select>
+                <input id="bank-subject" type="text" placeholder="Ya naya subject likhein..." style="flex:1;min-width:160px;" oninput="updateMathPreview()" onchange="updateMathPreview()" />
+              </div>
+              <small style="color:#6b7280;font-size:.78rem;margin-top:2px;display:block;">Dropdown se chunein <strong>ya</strong> naya subject manually likhein — save hone par automatically add ho jayega</small>
+            </div>
+            <div class="field-row"><label>Chapter</label>
+              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                <select id="bank-chapter-select" style="flex:1;min-width:160px;" onchange="onBankChapterSelectChange()">
+                  <option value="">-- Chapter chunein --</option>
+                </select>
+                <input id="bank-chapter" type="text" placeholder="Ya naya chapter likhein..." style="flex:1;min-width:160px;" />
+              </div>
+              <small style="color:#6b7280;font-size:.78rem;margin-top:2px;display:block;">Dropdown se chunein <strong>ya</strong> naya chapter manually likhein — save hone par automatically add ho jayega</small>
+            </div>
+            <div class="field-row"><label>Question (HI)</label><textarea id="bank-question-hi" rows="2" oninput="updateMathPreview()"></textarea></div>
+
+            <div id="bank-math-mode-box" style="display:flex;flex-wrap:wrap;gap:10px;margin:-4px 0 10px;">
+              <div style="flex:1;min-width:260px;background:#eff6ff;border:1.5px dashed #93c5fd;border-radius:8px;padding:10px 12px;">
+                <div style="font-size:.72rem;font-weight:700;color:#2563eb;margin-bottom:4px;">📐 AUTOMATIC (default)</div>
+                <div id="bank-math-preview" style="display:none;font-size:.95rem;color:#1e3a8a;">
+                  <div id="bank-math-preview-body"></div>
+                </div>
+                <small id="bank-math-auto-hint" style="color:#1e40af;font-size:.78rem;">Bas normal likho jaise "x^2 – 3x + 2" — equation apne aap detect ho jayega, baaki Hindi/English text waisa hi rahega.</small>
+              </div>
+              <div style="flex:1;min-width:260px;background:#fff7ed;border:1.5px dashed #fdba74;border-radius:8px;padding:10px 12px;">
+                <label style="display:flex;align-items:center;gap:6px;font-size:.82rem;font-weight:700;color:#9a3412;cursor:pointer;user-select:none;margin-bottom:4px;">
+                  <input type="checkbox" id="bank-manual-latex" onchange="updateMathPreview()" style="width:15px;height:15px;cursor:pointer;accent-color:#ea580c;" />
+                  🔧 MANUAL MODE (LaTeX khud likhna hai)
+                </label>
+                <small style="color:#9a3412;font-size:.78rem;display:block;">Check karo to auto-detect band ho jayega — sirf equation part ko khud <code>\( ... \)</code> mein likho, aur agar equation ke andar Hindi/English shabd likhne hain to unhe <code>\text{...}</code> mein rakho. Jaise: <code>यदि \(P(x) = x^2-3x-4\) तो \(P(x)\) का शून्यक है</code></small>
+              </div>
+            </div>
+
+            <div class="field-row"><label>Question Type</label>
+              <select id="bank-qtype" onchange="onBankQTypeChange()">
+                <option value="mcq">Objective (MCQ)</option>
+                <option value="subjective">Subjective (Likhkar jawab)</option>
+              </select>
+            </div>
+            <div id="bank-mcq-fields">
+              <div class="two-col">
+                <div class="field-row"><label>A (HI)</label><input id="bank-option-0-hi" type="text" /></div>
+                <div class="field-row"><label>B (HI)</label><input id="bank-option-1-hi" type="text" /></div>
+                <div class="field-row"><label>C (HI)</label><input id="bank-option-2-hi" type="text" /></div>
+                <div class="field-row"><label>D (HI)</label><input id="bank-option-3-hi" type="text" /></div>
+              </div>
+              <div class="field-row"><label>Correct Answer</label>
+                <select id="bank-answer"><option value="0">A</option><option value="1">B</option><option value="2">C</option><option value="3">D</option></select>
+              </div>
+            </div>
+            <div id="bank-subjective-fields" class="field-row hidden">
+              <label>Max Marks (is question ke liye)</label>
+              <input id="bank-marks" type="number" min="0" step="0.5" placeholder="Khaali = test ke default marks/question" />
+            </div>
+            <div class="field-row"><label>Difficulty Level</label>
+              <select id="bank-difficulty">
+                <option value="">— Select —</option>
+                <option value="easy">🟢 Easy</option>
+                <option value="medium">🟡 Medium</option>
+                <option value="hard">🔴 Hard</option>
+              </select>
+            </div>
+            <div class="field-row"><label>Explanation (HI)</label><textarea id="bank-explanation-hi" rows="2"></textarea></div>
+            <div style="display:flex;gap:10px;flex-wrap:wrap;">
+              <button type="submit" id="save-bank-question" class="btn-primary">💾 Update Question</button>
+              <button type="button" id="cancel-bank-edit" class="btn-secondary">Cancel</button>
+            </div>
+          </form>
+        </div>
+        <div class="card">
+          <div style="display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:8px;margin-bottom:8px;">
+            <button type="button" onclick="openManagePanel()" style="background:linear-gradient(135deg,#7c3aed,#6d28d9);color:#fff;border:none;border-radius:8px;padding:6px 14px;font-size:.8rem;cursor:pointer;font-weight:600;display:flex;align-items:center;gap:5px;">🗂️ Manage / Delete Subject & Chapter</button>
+          </div>
+          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:10px;">
+            <h3 class="section-title" style="margin:0;">Question Bank</h3>
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+              <span id="bank-question-count" style="background:#dbeafe;color:#1e40af;font-weight:700;font-size:.82rem;padding:3px 10px;border-radius:20px;">0 questions</span>
+              <button type="button" onclick="syncBank();" style="background:linear-gradient(135deg,#059669,#047857);color:#fff;border:none;border-radius:8px;padding:5px 12px;font-size:.8rem;cursor:pointer;font-weight:600;">🔄 Refresh from Firebase</button>
+              <button type="button" onclick="showDuplicateReport();" style="background:linear-gradient(135deg,#d97706,#b45309);color:#fff;border:none;border-radius:8px;padding:5px 12px;font-size:.8rem;cursor:pointer;font-weight:600;" title="Duplicate questions dhundho">🔁 Duplicates Check</button>
+              <button type="button" onclick="testFirebaseDelete();" style="background:linear-gradient(135deg,#7c3aed,#6d28d9);color:#fff;border:none;border-radius:8px;padding:5px 12px;font-size:.8rem;cursor:pointer;font-weight:600;" title="Firebase delete permission test karo">🔧 Test Delete</button>
+            </div>
+          </div>
+          <div class="field-row"><label>🔍 Search Questions</label><input type="text" id="bank-search-input" placeholder="Keyword se search karein (Hindi/English)..." oninput="onBankSearchInput()" style="width:100%;padding:8px 10px;border:1px solid #d1d5db;border-radius:8px;font-size:.9rem;box-sizing:border-box;" /></div>
+          <div class="field-row">
+            <label>🆔 Find by ID</label>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              <input type="text" id="bank-id-search-input" placeholder="e.g. bulk-1782918350273-42-700" onkeydown="if(event.key==='Enter'){event.preventDefault();findQuestionById();}" style="flex:1;min-width:200px;padding:8px 10px;border:1px solid #d1d5db;border-radius:8px;font-size:.9rem;box-sizing:border-box;" />
+              <button type="button" onclick="findQuestionById()" style="background:linear-gradient(135deg,#0369a1,#0284c7);color:#fff;border:none;border-radius:8px;padding:8px 14px;font-size:.85rem;cursor:pointer;font-weight:700;white-space:nowrap;">🔎 Find</button>
+              <button type="button" onclick="clearBankIdFilter()" style="background:#f3f4f6;color:#374151;border:none;border-radius:8px;padding:8px 14px;font-size:.85rem;cursor:pointer;font-weight:600;white-space:nowrap;">✕ Clear</button>
+            </div>
+          </div>
+          <div class="field-row"><label>Filter by Subject</label><select id="bank-subject-filter"></select></div>
+          <div class="field-row"><label>Filter by Chapter</label><select id="bank-chapter-filter"></select></div>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+            <label style="display:flex;align-items:center;gap:6px;font-size:.85rem;font-weight:600;cursor:pointer;user-select:none;">
+              <input type="checkbox" id="bank-select-all" onchange="toggleSelectAllBank(this.checked)" style="width:16px;height:16px;cursor:pointer;accent-color:#dc2626;">
+              <span>Select All</span>
+            </label>
+            <span id="bank-selected-count" style="font-size:.8rem;color:#6b7280;display:none;"></span>
+            <button type="button" id="bank-delete-selected-btn" onclick="deleteSelectedBankQuestions()" style="display:none;background:linear-gradient(135deg,#dc2626,#b91c1c);color:#fff;border:none;border-radius:8px;padding:5px 14px;font-size:.82rem;cursor:pointer;font-weight:700;">🗑️ Delete Selected</button>
+            <button type="button" id="bank-move-selected-btn" onclick="openMoveChapterModal()" style="display:none;background:linear-gradient(135deg,#0369a1,#0284c7);color:#fff;border:none;border-radius:8px;padding:5px 14px;font-size:.82rem;cursor:pointer;font-weight:700;">📦 Move to Chapter</button>
+
+<!-- Move Chapter Modal -->
+<div id="move-chapter-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999;align-items:center;justify-content:center;">
+  <div style="background:#fff;border-radius:14px;padding:28px 24px;width:90%;max-width:420px;box-shadow:0 8px 40px rgba(0,0,0,.25);">
+    <h3 style="margin:0 0 6px;font-size:1.1rem;color:#1e293b;">📦 Move Questions to Another Chapter</h3>
+    <p id="move-modal-count" style="font-size:.85rem;color:#6b7280;margin:0 0 16px;"></p>
+    <label style="font-size:.85rem;font-weight:600;color:#374151;display:block;margin-bottom:6px;">Subject</label>
+    <select id="move-target-subject" onchange="populateMoveChapterList()" style="width:100%;padding:8px 10px;border:1px solid #d1d5db;border-radius:8px;font-size:.9rem;margin-bottom:12px;"></select>
+    <label style="font-size:.85rem;font-weight:600;color:#374151;display:block;margin-bottom:6px;">Chapter</label>
+    <select id="move-target-chapter" style="width:100%;padding:8px 10px;border:1px solid #d1d5db;border-radius:8px;font-size:.9rem;margin-bottom:6px;"></select>
+    <p style="font-size:.78rem;color:#9ca3af;margin:0 0 16px;">Ya naya chapter naam likhein:</p>
+    <input id="move-target-new-chapter" type="text" placeholder="Naya chapter naam (optional)..." style="width:100%;padding:8px 10px;border:1px solid #d1d5db;border-radius:8px;font-size:.9rem;margin-bottom:18px;box-sizing:border-box;" />
+    <div style="display:flex;gap:10px;justify-content:flex-end;">
+      <button onclick="closeMoveChapterModal()" style="background:#f3f4f6;color:#374151;border:none;border-radius:8px;padding:8px 18px;font-size:.9rem;cursor:pointer;font-weight:600;">Cancel</button>
+      <button onclick="confirmMoveToChapter()" style="background:linear-gradient(135deg,#0369a1,#0284c7);color:#fff;border:none;border-radius:8px;padding:8px 18px;font-size:.9rem;cursor:pointer;font-weight:700;">📦 Move</button>
+    </div>
+  </div>
+</div>
+          </div>
+          <div id="bank-list" class="list-box"></div>
+        </div>
+      </div>
+
+      <!-- Bulk Upload -->
+<style>
+@media (max-width: 640px) {
+  #bulk-preview-table thead { display: none; }
+  #bulk-preview-table, #bulk-preview-table tbody, #bulk-preview-table tr, #bulk-preview-table td { display: block; width: 100%; }
+  #bulk-preview-table tr { border-top: 2px solid #cbd5e1; padding: 8px 0; }
+  #bulk-preview-table td { padding: 4px 6px !important; }
+  #bulk-preview-table td:first-child { display: inline-block; width: auto; }
+  #bulk-preview-table td:nth-child(2) { display: inline-block; width: auto; font-weight: 700; }
+}
+</style>
+      <div id="bulk-upload-box" class="hidden">
+        <div class="card">
+          <h3 class="section-title">📦 Bulk Question Upload</h3>
+          <p class="muted-text">Bahut saare questions ek saath text se paste karke Question Bank mein daalne ke liye. Format:</p>
+          <div style="font-size:.78rem;color:#64748b;background:#f1f5f9;border-radius:8px;padding:10px 12px;margin-bottom:12px;font-family:monospace;white-space:pre-wrap;">1. भारत की राजधानी क्या है?
+A) दिल्ली
+B) मुंबई
+C) पटना
+D) जयपुर
+Ans: A
+Explanation: दिल्ली भारत की राजधानी है।</div>
+
+          <div class="field-row" style="display:flex;gap:14px;flex-wrap:wrap;">
+            <div style="flex:1;min-width:200px;">
+              <label>Subject (विषय)</label>
+              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                <select id="bulk-subject-select" style="flex:1;min-width:140px;" onchange="onBulkSubjectSelectChange()">
+                  <option value="">-- Subject chunein --</option>
+                </select>
+                <input type="text" id="bulk-subject" value="Mathematics" placeholder="Ya naya subject likhein..." style="flex:1;min-width:140px;" oninput="onBulkSubjectInputChange()" />
+              </div>
+              <small style="color:#6b7280;font-size:.78rem;margin-top:2px;display:block;">Dropdown se chunein <strong>ya</strong> naya subject manually likhein</small>
+            </div>
+            <div style="flex:1;min-width:200px;">
+              <label>Chapter (चैप्टर)</label>
+              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                <select id="bulk-chapter-select" style="flex:1;min-width:140px;" onchange="onBulkChapterSelectChange()">
+                  <option value="">-- Chapter chunein --</option>
+                </select>
+                <input type="text" id="bulk-chapter" value="General" placeholder="Ya naya chapter likhein..." style="flex:1;min-width:140px;" />
+              </div>
+              <small style="color:#6b7280;font-size:.78rem;margin-top:2px;display:block;">Dropdown se chunein <strong>ya</strong> naya chapter manually likhein</small>
+            </div>
+            <div style="flex:1;min-width:160px;">
+              <label>Difficulty</label>
+              <select id="bulk-difficulty">
+                <option value="easy">🟢 Easy</option>
+                <option value="medium" selected>🟡 Medium</option>
+                <option value="hard">🔴 Hard</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="field-row">
+            <label>📷 Images Attach Karein (optional)</label>
+            <input type="file" id="bulk-images-input" accept="image/*" multiple style="width:100%;padding:6px;border:1px dashed #94a3b8;border-radius:8px;background:#f8fafc;" onchange="handleBulkImagesSelected(this.files)" />
+            <small style="color:#6b7280;font-size:.78rem;margin-top:2px;display:block;">
+              File ka naam question number se match karo (jaise <code>Q1.jpg</code>, <code>2.png</code>) — auto-attach ho jayega. Preview table me manually bhi attach/change kar sakte ho.
+            </small>
+            <div id="bulk-images-status" style="font-size:.8rem;color:#0f766e;margin-top:4px;display:none;"></div>
+          </div>
+
+          <div class="field-row" style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button type="button" id="bulk-mode-combined-btn" class="btn-primary" style="flex:1;min-width:200px;" onclick="setBulkInputMode('combined')">📝 Ek Text Box (Combined)</button>
+            <button type="button" id="bulk-mode-separate-btn" class="btn-secondary" style="flex:1;min-width:200px;" onclick="setBulkInputMode('separate')">🧩 Alag-Alag Box (Question / Options / Answer)</button>
+          </div>
+
+          <div id="bulk-combined-panel">
+            <div class="field-row">
+              <label>Questions Paste Karein</label>
+              <textarea id="bulk-raw-text" rows="10" style="font-family:monospace;font-size:.85rem;" placeholder="प्रश्‍न 1. किसी बहुपद में चर का घात इनमें से कौन होगा?
+(क) धन पूर्णांक
+(ख) ऋण पूर्णांक
+(ग) भिन्‍न संख्‍या
+(घ) कोई नहीं
+उत्तर– (क)
+
+1. भारत की राजधानी क्या है?
+A) दिल्ली
+B) मुंबई
+C) पटना
+D) जयपुर
+Ans: A"></textarea>
+            </div>
+          </div>
+
+          <div id="bulk-separate-panel" class="hidden">
+            <p class="muted-text" style="font-size:.8rem;">
+              Alag-alag boxes bharein — <strong>har line ek sawaal</strong> ke liye hai, aur sabhi boxes mein line ka number match hona chahiye (jaise Questions box ki line 3 = Option A box ki line 3 = Answer box ki line 3, waise hi sab).
+            </p>
+            <div class="field-row">
+              <label>1️⃣ Questions (har line = ek sawaal)</label>
+              <textarea id="bulk-sep-questions" rows="5" style="font-family:monospace;font-size:.85rem;" placeholder="भारत की राजधानी क्या है?
+भारत का राष्ट्रीय पशु कौन सा है?"></textarea>
+            </div>
+            <div class="field-row" style="display:flex;gap:10px;flex-wrap:wrap;">
+              <div style="flex:1;min-width:220px;">
+                <label>2️⃣ Option A</label>
+                <textarea id="bulk-sep-opt-a" rows="5" style="font-family:monospace;font-size:.85rem;width:100%;" placeholder="दिल्ली
+बाघ"></textarea>
+              </div>
+              <div style="flex:1;min-width:220px;">
+                <label>3️⃣ Option B</label>
+                <textarea id="bulk-sep-opt-b" rows="5" style="font-family:monospace;font-size:.85rem;width:100%;" placeholder="मुंबई
+शेर"></textarea>
+              </div>
+              <div style="flex:1;min-width:220px;">
+                <label>4️⃣ Option C</label>
+                <textarea id="bulk-sep-opt-c" rows="5" style="font-family:monospace;font-size:.85rem;width:100%;" placeholder="पटना
+हाथी"></textarea>
+              </div>
+              <div style="flex:1;min-width:220px;">
+                <label>5️⃣ Option D</label>
+                <textarea id="bulk-sep-opt-d" rows="5" style="font-family:monospace;font-size:.85rem;width:100%;" placeholder="जयपुर
+तेंदुआ"></textarea>
+              </div>
+            </div>
+            <div class="field-row">
+              <label>6️⃣ Answer (har line = us sawaal ka sahi jawaab — <code>A/B/C/D</code>, <code>1/2/3/4</code>, ya seedha sahi option ka text)</label>
+              <textarea id="bulk-sep-answers" rows="4" style="font-family:monospace;font-size:.85rem;" placeholder="A
+B"></textarea>
+            </div>
+            <div class="field-row">
+              <label>7️⃣ Explanation (optional — khaali chhod sakte hain)</label>
+              <textarea id="bulk-sep-explanations" rows="4" style="font-family:monospace;font-size:.85rem;" placeholder="दिल्ली भारत की राजधानी है।
+बाघ भारत का राष्ट्रीय पशु है।"></textarea>
+            </div>
+          </div>
+
+          <div style="display:flex;gap:10px;flex-wrap:wrap;">
+            <button type="button" id="bulk-preview-btn" class="btn-primary" onclick="previewBulkQuestions()">🔍 Preview Questions</button>
+            <button type="button" id="bulk-upload-btn" class="btn-primary" onclick="confirmBulkUpload()" disabled style="opacity:.5;">🚀 Confirm &amp; Upload</button>
+            <button type="button" class="btn-secondary" onclick="downloadBulkCSVTemplate()">⬇️ CSV Template Download</button>
+            <button type="button" id="bulk-undo-btn" class="btn-secondary" onclick="undoLastBulkUpload()" style="display:none;background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;">↩️ Undo Last Upload</button>
+          </div>
+
+          <div id="bulk-preview-area" style="display:none;margin-top:14px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:6px;">
+              <strong id="bulk-preview-summary" style="font-size:.88rem;color:#334155;"></strong>
+              <label style="font-size:.82rem;color:#475569;display:flex;align-items:center;gap:6px;">
+                <input type="checkbox" id="bulk-select-all" checked onchange="toggleAllBulkRows(this.checked)" /> Sab select karein
+              </label>
+            </div>
+            <div style="max-height:420px;overflow:auto;border:1px solid #e2e8f0;border-radius:8px;">
+              <table style="width:100%;border-collapse:collapse;font-size:.82rem;" id="bulk-preview-table">
+                <thead style="background:#f1f5f9;position:sticky;top:0;">
+                  <tr>
+                    <th style="padding:6px;width:30px;"></th>
+                    <th style="padding:6px;text-align:left;">#</th>
+                    <th style="padding:6px;text-align:left;">Question / Options (editable)</th>
+                    <th style="padding:6px;text-align:left;width:90px;">Answer</th>
+                    <th style="padding:6px;text-align:left;width:90px;">Image</th>
+                    <th style="padding:6px;text-align:left;width:110px;">Status</th>
+                  </tr>
+                </thead>
+                <tbody id="bulk-preview-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div id="bulk-progress-wrap" style="display:none;margin-top:14px;">
+            <div style="background:#e2e8f0;border-radius:8px;height:18px;overflow:hidden;">
+              <div id="bulk-progress-bar" style="background:#0ea5e9;height:100%;width:0%;transition:width .2s;"></div>
+            </div>
+            <div id="bulk-progress-text" style="font-size:.8rem;color:#475569;margin-top:4px;">0 / 0</div>
+          </div>
+
+          <div id="bulk-upload-log" style="margin-top:14px;padding:12px;background:#f1f5f9;border-radius:8px;max-height:240px;overflow-y:auto;font-size:.82rem;color:#475569;display:none;"></div>
+
+          <div id="bulk-failed-area" style="display:none;margin-top:14px;padding:12px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;">
+            <strong style="color:#b91c1c;font-size:.85rem;">⚠️ Kuch questions fail ho gaye</strong>
+            <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">
+              <button type="button" class="btn-secondary" onclick="retryFailedBulk()">🔁 Retry Failed</button>
+              <button type="button" class="btn-secondary" onclick="exportFailedBulk()">⬇️ Export Failed (text)</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Records -->
+      <div id="records-box" class="hidden">
+        <div class="card" style="background:linear-gradient(135deg,#fef2f2,#fee2e2);border:1.5px solid #fca5a5;margin-bottom:12px;">
+          <h3 class="section-title" style="color:#991b1b;">🔑 Student Password Reset (Admin)</h3>
+          <p style="font-size:.82rem;color:#7f1d1d;margin-bottom:10px;">Agar student apna password AUR security PIN dono bhool jaaye, to unki identity WhatsApp/class mein confirm karne ke baad hi yahan se reset karein.</p>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
+            <div class="field-row" style="margin:0;">
+              <label>Student Mobile Number</label>
+              <input id="admin-reset-student-mobile" type="tel" placeholder="jaise: 9876543210" style="max-width:200px;" />
+            </div>
+            <div class="field-row" style="margin:0;">
+              <label>Naya Password</label>
+              <input id="admin-reset-student-pass" type="text" placeholder="Kam se kam 4 characters" style="max-width:200px;" />
+            </div>
+            <button type="button" id="admin-reset-student-btn" class="btn-primary" style="background:linear-gradient(135deg,#dc2626,#b91c1c);">Reset Karein</button>
+          </div>
+          <p style="font-size:.75rem;color:#7f1d1d;margin-top:8px;">ℹ️ Note: Asli password kabhi bhi dekha nahi ja sakta (security ke liye sirf ek-tarfa hash save hota hai) — yahan sirf <strong>naya</strong> password set kiya ja sakta hai.</p>
+        </div>
+
+        <div class="card" style="margin-bottom:16px;">
+          <h3 class="section-title">👥 Students Directory</h3>
+          <p class="muted-text">Har registered student ka naam, mobile (ID), aur unke diye hue MCQ answers yahan milenge — chahe test online diya ho, OMR scan se ho, ya Manual Entry se marks chadhaye gaye ho.</p>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px;">
+            <div class="field-row" style="margin:0;flex:1;min-width:180px;">
+              <label>Naam ya Mobile Se Search Karein</label>
+              <input id="students-directory-search" type="text" placeholder="jaise: Rahul ya 9876543210" oninput="renderStudentsDirectory()" />
+            </div>
+            <button type="button" class="btn-secondary" onclick="loadStudentsDirectory()">🔄 Refresh</button>
+          </div>
+          <div id="students-directory-list"><p class="muted-text">Loading...</p></div>
+
+          <div style="margin-top:14px;padding-top:12px;border-top:1px solid #e2e8f0;">
+            <label style="font-size:.85rem;font-weight:600;">Ya seedha mobile number se answers dekhein (chahe student registered ho ya na ho):</label>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;">
+              <input id="students-directory-lookup-mobile" type="tel" placeholder="10-digit mobile number" maxlength="10" style="max-width:200px;" />
+              <button type="button" class="btn-primary" onclick="viewStudentAnswersByInput()">📄 Answers Dekhein</button>
+            </div>
+          </div>
+
+          <div id="student-answers-detail-area"></div>
+        </div>
+
+        <div class="card">
+          <h3 class="section-title">Student Result Sheets</h3>
+          <button id="clear-records" class="btn-danger">🗑️ Clear All Records</button>
+          <button type="button" class="btn-secondary" onclick="window.print()" style="margin-left:8px;">🖨️ Print Results</button>
+
+          <div class="field-row" style="margin-top:10px;">
+            <label>📋 Select Test (Excel/PDF/WhatsApp ke liye)</label>
+            <select id="admin-result-test-select" onchange="if(window.renderAdminRecordsForSelectedTest) renderAdminRecordsForSelectedTest()">
+              <option value="">— Sabhi Tests (ya neeche se ek test chunein) —</option>
+            </select>
+          </div>
+
+          <!-- Mega Update: Export Buttons -->
+          <div style="display:flex; gap:10px; margin-top:10px; flex-wrap:wrap;">
+            <button type="button" class="btn-primary" onclick="exportToExcel()" style="background:linear-gradient(135deg,#16a34a,#15803d); font-size:0.85rem;">📊 Download Excel</button>
+            <button type="button" class="btn-primary" onclick="exportToPdf()" style="background:linear-gradient(135deg,#e11d48,#be123c); font-size:0.85rem;">📄 Download PDF</button>
+            <button type="button" class="btn-primary" onclick="bulkSendWhatsApp()" style="background:linear-gradient(135deg,#25d366,#128c7e); font-size:0.85rem;">💬 Auto-Send WhatsApp</button>
+          </div>
+
+          <div style="margin-top:10px;padding:10px;background:#f0fdf4;border-radius:8px;border:1px solid #bbf7d0;font-size:13px;color:#166534">
+            💡 <strong>WhatsApp:</strong> Pehle upar se "Select Test" mein test chunein, phir "Auto-Send WhatsApp" button se us test ke sabhi students ke liye bulk messages generate kar sakte hain.
+          </div>
+          <div id="records-list" class="records-sheets-wrap"></div>
+        </div>
+      </div>
+      <!-- GRADE SUBJECTIVE -->
+      <div id="grade-box" class="hidden">
+        <div class="card">
+          <h3 class="section-title">📝 Grade Subjective Answers</h3>
+          <p class="muted-text">Test chunein — jin students ne subjective questions ka jawab likha hai unki list neeche dikhegi. Har student ka jawab padhkar marks dein aur Save karein.</p>
+          <div class="field-row"><label>Test</label><select id="grade-test-select"></select></div>
+          <div id="grade-students-list" class="list-box"></div>
+        </div>
+        <div id="grade-detail-box" class="card hidden"></div>
+      </div>
+
+      <!-- Generator Box -->
+      <div id="generator-box" class="hidden">
+        <iframe src="question-generator.html?v=20260708-noback" style="width: 100%; height: calc(100vh - 90px); min-height: 600px; border: 1px solid #e2e8f0; border-radius: 8px; margin-top: 10px;"></iframe>
+      </div>
+
+      <!-- RECYCLE BIN -->
+      <div id="trash-box" class="hidden"></div>
+
+      <!-- DOUBTS -->
+      <div id="doubts-box" class="hidden">
+        <div class="card">
+          <h3 class="section-title">💬 Student Doubts</h3>
+          <p class="muted-text">Students ke saare doubts yahan dikhte hain — reply likhkar "Reply Bhejein" dabayein.</p>
+          <div id="admin-doubts-list"></div>
+        </div>
+      </div>
+
+      <!-- OMR -->
+      <div id="omr-box" class="hidden">
+        <div class="card" style="margin-bottom:16px;">
+          <h3 class="section-title">🖨️ OMR Sheet Banayein</h3>
+          <p class="muted-text">Kisi bhi test ke liye ek printable OMR answer sheet (PDF) banayein — students isi par offline apne answers bharenge.</p>
+          <div class="field-row">
+            <label>Test Chunein</label>
+            <select id="omr-sheet-test-select"></select>
+          </div>
+          <button type="button" id="omr-generate-sheet-btn" class="btn-primary">🖨️ OMR Sheet Generate Karein (Word)</button>
+          <p class="muted-text" style="margin-top:8px;">Note: Sheet ko poori tarah (bina crop kiye, seedhi, achhi light mein) photo kheenchein — corner ke 4 kaale square poori tarah dikhne chahiye.</p>
+        </div>
+
+        <div class="card" style="margin-bottom:16px;">
+          <h3 class="section-title">✍️ Answers Type Karke Marks Chadhayein</h3>
+          <p class="muted-text">Photo ki zaroorat nahi — student ka OMR khud dekh kar answers yahan type karein, jaise: <code>1 c 2 b 3 a 4 d</code> (ek line me ya alag-alag lines me, "x" ya "-" likhne se woh question not-attempted maana jayega).</p>
+          <div class="field-row">
+            <label>Test Chunein</label>
+            <select id="omr-manual-test-select"></select>
+          </div>
+          <div class="field-row">
+            <label>Student Ka Naam</label>
+            <input id="omr-manual-student-name" type="text" placeholder="Poora naam" />
+          </div>
+          <div class="field-row">
+            <label>WhatsApp Number</label>
+            <input id="omr-manual-student-mobile" type="text" placeholder="10-digit number" maxlength="10" />
+          </div>
+          <div class="field-row">
+            <label>Answers (jaise: 1 c 2 b 3 a ...)</label>
+            <textarea id="omr-manual-answers-text" rows="4" placeholder="1 c
+2 b
+3 a
+4 d ..."></textarea>
+          </div>
+          <button type="button" id="omr-manual-parse-btn" class="btn-primary">📝 Answers Parse Karein &amp; Review Dikhayein</button>
+          <p id="omr-manual-status" class="muted-text" style="margin-top:8px;"></p>
+          <div id="omr-manual-review-area"></div>
+        </div>
+      </div>
+
+    </div>
+  </main>
+</div>
+<!-- /home-screen -->
+
+<!-- ═══════════════════════ EXAM SCREEN ═══════════════════════ -->
+<div id="exam-screen" class="hidden">
+  <div class="exam-header">
+    <div>
+      <div id="exam-title" class="exam-title-text"></div>
+      <div id="exam-meta" class="exam-meta-text"></div>
+    </div>
+    <div class="exam-header-right">
+      <!-- Language toggle -->
+      <div class="lang-toggle">
+        <button id="lang-en" class="lang-btn">EN</button>
+        <button id="lang-hi" class="lang-btn active">HI</button>
+        <button id="lang-both" class="lang-btn">EN+HI</button>
+      </div>
+      <div id="timer" class="timer-box">30:00</div>
+    </div>
+  </div>
+
+  <div class="exam-body">
+    <div class="exam-main">
+      <div id="question-count" class="q-count"></div>
+      <div id="question-marks" class="q-marks"></div>
+      <div id="exam-section-banner" class="exam-section-banner hidden"></div>
+      <div id="exam-question" class="q-text"></div>
+      <div id="exam-options" class="options-list"></div>
+      <div class="exam-actions">
+        <button id="mark-review" class="btn-secondary">🔖 Mark For Review</button>
+        <button id="clear-response" class="btn-secondary">✖ Clear Response</button>
+        <button id="prev-question" class="btn-secondary">← Prev</button>
+        <button id="next-question" class="btn-secondary">Next →</button>
+      </div>
+      <div class="exam-footer-btns">
+        <button id="exam-back" class="btn-danger">🏠 Back Home</button>
+        <button id="submit-test" class="btn-primary">✅ Submit Test</button>
+      </div>
+    </div>
+    <div class="exam-sidebar">
+      <div class="stats-row">
+        <span id="answered-count" class="stat answered">Answered 0</span>
+        <span id="unanswered-count" class="stat not-answered">Unanswered 0</span>
+        <span id="review-count" class="stat review">Review 0</span>
+      </div>
+      <div id="total-questions" class="total-q"></div>
+      <div id="question-nav" class="q-nav-grid"></div>
+    </div>
+  </div>
+</div>
+<!-- /exam-screen -->
+
+<!-- ═══════════════════════ RESULT SCREEN ═══════════════════════ -->
+<div id="result-screen" class="hidden">
+  <div class="result-wrap">
+    <div id="board-result-sheet" class="board-result-sheet-wrap"></div>
+    <button type="button" class="btn-secondary rs-print-btn" onclick="window.print()">🖨️ Print Result Sheet</button>
+
+    <div class="result-header-card">
+      <div class="result-logo">🏆</div>
+      <div id="result-greeting" class="result-greeting"></div>
+      <div id="result-feedback" class="result-feedback"></div>
+    </div>
+
+    <!-- Performance Cards -->
+    <div class="perf-grid">
+      <div class="perf-card">
+        <div class="perf-label">🏅 Rank</div>
+        <div id="perf-rank" class="perf-value">-</div>
+        <div class="progress-bar-container"><div id="perf-rank-progress" class="progress-bar-fill blue"></div></div>
+      </div>
+      <div class="perf-card">
+        <div class="perf-label">📊 Score</div>
+        <div id="perf-score" class="perf-value">-</div>
+        <div class="progress-bar-container"><div id="perf-score-progress" class="progress-bar-fill green"></div></div>
+      </div>
+      <div class="perf-card">
+        <div class="perf-label">🎯 Accuracy</div>
+        <div id="perf-accuracy" class="perf-value">-</div>
+        <div class="progress-bar-container"><div id="perf-accuracy-progress" class="progress-bar-fill orange"></div></div>
+      </div>
+      <div class="perf-card">
+        <div class="perf-label">📈 Percentile</div>
+        <div id="perf-percentile" class="perf-value">-</div>
+        <div class="progress-bar-container"><div id="perf-percentile-progress" class="progress-bar-fill purple"></div></div>
+      </div>
+      <div class="perf-card">
+        <div class="perf-label">✅ Attempted</div>
+        <div id="perf-attempted" class="perf-value">-</div>
+        <div class="progress-bar-container"><div id="perf-attempted-progress" class="progress-bar-fill teal"></div></div>
+      </div>
+      <div class="perf-card">
+        <div class="perf-label">⏱️ Time Spent</div>
+        <div id="perf-time" class="perf-value">-</div>
+        <div class="progress-bar-container"><div id="perf-time-progress" class="progress-bar-fill red"></div></div>
+      </div>
+    </div>
+
+    <!-- Section-wise performance -->
+    <div class="card">
+      <h3 class="section-title">📚 Section-wise Performance</h3>
+      <div id="section-perf-list"></div>
+    </div>
+
+    <!-- Answer Summary -->
+    <div class="card">
+      <h3 class="section-title">📋 Answer Summary</h3>
+      <div class="answer-summary-counts" id="answer-summary-counts"></div>
+    </div>
+
+    <!-- Chapter-wise weak area report -->
+    <div class="card" id="chapterwise-report-card">
+      <h3 class="section-title">📊 Chapter-wise Analysis — Weak Areas</h3>
+      <div id="chapterwise-report-list"></div>
+    </div>
+
+    <div class="result-btns">
+      <button id="back-home" class="btn-secondary">🏠 Back to Home</button>
+      <button id="reattempt-wrong-btn" class="btn-secondary" style="background:linear-gradient(135deg,#f59e0b,#d97706);color:#fff;border:none;">🔁 Re-attempt Wrong</button>
+      <button id="whatsapp-parent-btn" class="btn-secondary" style="background:linear-gradient(135deg,#25d366,#128c7e);color:#fff;border:none;">📱 Parent ko Result Bhejein</button>
+      <button id="whatsapp-share-btn" class="btn-secondary" style="background:linear-gradient(135deg,#128c7e,#075e54);color:#fff;border:none;">🔗 Share Result</button>
+      <button id="view-solution" class="btn-primary">🔍 View Solution</button>
+    </div>
+  </div>
+</div>
+<!-- /result-screen -->
+
+<!-- ═══════════════════════ SOLUTION SCREEN ═══════════════════════ -->
+<div id="solution-screen" class="hidden">
+  <div class="solution-header">
+    <button id="solution-back" class="btn-secondary">← Back to Result</button>
+    <div class="lang-toggle">
+      <button id="sol-lang-en" class="lang-btn">EN</button>
+      <button id="sol-lang-hi" class="lang-btn active">HI</button>
+      <button id="sol-lang-both" class="lang-btn">EN+HI</button>
+    </div>
+    <div id="sol-progress-text" class="sol-progress"></div>
+  </div>
+  <div class="solution-body">
+    <div id="solution-question-area"></div>
+    <div class="sol-nav-btns">
+      <button id="sol-prev" class="btn-secondary">← Prev</button>
+      <button id="sol-next" class="btn-primary">Next →</button>
+    </div>
+          <div id="sol-q-nav" class="q-nav-grid"></div>
+  </div>
+</div>
+<!-- /solution-screen -->
+
+<!-- Firebase SDKs -->
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-storage-compat.js"></script>
+<script src="firebase-config.js"></script>
+<!-- Question Banks -->
+<script src="mathematics-question-bank.js"></script>
+<script src="theme-palette.js"></script>
+<script src="theme-manager.js"></script>
+
+<script src="history-question-bank.js"></script>
+<script src="History-India-question-bank.js"></script>
+<script src="history-indochina-question-bank.js"></script>
+<script src="socialism-question-bank.js"></script>
+<!-- Main App -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="subject-resolver.js"></script>
+<script src="pdf-import.js"></script>
+<script>document.write('<script src="script.js?v=' + Date.now() + '"><\/script>');</script>
+<script>document.write('<script src="upgrade.js?v=' + Date.now() + '"><\/script>');</script>
+<script>document.write('<script src="whatsapp-poll-export.js?v=' + Date.now() + '"><\/script>');</script>
+<script>document.write('<script src="student-features.js?v=' + Date.now() + '"><\/script>');</script>
+<script>document.write('<script src="omr.js?v=' + Date.now() + '"><\/script>');</script>
+<script>
+// ══════════════════════════════════════════════════════
+//  AUTOMATIC MATH EQUATION FORMATTER + KATEX RENDERER
+// ══════════════════════════════════════════════════════
+function isMathSubjectName(subj) {
+  return /math/i.test(subj || "");
+}
+
+// Recognized math-function / Greek-letter keywords: when one of these shows up as a "word"
+// it's still math notation, not sentence text, so it stays inside the equation buffer below.
+var MATH_FUNC_WORDS = /^(sin|cos|tan|cot|sec|cosec|log|ln|sqrt|theta|alpha|beta|gamma|delta|lambda|mu|sigma|omega)$/i;
+
+// Converts one chunk of plain-text math notation (numbers/operators, no sentence words mixed
+// in) into LaTeX commands KaTeX can render.
+function convertMathSymbols(s) {
+  // normalize typographic dashes (common from copy-pasted Hindi text) to a plain minus
+  s = s.replace(/[–—]/g, "-");
+
+  // Unicode superscripts -> ^{n}
+  var supMap = { "⁰":"0","¹":"1","²":"2","³":"3","⁴":"4","⁵":"5","⁶":"6","⁷":"7","⁸":"8","⁹":"9" };
+  s = s.replace(/[⁰¹²³⁴⁵⁶⁷⁸⁹]+/g, function(m) {
+    return "^{" + m.split("").map(function(c){ return supMap[c] || c; }).join("") + "}";
+  });
+
+  // √(...) and √x -> \sqrt{...}
+  s = s.replace(/√\(([^)]+)\)/g, "\\sqrt{$1}");
+  s = s.replace(/√\s*([a-zA-Z0-9]+)/g, "\\sqrt{$1}");
+  s = s.replace(/\bsqrt\(([^)]+)\)/gi, "\\sqrt{$1}");
+
+  // caret exponents: x^2, x^(2+3) -> x^{2} / x^{2+3}
+  s = s.replace(/\^\(([^)]+)\)/g, "^{$1}");
+  s = s.replace(/\^([a-zA-Z0-9]+)/g, "^{$1}");
+
+  // simple numeric fractions a/b -> \frac{a}{b}
+  s = s.replace(/\b(\d+)\s*\/\s*(\d+)\b/g, "\\frac{$1}{$2}");
+
+  // comparison & operator symbols
+  s = s.replace(/<=/g, "\\leq ").replace(/>=/g, "\\geq ").replace(/!=/g, "\\neq ");
+  s = s.replace(/≤/g, "\\leq ").replace(/≥/g, "\\geq ").replace(/≠/g, "\\neq ");
+  s = s.replace(/×/g, "\\times ").replace(/÷/g, "\\div ");
+  s = s.replace(/π/g, "\\pi ");
+
+  // standalone " x " between numbers/vars used as multiplication -> \times
+  s = s.replace(/(\d)\s*x\s*(\d)/g, "$1 \\times $2");
+
+  // trig/log function names -> LaTeX commands
+  s = s.replace(/\b(sin|cos|tan|cot|sec|cosec|log|ln)\b(?!\\)/gi, function(m){ return "\\" + m.toLowerCase(); });
+
+  // common Greek letter names spelled out -> symbols
+  var greekMap = { theta:"\\theta", alpha:"\\alpha", beta:"\\beta", gamma:"\\gamma", delta:"\\delta", lambda:"\\lambda", mu:"\\mu", sigma:"\\sigma", omega:"\\omega" };
+  s = s.replace(/\b(theta|alpha|beta|gamma|delta|lambda|mu|sigma|omega)\b/gi, function(m){ return greekMap[m.toLowerCase()]; });
+
+  return s;
+}
+
+function hasMathContent(s) {
+  return /[=+\-*/^√π≤≥≠×÷]|\\[a-zA-Z]+|\^\{/.test(s);
+}
+
+// Auto-wraps ONLY the actual equation portion of a question/option in \( \) so KaTeX renders
+// it, and leaves everything else (Hindi/English sentence text) completely untouched -- so its
+// normal spacing is never at risk, instead of stuffing the whole sentence into math mode.
+function autoFormatMathText(raw) {
+  if (!raw) return raw;
+  // Already has explicit LaTeX in it? Two possibilities:
+  //  1. Genuinely clean, intentional LaTeX (e.g. typed in "Manual Mode") -> trust it, leave alone.
+  //  2. Old/broken data from before this fix, where the ENTIRE sentence (Hindi words included)
+  //     got dumped into one \( \) block -> KaTeX can't parse that reliably, which is exactly the
+  //     "shows raw \( \) text instead of rendering" bug. Detect that case and repair it by
+  //     unwrapping and re-running it through the normal (correct) formatter below.
+  if (/\\\(|\\\[|\$\$/.test(raw)) {
+    var brokenWrap = /\\[([][\s\S]*?[\u0900-\u097F][\s\S]*?\\[)\]]/.test(raw);
+    if (!brokenWrap) return raw; // clean/manual LaTeX -- don't touch it
+    raw = raw.replace(/\\\(|\\\)|\\\[|\\\]|\$\$/g, "");
+    // fall through and reprocess raw as plain text below
+  } else if (/\\frac|\\sqrt|\\cdot|\\times/.test(raw)) {
+    return raw; // has real LaTeX commands already, trust it
+  }
+
+  var hasMathSignal = /[=+\-*/^√π≤≥≠×÷]|[⁰¹²³⁴⁵⁶⁷⁸⁹]|\b\d+\s*\/\s*\d+\b|\bsqrt\b|\b(sin|cos|tan|log)\b/i.test(raw);
+  if (!hasMathSignal) return raw;
+
+  // Split on sentence "words" -- Devanagari words (any length) and English words (3+ letters).
+  // Everything between/around them (digits, operators, single/double-letter variables, √, ^, etc.)
+  // is math notation and gets bundled into the equation buffer.
+  var parts = raw.split(/([\u0900-\u097F]+|[A-Za-z]{3,})/);
+  var out = "";
+  var mathBuf = "";
+  var hadText = false;
+
+  function flushMath() {
+    var buf = mathBuf;
+    mathBuf = "";
+    // pull whitespace out to the edges so it stays as normal spacing OUTSIDE the math mode,
+    // instead of being swallowed by the \( \) wrap
+    var lead = (buf.match(/^\s*/) || [""])[0];
+    var trail = (buf.match(/\s*$/) || [""])[0];
+    var core = buf.slice(lead.length, buf.length - trail.length);
+    if (!core) { out += buf; return; }
+    // reject buffers that are just stray punctuation/dashes (e.g. a trailing "-" used as a
+    // sentence dash, not an equation) -- only treat it as math if something substantive remains
+    if (!core.replace(/[\-–—,.()\s]/g, "")) { out += buf; return; }
+    var converted = convertMathSymbols(core);
+    if (hasMathContent(converted)) {
+      out += lead + "\\(" + converted + "\\)" + trail;
+    } else {
+      out += buf; // not actually math (e.g. a stray letter/number) -- leave as plain text
+    }
+  }
+
+  for (var i = 0; i < parts.length; i++) {
+    var part = parts[i];
+    if (!part) continue;
+    var isWordToken = (i % 2 === 1); // captured groups from split() land on odd indices
+    if (isWordToken && !MATH_FUNC_WORDS.test(part)) {
+      // ordinary sentence word (Hindi or English) -- flush pending equation, emit word as-is
+      flushMath();
+      out += part;
+      hadText = true;
+    } else {
+      // math-function keyword (sin, cos, sqrt, greek letters...) or raw symbols/digits
+      mathBuf += part;
+    }
+  }
+  flushMath();
+
+  // If the whole field was one bare equation with no surrounding sentence text, use display mode
+  if (!hadText) {
+    out = out.replace(/^\\\(/, "\\[").replace(/\\\)$/, "\\]");
+  }
+  return out;
+}
+
+function autoFormatMathFields(q) {
+  if (!q || !isMathSubjectName(q.subject)) return q;
+  if (q.mathManual) return q; // Manual Mode: admin typed LaTeX by hand, don't auto-format it
+  ["textEN","textHI","explanationEN","explanationHI"].forEach(function(k){
+    if (q[k]) q[k] = autoFormatMathText(q[k]);
+  });
+  ["optionsEN","optionsHI"].forEach(function(k){
+    if (Array.isArray(q[k])) q[k] = q[k].map(function(o){ return autoFormatMathText(o); });
+  });
+  if (q.textHI) q.text = q.textHI; else if (q.textEN) q.text = q.textEN;
+  if (q.optionsHI && q.optionsHI.some(Boolean)) q.options = q.optionsHI;
+  else if (q.optionsEN) q.options = q.optionsEN;
+  if (q.explanationHI) q.explanation = q.explanationHI; else if (q.explanationEN) q.explanation = q.explanationEN;
+  return q;
+}
+window.isMathSubjectName = isMathSubjectName;
+window.autoFormatMathText = autoFormatMathText;
+window.autoFormatMathFields = autoFormatMathFields;
+
+function renderMathIn(el) {
+  if (!el || !window.renderMathInElement) return;
+  try {
+    window.renderMathInElement(el, {
+      delimiters: [
+        { left: "\\(", right: "\\)", display: false },
+        { left: "\\[", right: "\\]", display: true },
+        { left: "$$", right: "$$", display: true }
+      ],
+      throwOnError: false
+    });
+  } catch (e) { /* ignore render errors on partial/invalid LaTeX */ }
+}
+window.renderMathIn = renderMathIn;
+
+function updateMathPreview() {
+  var box = document.getElementById("bank-math-preview");
+  var body = document.getElementById("bank-math-preview-body");
+  var hint = document.getElementById("bank-math-auto-hint");
+  var manualCb = document.getElementById("bank-manual-latex");
+  if (!box || !body) return;
+  var subjEl = document.getElementById("bank-subject");
+  var subj = subjEl ? subjEl.value : "";
+  var en = (document.getElementById("bank-question-en") || {}).value || "";
+  var hi = (document.getElementById("bank-question-hi") || {}).value || "";
+  var src = hi || en;
+  var isManual = !!(manualCb && manualCb.checked);
+
+  if (!isMathSubjectName(subj) || !src) { box.style.display = "none"; if (hint) hint.style.display = ""; return; }
+
+  if (isManual) {
+    // Manual Mode: show exactly what will be rendered from the admin's own LaTeX, no auto-detect
+    if (hint) hint.style.display = "none";
+    box.style.display = "block";
+    body.innerHTML = src;
+    renderMathIn(body);
+    return;
+  }
+
+  if (hint) hint.style.display = "";
+  var formatted = autoFormatMathText(src);
+  if (formatted === src) { box.style.display = "none"; return; }
+  box.style.display = "block";
+  body.innerHTML = formatted;
+  renderMathIn(body);
+}
+window.updateMathPreview = updateMathPreview;
+
+// ══════════════════════════════════════════════════════
+//  BULK QUESTION UPLOAD (admin panel section)
+// ══════════════════════════════════════════════════════
+function parseBulkQuestions(text) {
+  // Normalize: remove bold markers, zero-width non-joiner, soft hyphens
+  const lines = text.split('\n')
+    .map(l => l.trim()
+      .replace(/\*\*/g, '')
+      .replace(/\u200d|\u00ad|\u200b/g, '')  // zero-width chars
+      .replace(/^[#>\s]+/, '')
+      .trim()
+    )
+    .filter(Boolean);
+
+  const questions = [];
+  let currentQ = null;
+
+  // Hindi option label map: क=0, ख=1, ग=2, घ=3, ङ=4
+  const hindiOptMap = { 'क':0,'ख':1,'ग':2,'घ':3,'ङ':4,'A':0,'B':1,'C':2,'D':3,'E':4,'अ':0,'ब':1,'स':2,'द':3,'1':0,'2':1,'3':2,'4':3 };
+
+  for (let i = 0; i < lines.length; i++) {
+    let line = lines[i];
+
+    // ── Question line detection ──────────────────────────────────────────
+    // Matches: "1.", "Q1.", "Q.1", "प्रश्‍न 1.", "प्रश्न1.", "प्र. 1.", "(1)"
+    const qMatch = line.match(
+      /^(?:प्र(?:श्‍?न)?\.?\s*|Q\.?\s*)?(\d+)[\.)\-\s]\s*(.+)/i
+    );
+    if (qMatch) {
+      if (currentQ && currentQ.options.length >= 2) questions.push(currentQ);
+      currentQ = { text: qMatch[2].trim(), options: [], answer: 0, explanation: "" };
+      continue;
+    }
+    if (!currentQ) continue;
+
+    // ── Answer line detection (FIRST — before option check) ──────────────
+    // Matches: "उत्तर– (क)", "उत्तर: ख", "Ans: A", "Answer: B", "सही उत्तर (ग)"
+    const ansMatch = line.match(
+      /^(?:उत्तर[\u2013\u2014\-:\s]*|ans(?:wer)?[\s:\-]*|correct[\s:\-]*|सही\s*उत्तर[\s:\-]*)\s*[\(\[]?([कखगघङA-E1-4])[\)\]]?/i
+    );
+    if (ansMatch) {
+      const key = ansMatch[1];
+      currentQ.answer = hindiOptMap[key] ?? hindiOptMap[key.toUpperCase()] ?? 0;
+      continue;
+    }
+
+    // ── Option line detection ────────────────────────────────────────────
+    // Matches: "(क)", "(A)", "A.", "A)", "1." — single or inline multi-option
+    const inlineOpts = line.match(/^[\(\[]([कखगघङABCDE1234])[\)\]]\s*.+/i);
+    if (inlineOpts) {
+      const parts = line.split(/(?=[\(\[][कखगघABCDE1-4][\)\]])/i).filter(Boolean);
+      if (parts.length > 1) {
+        parts.forEach(part => {
+          const m = part.match(/^[\(\[]([कखगघABCDE1-4])[\)\]]\s*(.+)/i);
+          if (m) currentQ.options.push(m[2].trim());
+        });
+        continue;
+      }
+    }
+    const optMatch = line.match(/^[\(\[]?([कखगघङA-E1-4])[\)\].\-]\s*(.+)/i);
+    if (optMatch && optMatch[2]) {
+      currentQ.options.push(optMatch[2].trim());
+      continue;
+    }
+
+    // ── English text/option support (optional "EN:" prefix lines) ─────────
+    const enQMatch = line.match(/^EN[\s:\-]+(.+)/i);
+    if (enQMatch && currentQ.options.length === 0) { currentQ.textEN = enQMatch[1].trim(); continue; }
+    const enOptMatch = line.match(/^EN[\)\.\-:\s]*[\(\[]?([A-E1-4])[\)\]]?\s*(.+)/i);
+    if (enOptMatch) {
+      if (!currentQ.optionsEN) currentQ.optionsEN = [];
+      currentQ.optionsEN.push(enOptMatch[2].trim());
+      continue;
+    }
+
+    // ── Explanation ──────────────────────────────────────────────────────
+    const expMatch = line.match(/^(?:explanation|व्याख्या|हल|स्पष्टीकरण)\s*[:\-]\s*(.+)/i);
+    if (expMatch) { currentQ.explanation = expMatch[1].trim(); continue; }
+
+    // ── Continuation of question text (before any option) ────────────────
+    if (currentQ.options.length === 0) {
+      currentQ.text += " " + line;
+    }
+  }
+  if (currentQ && currentQ.options.length >= 2) questions.push(currentQ);
+  return questions;
+}
+
+function bulkLog(msg) {
+  const box = document.getElementById('bulk-upload-log');
+  if (!box) return;
+  box.style.display = 'block';
+  box.innerHTML += `<div>${msg}</div>`;
+  box.scrollTop = box.scrollHeight;
+}
+
+// ══════════════════════════════════════════════════════════════
+//  BULK UPLOAD v2 — Preview, Duplicate Check, Edit, Progress, Retry
+// ══════════════════════════════════════════════════════════════
+
+function downloadBulkCSVTemplate() {
+  const headers = ["Question(HI)", "OptionA", "OptionB", "OptionC", "OptionD", "Answer", "Explanation"];
+  const sample = ["भारत की राजधानी क्या है?", "दिल्ली", "मुंबई", "पटना", "जयपुर", "A", "दिल्ली भारत की राजधानी है।"];
+  const csv = [headers.join(","), sample.map(csvEscapeBulk).join(",")].join("\n");
+  const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "bulk-upload-template.csv";
+  a.click();
+}
+function csvEscapeBulk(val) {
+  const s = String(val ?? "").replace(/"/g, '""');
+  return /[",\n]/.test(s) ? `"${s}"` : s;
+}
+function parseCSVLine(line) {
+  const out = []; let cur = ""; let inQ = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (inQ) {
+      if (c === '"' && line[i + 1] === '"') { cur += '"'; i++; }
+      else if (c === '"') inQ = false;
+      else cur += c;
+    } else {
+      if (c === '"') inQ = true;
+      else if (c === ',') { out.push(cur); cur = ""; }
+      else cur += c;
+    }
+  }
+  out.push(cur);
+  return out;
+}
+function tryParseAsCSV(text) {
+  const lines = text.split(/\r?\n/).filter(l => l.trim());
+  if (lines.length < 2) return null;
+  const header = parseCSVLine(lines[0]).map(h => h.trim().toLowerCase());
+  if (!header.some(h => h.includes("question"))) return null; // not CSV-template formatted
+  const qIdx = header.findIndex(h => h.includes("question"));
+  const ansIdx = header.findIndex(h => h.includes("answer"));
+  const expIdx = header.findIndex(h => h.includes("explan"));
+  const optIdxs = header.map((h, i) => h.startsWith("option") ? i : -1).filter(i => i >= 0);
+  const ansMap = { a: 0, b: 1, c: 2, d: 3, "1": 0, "2": 1, "3": 2, "4": 3 };
+  return lines.slice(1).map(line => {
+    const cols = parseCSVLine(line);
+    const opts = optIdxs.map(i => (cols[i] || "").trim()).filter(Boolean);
+    const ansRaw = (cols[ansIdx] || "a").trim().toLowerCase();
+    return {
+      text: (cols[qIdx] || "").trim(),
+      options: opts,
+      answer: ansMap[ansRaw] ?? 0,
+      explanation: (cols[expIdx] || "").trim()
+    };
+  }).filter(q => q.text && q.options.length >= 2);
+}
+
+let bulkSelectedImages = [];   // [{file, name}]
+
+function handleBulkImagesSelected(fileList) {
+  bulkSelectedImages = Array.from(fileList || []).map(f => ({ file: f, name: f.name }));
+  const statusEl = document.getElementById('bulk-images-status');
+  statusEl.style.display = 'block';
+  statusEl.textContent = `📷 ${bulkSelectedImages.length} image(s) select hui. Preview karne par auto-match hoga.`;
+}
+
+function extractNumberFromFilename(name) {
+  const m = name.match(/(\d+)/);
+  return m ? parseInt(m[1], 10) : null;
+}
+
+function autoMatchBulkImages() {
+  bulkParsedQuestions.forEach((q, i) => {
+    if (q.imageFile) return; // already manually attached
+    const match = bulkSelectedImages.find(img => extractNumberFromFilename(img.name) === (i + 1));
+    if (match) { q.imageFile = match.file; q.imagePreviewUrl = URL.createObjectURL(match.file); }
+  });
+}
+
+function attachImageToBulkRow(rowIdx, fileInput) {
+  const file = fileInput.files[0];
+  if (!file) return;
+  bulkParsedQuestions[rowIdx].imageFile = file;
+  bulkParsedQuestions[rowIdx].imagePreviewUrl = URL.createObjectURL(file);
+  renderBulkPreviewTable();
+}
+
+function removeImageFromBulkRow(rowIdx) {
+  bulkParsedQuestions[rowIdx].imageFile = null;
+  bulkParsedQuestions[rowIdx].imagePreviewUrl = null;
+  renderBulkPreviewTable();
+}
+
+// Image ko resize + compress karke ek base64 data-URI string mein badalte
+// hain (Canvas se), taaki Firestore doc ke andar seedha save ho sake.
+// ── Firebase Storage kyun use nahi kar rahe: ──
+// Pehle ye function Firebase Storage (`firebase.storage()`) use karta tha,
+// lekin naye Firebase projects mein (Oct 2024 se) Storage sirf paid
+// "Blaze" plan par kaam karta hai — free "Spark" plan par upload silently
+// fail ho jaata hai. Isi wajah se "image attach karte hi question upload
+// nahi hota tha". Base64-in-Firestore approach bilkul free plan par bhi
+// chalta hai, aur app mein already isi tarah images handle hoti hain
+// (jaise AI Question Generator mein) — isliye consistent bhi hai.
+function compressImageToDataUrl(file, maxDim, quality) {
+  maxDim = maxDim || 900;
+  quality = quality || 0.72;
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('Image padhi nahi gayi'));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error('Image load nahi hui'));
+      img.onload = () => {
+        let width = img.width, height = img.height;
+        if (width > maxDim || height > maxDim) {
+          const scale = maxDim / Math.max(width, height);
+          width = Math.round(width * scale);
+          height = Math.round(height * scale);
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width; canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+        try {
+          resolve(canvas.toDataURL('image/jpeg', quality));
+        } catch (e) { reject(e); }
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+async function uploadBulkImageIfAny(q, idx) {
+  if (!q.imageFile) return "";
+  try {
+    return await compressImageToDataUrl(q.imageFile);
+  } catch (e) {
+    bulkLog(`⚠️ Q${idx + 1}: Image process nahi ho payi, question bina image ke save hoga — ${escHtml(e.message || String(e))}`);
+    return "";
+  }
+}
+
+window.handleBulkImagesSelected = handleBulkImagesSelected;
+window.attachImageToBulkRow = attachImageToBulkRow;
+window.removeImageFromBulkRow = removeImageFromBulkRow;
+
+function normalizeQText(t) {
+  return (t || "").toLowerCase().replace(/[^\u0900-\u097Fa-z0-9]+/g, " ").trim();
+}
+
+function isDuplicateQuestion(text) {
+  if (typeof questionBank === "undefined" || !Array.isArray(questionBank)) return false;
+  const norm = normalizeQText(text);
+  if (!norm) return false;
+  return questionBank.some(q => normalizeQText(q.textHI || q.text || "") === norm);
+}
+
+let bulkParsedQuestions = [];   // current preview state
+let bulkFailedQuestions = [];   // failed-on-upload items, for retry/export
+let bulkInputMode = 'combined'; // 'combined' | 'separate'
+
+function setBulkInputMode(mode) {
+  bulkInputMode = mode;
+  const combinedBtn = document.getElementById('bulk-mode-combined-btn');
+  const separateBtn = document.getElementById('bulk-mode-separate-btn');
+  const combinedPanel = document.getElementById('bulk-combined-panel');
+  const separatePanel = document.getElementById('bulk-separate-panel');
+  if (combinedPanel) combinedPanel.classList.toggle('hidden', mode !== 'combined');
+  if (separatePanel) separatePanel.classList.toggle('hidden', mode !== 'separate');
+  if (combinedBtn) combinedBtn.className = mode === 'combined' ? 'btn-primary' : 'btn-secondary';
+  if (separateBtn) separateBtn.className = mode === 'separate' ? 'btn-primary' : 'btn-secondary';
+}
+window.setBulkInputMode = setBulkInputMode;
+
+// ── Separate Boxes parser ──────────────────────────────────────────────
+// Questions/Options/Answer/Explanation alag-alag textareas se, line-by-line
+// match karke, wahi { text, options, answer, explanation } shape banata hai
+// jo parseBulkQuestions() (combined mode) banata hai — isliye neeche ka
+// poora preview/duplicate-check/edit/upload pipeline bina kisi badlaav ke
+// dono modes ke liye kaam karta hai.
+const SEP_ANSWER_MAP = { 'क':0,'ख':1,'ग':2,'घ':3,'ङ':4,'A':0,'B':1,'C':2,'D':3,'E':4,'अ':0,'ब':1,'स':2,'द':3,'1':0,'2':1,'3':2,'4':3 };
+
+function parseSeparateBoxesQuestions() {
+  const qRaw   = (document.getElementById('bulk-sep-questions')?.value || '');
+  const aRaw   = (document.getElementById('bulk-sep-opt-a')?.value || '');
+  const bRaw   = (document.getElementById('bulk-sep-opt-b')?.value || '');
+  const cRaw   = (document.getElementById('bulk-sep-opt-c')?.value || '');
+  const dRaw   = (document.getElementById('bulk-sep-opt-d')?.value || '');
+  const ansRaw = (document.getElementById('bulk-sep-answers')?.value || '');
+  const expRaw = (document.getElementById('bulk-sep-explanations')?.value || '');
+
+  const qLines   = qRaw.split('\n').map(l => l.trim()).filter(Boolean);
+  const aLines   = aRaw.split('\n').map(l => l.trim()).filter(Boolean);
+  const bLines   = bRaw.split('\n').map(l => l.trim()).filter(Boolean);
+  const cLines   = cRaw.split('\n').map(l => l.trim()).filter(Boolean);
+  const dLines   = dRaw.split('\n').map(l => l.trim()).filter(Boolean);
+  const ansLines = ansRaw.split('\n').map(l => l.trim()).filter(Boolean);
+  const expLines = expRaw.split('\n').map(l => l.trim()).filter(Boolean);
+
+  if (!qLines.length) { alert('Pehle Questions box mein sawaal likhein.'); return []; }
+
+  const checkLen = (lines, boxName) => {
+    if (lines.length !== qLines.length) {
+      alert(`⚠️ Line count match nahi ho raha!\n\nQuestions box mein ${qLines.length} lines hain, lekin ${boxName} box mein ${lines.length} lines hain.\n\nHar sawaal ke liye ek hi line honi chahiye, sabhi boxes mein same number of lines.`);
+      return false;
+    }
+    return true;
+  };
+  if (!checkLen(aLines, 'Option A')) return [];
+  if (!checkLen(bLines, 'Option B')) return [];
+  // Option C aur D optional hain (2-option ya 3-option sawaal ke liye) —
+  // sirf tab check karo jab box mein kuch likha ho.
+  if (cLines.length && !checkLen(cLines, 'Option C')) return [];
+  if (dLines.length && !checkLen(dLines, 'Option D')) return [];
+  if (!checkLen(ansLines, 'Answer')) return [];
+  if (expLines.length && !checkLen(expLines, 'Explanation')) return [];
+
+  const questions = [];
+  for (let i = 0; i < qLines.length; i++) {
+    const text = qLines[i].replace(/^\d+[\.)\-\s]\s*/, ''); // leading "1. " numbering hata do agar ho
+    const options = [aLines[i], bLines[i], cLines[i] || "", dLines[i] || ""].filter((o, idx) => idx < 2 || o);
+    if (options.length < 2) {
+      alert(`⚠️ Sawaal ${i + 1} ("${text.slice(0, 40)}...") ke Option A/B khaali hain.\n\nKam se kam Option A aur Option B bharna zaroori hai.`);
+      return [];
+    }
+    const ansToken = ansLines[i];
+    let answer = SEP_ANSWER_MAP[ansToken] ?? SEP_ANSWER_MAP[ansToken.toUpperCase()];
+    if (answer === undefined) {
+      // Letter/number se match nahi hua — shayad admin ne seedha sahi option ka text likha ho
+      const idx = options.findIndex(o => o.toLowerCase() === ansToken.toLowerCase());
+      answer = idx >= 0 ? idx : 0;
+    }
+    questions.push({
+      text,
+      options,
+      answer,
+      explanation: expLines[i] || ""
+    });
+  }
+  return questions;
+}
+
+function previewBulkQuestions() {
+  let parsed;
+  if (bulkInputMode === 'separate') {
+    parsed = parseSeparateBoxesQuestions();
+    if (!parsed.length) return; // parseSeparateBoxesQuestions already alerted the specific issue
+  } else {
+    const rawText = (document.getElementById('bulk-raw-text')?.value || '').trim();
+    if (!rawText) { alert('Pehle questions paste karo.'); return; }
+    parsed = tryParseAsCSV(rawText) || parseBulkQuestions(rawText);
+    if (!parsed.length) {
+      alert('❌ Koi valid question nahi mila! Format check karo.');
+      return;
+    }
+  }
+
+  // Mark duplicates + quality issues
+  bulkParsedQuestions = parsed.map(q => {
+    while (q.options.length < 4) q.options.push("");
+    const issues = [];
+    if (q.options.filter(o => !o.trim()).length > 0 && q.options.filter(Boolean).length < 4) issues.push("Khaali option");
+    if (q.answer == null || q.answer < 0 || q.answer > 3 || !q.options[q.answer]) issues.push("Answer galat/khaali option se match nahi");
+    if (!q.text || q.text.length < 5) issues.push("Question text bahut chhota/khaali");
+    return { ...q, isDuplicate: isDuplicateQuestion(q.text), include: true, issues };
+  });
+
+  renderBulkPreviewTable();
+  autoMatchBulkImages();
+  renderBulkPreviewTable();
+  document.getElementById('bulk-preview-area').style.display = 'block';
+  const upBtn = document.getElementById('bulk-upload-btn');
+  upBtn.disabled = false;
+  upBtn.style.opacity = '1';
+  document.getElementById('bulk-failed-area').style.display = 'none';
+  document.getElementById('bulk-upload-log').style.display = 'none';
+  document.getElementById('bulk-upload-log').innerHTML = '';
+  if (window.renderMathIn) requestAnimationFrame(() => window.renderMathIn(document.getElementById('bulk-preview-tbody')));
+}
+
+function renderBulkPreviewTable() {
+  const dupCount = bulkParsedQuestions.filter(q => q.isDuplicate).length;
+  document.getElementById('bulk-preview-summary').textContent =
+    `${bulkParsedQuestions.length} questions mile` + (dupCount ? ` · ⚠️ ${dupCount} possible duplicate` : '');
+
+  const tbody = document.getElementById('bulk-preview-tbody');
+  tbody.innerHTML = bulkParsedQuestions.map((q, i) => {
+    const optsHtml = q.options.map((opt, oi) =>
+      `<div style="display:flex;gap:6px;align-items:center;margin-top:3px;">
+         <span style="color:#94a3b8;font-size:.75rem;">${String.fromCharCode(65 + oi)}.</span>
+         <span contenteditable="true" data-row="${i}" data-opt="${oi}" class="bulk-opt-edit" style="flex:1;border-bottom:1px dashed #cbd5e1;padding:1px 3px;">${escHtml(opt)}</span>
+       </div>`
+    ).join('');
+    return `<tr data-row="${i}" style="border-top:1px solid #e2e8f0;${q.isDuplicate ? 'background:#fff7ed;' : ''}">
+      <td style="padding:6px;text-align:center;"><input type="checkbox" class="bulk-row-check" data-row="${i}" ${q.include ? 'checked' : ''} onchange="bulkParsedQuestions[${i}].include=this.checked" /></td>
+      <td style="padding:6px;color:#64748b;">${i + 1}</td>
+      <td style="padding:6px;">
+        <div contenteditable="true" data-row="${i}" data-field="text" class="bulk-text-edit" style="font-weight:600;border-bottom:1px dashed #cbd5e1;padding:1px 3px;">${escHtml(q.text)}</div>
+        ${optsHtml}
+      </td>
+      <td style="padding:6px;">
+        <select data-row="${i}" class="bulk-answer-select" onchange="bulkParsedQuestions[${i}].answer=parseInt(this.value)">
+          ${[0,1,2,3].map(oi => `<option value="${oi}" ${q.answer === oi ? 'selected' : ''}>${String.fromCharCode(65 + oi)}</option>`).join('')}
+        </select>
+      </td>
+      <td style="padding:6px;">
+        ${q.imagePreviewUrl
+          ? `<img src="${q.imagePreviewUrl}" style="width:48px;height:48px;object-fit:cover;border-radius:6px;border:1px solid #cbd5e1;display:block;margin-bottom:4px;" />
+             <button type="button" onclick="removeImageFromBulkRow(${i})" style="font-size:.7rem;color:#dc2626;background:none;border:none;cursor:pointer;padding:0;">✕ Remove</button>`
+          : `<label style="font-size:.74rem;color:#0ea5e9;cursor:pointer;">📷 Attach<input type="file" accept="image/*" style="display:none;" onchange="attachImageToBulkRow(${i}, this)" /></label>`
+        }
+      </td>
+      <td style="padding:6px;">
+        ${q.isDuplicate ? '<div style="color:#c2410c;">⚠️ Duplicate?</div>' : '<div style="color:#16a34a;">✓ New</div>'}
+        ${(q.issues && q.issues.length) ? q.issues.map(iss => `<div style="color:#b91c1c;font-size:.74rem;">⚠️ ${iss}</div>`).join('') : ''}
+      </td>
+    </tr>`;
+  }).join('');
+
+  // wire up contenteditable edits back into bulkParsedQuestions
+  tbody.querySelectorAll('.bulk-text-edit').forEach(el => {
+    el.addEventListener('blur', () => { bulkParsedQuestions[el.dataset.row].text = el.textContent.trim(); });
+  });
+  tbody.querySelectorAll('.bulk-opt-edit').forEach(el => {
+    el.addEventListener('blur', () => { bulkParsedQuestions[el.dataset.row].options[el.dataset.opt] = el.textContent.trim(); });
+  });
+}
+
+function toggleAllBulkRows(checked) {
+  bulkParsedQuestions.forEach(q => q.include = checked);
+  document.querySelectorAll('.bulk-row-check').forEach(cb => cb.checked = checked);
+}
+
+function setBulkProgress(done, total) {
+  const wrap = document.getElementById('bulk-progress-wrap');
+  wrap.style.display = total ? 'block' : 'none';
+  const pct = total ? Math.round((done / total) * 100) : 0;
+  document.getElementById('bulk-progress-bar').style.width = pct + '%';
+  document.getElementById('bulk-progress-text').textContent = `${done} / ${total}`;
+}
+
+let bulkLastUploadedIds = [];
+
+async function uploadOneBulkQuestion(q, subject, chapter, difficulty, idx) {
+  const docId = `bulk-${Date.now()}-${idx}-${Math.floor(Math.random() * 1000)}`;
+  const imageUrl = await uploadBulkImageIfAny(q, idx);
+  let qObj = {
+    subject, chapter, difficulty,
+    textHI: q.text, textEN: q.textEN || "", text: q.text,
+    optionsHI: q.options, optionsEN: q.optionsEN || ["", "", "", ""], options: q.options,
+    answer: q.answer,
+    explanationHI: q.explanation || "", explanationEN: "", explanation: q.explanation || "",
+    image: imageUrl || "",
+    seededBy: "BulkUploadUI"
+  };
+  if (window.autoFormatMathFields) qObj = window.autoFormatMathFields(qObj);
+  await window.saveBankOnline(docId, qObj);
+  // Firestore ka onSnapshot listener wapas aane mein thoda time (aur kabhi
+  // network lag) lagta hai — tab tak ke liye local questionBank array mein
+  // bhi turant push kar dete hain, taaki upload khatam hote hi list turant
+  // (bina Refresh button dabaye) update dikhe. deleteBankQuestion() mein
+  // bhi bilkul yahi pattern already use ho raha hai.
+  if (typeof questionBank !== "undefined") {
+    questionBank = questionBank.filter(x => x.id !== docId);
+    questionBank.push({ id: docId, ...qObj });
+    window.questionBank = questionBank;
+  }
+  return docId;
+}
+
+async function confirmBulkUpload() {
+  const subject = (document.getElementById('bulk-subject')?.value || '').trim() || 'General';
+  const chapter = (document.getElementById('bulk-chapter')?.value || '').trim() || 'General';
+  const difficulty = document.getElementById('bulk-difficulty')?.value || 'medium';
+  if (typeof saveCustomSubject === 'function' && subject) saveCustomSubject(subject);
+  if (typeof saveCustomChapter === 'function' && subject && chapter) saveCustomChapter(subject, chapter);
+
+  const toUpload = bulkParsedQuestions.filter(q => q.include);
+  if (!toUpload.length) { alert('Koi question select nahi hai upload ke liye.'); return; }
+
+  const btn = document.getElementById('bulk-upload-btn');
+  const prevBtn = document.getElementById('bulk-preview-btn');
+  const logBox = document.getElementById('bulk-upload-log');
+  logBox.style.display = 'block'; logBox.innerHTML = '';
+  btn.disabled = true; btn.textContent = '⏳ Uploading...';
+  prevBtn.disabled = true;
+  bulkFailedQuestions = [];
+  document.getElementById('bulk-failed-area').style.display = 'none';
+
+  let successCount = 0, failCount = 0;
+  const uploadedIds = [];
+  setBulkProgress(0, toUpload.length);
+  for (let i = 0; i < toUpload.length; i++) {
+    const q = toUpload[i];
+    try {
+      const docId = await uploadOneBulkQuestion(q, subject, chapter, difficulty, i);
+      uploadedIds.push(docId);
+      successCount++;
+      q._uploaded = true; // preview table se hatane ke liye mark kar rahe hain
+      bulkLog(`✔️ Q${i + 1} upload ho gaya: ${escHtml(q.text.substring(0, 40))}...`);
+    } catch (e) {
+      failCount++;
+      bulkFailedQuestions.push(q);
+      bulkLog(`❌ Q${i + 1} fail ho gaya: ${escHtml(e.message || String(e))}`);
+    }
+    setBulkProgress(i + 1, toUpload.length);
+  }
+
+  bulkLog(`<br/>🎉 <strong>Upload Complete!</strong> Successful: ${successCount}, Failed: ${failCount}`);
+  btn.disabled = false; btn.textContent = '🚀 Confirm & Upload';
+  prevBtn.disabled = false;
+  if (failCount) document.getElementById('bulk-failed-area').style.display = 'block';
+  if (uploadedIds.length) {
+    bulkLastUploadedIds = uploadedIds;
+    document.getElementById('bulk-undo-btn').style.display = 'inline-block';
+  }
+  // Jo questions successfully upload ho gaye unhe preview table se hata do
+  // — pehle yahan table refresh hi nahi hota tha, isliye upload complete ho
+  // jaane ke baad bhi wahi purana row "✓ New" status ke saath dikhta rehta
+  // tha, jaise kuch hua hi na ho.
+  bulkParsedQuestions = bulkParsedQuestions.filter(q => !q._uploaded);
+  renderBulkPreviewTable();
+  if (typeof renderBank === 'function') renderBank();
+  if (!bulkParsedQuestions.length) {
+    // Sab kuch upload ho gaya — input boxes bhi clear kar do taaki galti se
+    // dobara Preview dabane par same purana text phir se process na ho.
+    ['bulk-raw-text','bulk-sep-questions','bulk-sep-opt-a','bulk-sep-opt-b','bulk-sep-opt-c','bulk-sep-opt-d','bulk-sep-answers','bulk-sep-explanations'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.value = '';
+    });
+  }
+}
+
+async function undoLastBulkUpload() {
+  if (!bulkLastUploadedIds.length) return;
+  if (!confirm(`Last batch ke ${bulkLastUploadedIds.length} questions delete (Recycle Bin me move) karna hai?`)) return;
+  const btn = document.getElementById('bulk-undo-btn');
+  btn.disabled = true; btn.textContent = '⏳ Undo ho raha hai...';
+  let ok = 0, fail = 0;
+  for (const id of bulkLastUploadedIds) {
+    try { await window.deleteBankQuestion(id, true); ok++; }
+    catch (e) { fail++; }
+  }
+  bulkLog(`<br/>↩️ <strong>Undo Complete!</strong> Removed: ${ok}, Failed: ${fail}`);
+  bulkLastUploadedIds = [];
+  btn.style.display = 'none';
+  btn.disabled = false; btn.textContent = '↩️ Undo Last Upload';
+  if (typeof renderBank === 'function') renderBank();
+}
+window.undoLastBulkUpload = undoLastBulkUpload;
+window.downloadBulkCSVTemplate = downloadBulkCSVTemplate;
+
+async function retryFailedBulk() {
+  if (!bulkFailedQuestions.length) return;
+  const subject = (document.getElementById('bulk-subject')?.value || '').trim() || 'General';
+  const chapter = (document.getElementById('bulk-chapter')?.value || '').trim() || 'General';
+  const difficulty = document.getElementById('bulk-difficulty')?.value || 'medium';
+  const retryList = bulkFailedQuestions; bulkFailedQuestions = [];
+  document.getElementById('bulk-failed-area').style.display = 'none';
+  setBulkProgress(0, retryList.length);
+  let ok = 0, fail = 0;
+  for (let i = 0; i < retryList.length; i++) {
+    try {
+      await uploadOneBulkQuestion(retryList[i], subject, chapter, difficulty, i);
+      ok++;
+      bulkLog(`✔️ Retry Q${i + 1} ho gaya.`);
+    } catch (e) {
+      fail++;
+      bulkFailedQuestions.push(retryList[i]);
+      bulkLog(`❌ Retry Q${i + 1} phir fail: ${escHtml(e.message || String(e))}`);
+    }
+    setBulkProgress(i + 1, retryList.length);
+  }
+  bulkLog(`<br/>🔁 <strong>Retry Complete!</strong> Successful: ${ok}, Still Failed: ${fail}`);
+  if (fail) document.getElementById('bulk-failed-area').style.display = 'block';
+  if (typeof renderBank === 'function') renderBank();
+}
+
+function exportFailedBulk() {
+  if (!bulkFailedQuestions.length) return;
+  const lines = bulkFailedQuestions.map((q, i) => {
+    const opts = q.options.map((o, oi) => `(${'कखगघ'[oi] || String.fromCharCode(65 + oi)}) ${o}`).join('\n');
+    return `प्रश्‍न ${i + 1}. ${q.text}\n${opts}\nउत्तर– (${'कखगघ'[q.answer] || 'क'})\n`;
+  }).join('\n');
+  const blob = new Blob([lines], { type: 'text/plain;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'failed-bulk-questions.txt';
+  a.click();
+}
+
+window.parseBulkQuestions = parseBulkQuestions;
+window.previewBulkQuestions = previewBulkQuestions;
+window.confirmBulkUpload = confirmBulkUpload;
+window.toggleAllBulkRows = toggleAllBulkRows;
+window.retryFailedBulk = retryFailedBulk;
+window.exportFailedBulk = exportFailedBulk;
+
+// ══════════════════════════════════════════════════════════════
+//  MULTI-FORMAT FILE UPLOAD — PDF · DOCX · TXT · CSV · JSON · Image
+// ══════════════════════════════════════════════════════════════
+
+// Drag-drop support
+(function () {
+  document.addEventListener('DOMContentLoaded', function () {
+    const zone = document.getElementById('bulk-drop-zone');
+    if (!zone) return;
+    zone.addEventListener('dragover', e => { e.preventDefault(); zone.style.background = '#e0f2fe'; zone.style.borderColor = '#0ea5e9'; });
+    zone.addEventListener('dragleave', () => { zone.style.background = '#f8fafc'; zone.style.borderColor = '#94a3b8'; });
+    zone.addEventListener('drop', e => {
+      e.preventDefault();
+      zone.style.background = '#f8fafc';
+      zone.style.borderColor = '#94a3b8';
+      const file = e.dataTransfer.files[0];
+      if (file) handleBulkFileUpload(file);
+    });
+  });
+})();
+
+function bulkFileStatus(msg, ok) {
+  const el = document.getElementById('bulk-file-status');
+  if (!el) return;
+  el.style.display = 'block';
+  el.style.color = ok === false ? '#dc2626' : '#0f766e';
+  el.textContent = msg;
+}
+
+async function handleBulkFileUpload(file) {
+  if (!file) return;
+  const ext = file.name.split('.').pop().toLowerCase();
+  bulkFileStatus('⏳ File padh raha hoon: ' + file.name + '…');
+
+  try {
+    let extractedText = '';
+
+    /* ── TXT ─────────────────────────────────────── */
+    if (ext === 'txt') {
+      extractedText = await file.text();
+    }
+
+    /* ── CSV ─────────────────────────────────────── */
+    else if (ext === 'csv') {
+      const raw = await file.text();
+      extractedText = csvToQuestionText(raw);
+    }
+
+    /* ── JSON ────────────────────────────────────── */
+    else if (ext === 'json') {
+      const raw = await file.text();
+      extractedText = jsonToQuestionText(raw);
+    }
+
+    /* ── PDF ─────────────────────────────────────── */
+    else if (ext === 'pdf') {
+      if (!window.PdfImport) throw new Error('pdf-import.js load nahi hua. Page refresh karein.');
+      const result = await window.PdfImport.extractTextFromPdf(file);
+      extractedText = result;
+    }
+
+    /* ── DOCX ────────────────────────────────────── */
+    else if (ext === 'docx' || ext === 'doc') {
+      extractedText = await docxToText(file);
+    }
+
+    /* ── Images (JPG/PNG/WEBP) — OCR via Tesseract ── */
+    else if (['jpg', 'jpeg', 'png', 'webp'].includes(ext)) {
+      extractedText = await imageToText(file);
+    }
+
+    else {
+      // Unknown: try reading as plain text anyway
+      try { extractedText = await file.text(); }
+      catch (_) { throw new Error('Ye format abhi support nahi hota: .' + ext); }
+    }
+
+    if (!extractedText.trim()) throw new Error('File se koi text nahi mila.');
+
+    document.getElementById('bulk-raw-text').value = extractedText.trim();
+    const lineCount = extractedText.trim().split('\n').filter(Boolean).length;
+    bulkFileStatus(`✅ ${file.name} padh liya (${lineCount} lines). Neeche "Start Bulk Upload" dabayein.`, true);
+
+    // highlight textarea briefly
+    const ta = document.getElementById('bulk-raw-text');
+    ta.style.border = '2px solid #0ea5e9';
+    setTimeout(() => ta.style.border = '', 2000);
+
+  } catch (err) {
+    bulkFileStatus('❌ ' + (err.message || 'File padhne mein dikkat aayi.'), false);
+    console.error('[BulkFileUpload]', err);
+  }
+}
+
+/* ── CSV → Question Text ─────────────────────────── */
+function csvToQuestionText(raw) {
+  const lines = raw.split('\n').map(l => l.trim()).filter(Boolean);
+  if (!lines.length) return '';
+
+  // Detect separator
+  const sep = lines[0].includes('\t') ? '\t' : ',';
+
+  // Try to parse as question CSV: Q, A, B, C, D, Ans, Explanation
+  const header = lines[0].split(sep).map(h => h.replace(/^"|"$/g, '').toLowerCase().trim());
+  const qIdx = header.findIndex(h => /^q|question|text|प्रश्न/.test(h));
+
+  if (qIdx === -1) {
+    // No header match — just join all cells as plain text
+    return lines.join('\n');
+  }
+
+  const aIdx = header.findIndex(h => /^a$|^option.?a|^opt.?1/.test(h));
+  const bIdx = header.findIndex(h => /^b$|^option.?b|^opt.?2/.test(h));
+  const cIdx = header.findIndex(h => /^c$|^option.?c|^opt.?3/.test(h));
+  const dIdx = header.findIndex(h => /^d$|^option.?d|^opt.?4/.test(h));
+  const ansIdx = header.findIndex(h => /^ans|^answer|^correct/.test(h));
+  const expIdx = header.findIndex(h => /^exp|^expl|^explanation|^व्याख्या/.test(h));
+
+  const output = [];
+  for (let i = 1; i < lines.length; i++) {
+    const cols = splitCsvLine(lines[i], sep);
+    const get = idx => (idx !== -1 && cols[idx] ? cols[idx].replace(/^"|"$/g, '').trim() : '');
+    const qText = get(qIdx);
+    if (!qText) continue;
+    output.push(`${i}. ${qText}`);
+    if (aIdx !== -1) output.push(`A) ${get(aIdx)}`);
+    if (bIdx !== -1) output.push(`B) ${get(bIdx)}`);
+    if (cIdx !== -1) output.push(`C) ${get(cIdx)}`);
+    if (dIdx !== -1) output.push(`D) ${get(dIdx)}`);
+    if (ansIdx !== -1 && get(ansIdx)) output.push(`Ans: ${get(ansIdx)}`);
+    if (expIdx !== -1 && get(expIdx)) output.push(`Explanation: ${get(expIdx)}`);
+    output.push('');
+  }
+  return output.join('\n');
+}
+
+function splitCsvLine(line, sep) {
+  // Handles quoted fields
+  const result = [];
+  let cur = '', inQ = false;
+  for (let i = 0; i < line.length; i++) {
+    if (line[i] === '"') { inQ = !inQ; continue; }
+    if (line[i] === sep && !inQ) { result.push(cur); cur = ''; continue; }
+    cur += line[i];
+  }
+  result.push(cur);
+  return result;
+}
+
+/* ── JSON → Question Text ────────────────────────── */
+function jsonToQuestionText(raw) {
+  let data;
+  try { data = JSON.parse(raw); } catch (_) { return raw; }
+
+  // If array of question objects
+  if (Array.isArray(data)) {
+    const output = [];
+    data.forEach((item, i) => {
+      const qText = item.question || item.text || item.textHI || item.q || '';
+      if (!qText) return;
+      output.push(`${i + 1}. ${qText}`);
+      const opts = item.options || item.optionsHI || item.choices || [];
+      const letters = ['A', 'B', 'C', 'D'];
+      opts.forEach((o, j) => output.push(`${letters[j]}) ${o}`));
+      const ans = item.answer !== undefined ? item.answer : (item.correct !== undefined ? item.correct : '');
+      if (ans !== '') {
+        const ansLetter = typeof ans === 'number' ? letters[ans] : String(ans);
+        output.push(`Ans: ${ansLetter}`);
+      }
+      const exp = item.explanation || item.explanationHI || '';
+      if (exp) output.push(`Explanation: ${exp}`);
+      output.push('');
+    });
+    return output.join('\n');
+  }
+
+  // Nested object — flatten values
+  return JSON.stringify(data, null, 2);
+}
+
+/* ── DOCX → Plain Text ───────────────────────────── */
+async function docxToText(file) {
+  // Use mammoth.js from CDN if available, else load it
+  if (!window.mammoth) {
+    await loadScript('https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js');
+  }
+  if (!window.mammoth) throw new Error('mammoth.js load nahi hua. Internet check karein.');
+  const arrayBuffer = await file.arrayBuffer();
+  const result = await window.mammoth.extractRawText({ arrayBuffer });
+  return result.value || '';
+}
+
+/* ── Image → Text (OCR via Tesseract.js) ─────────── */
+async function imageToText(file) {
+  if (!window.Tesseract) {
+    await loadScript('https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.0.4/tesseract.min.js');
+  }
+  if (!window.Tesseract) throw new Error('Tesseract.js load nahi hua. Internet check karein.');
+
+  bulkFileStatus('🔍 Image se text nikaal raha hoon (OCR)… thoda wait karein…');
+
+  const { data: { text } } = await window.Tesseract.recognize(file, 'hin+eng', {
+    logger: m => {
+      if (m.status === 'recognizing text') {
+        bulkFileStatus(`🔍 OCR: ${Math.round((m.progress || 0) * 100)}% complete…`);
+      }
+    }
+  });
+  return text;
+}
+
+/* ── Script loader helper ────────────────────────── */
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = src;
+    s.onload = resolve;
+    s.onerror = () => reject(new Error('Script load failed: ' + src));
+    document.head.appendChild(s);
+  });
+}
+
+window.handleBulkFileUpload = handleBulkFileUpload;
+
+// ══════════════════════════════════════════════════════
+//  SMART SUBJECT + CHAPTER SYSTEM v3 (Delete support)
+// ══════════════════════════════════════════════════════
+var BUILTIN_SUBJECTS = window.SubjectResolver ? window.SubjectResolver.STANDARD_SUBJECTS : [
+  "Mathematics","Reasoning","English","General Awareness",
+  "History","Geography","Hindi","Science","Social Science",
+  "Physics","Chemistry","Biology","Economics","Civics"
+];
+var BUILTIN_CHAPTERS = window.SubjectResolver ? window.SubjectResolver.SUBJECT_CHAPTERS : {};
+
+function getCustomSubjects() { try { return JSON.parse(localStorage.getItem('savya_custom_subjects')||'[]'); } catch(e){return[];} }
+function getCustomChapters(s) { try { var a=JSON.parse(localStorage.getItem('savya_custom_chapters')||'{}'); return a[s]||[]; } catch(e){return[];} }
+function getDeletedSubjects() { try { return JSON.parse(localStorage.getItem('savya_deleted_subjects')||'[]'); } catch(e){return[];} }
+function getDeletedChapters(s) { try { var a=JSON.parse(localStorage.getItem('savya_deleted_chapters')||'{}'); return a[s]||[]; } catch(e){return[];} }
+
+function saveCustomSubject(subj) {
+  if (!subj) return;
+  var del=getDeletedSubjects(), di=del.indexOf(subj);
+  if(di>-1){del.splice(di,1);localStorage.setItem('savya_deleted_subjects',JSON.stringify(del));}
+  var list=getCustomSubjects();
+  if(!list.includes(subj)){list.push(subj);localStorage.setItem('savya_custom_subjects',JSON.stringify(list));}
+}
+function saveCustomChapter(subject,chapter) {
+  if(!subject||!chapter)return;
+  try {
+    var delAll=JSON.parse(localStorage.getItem('savya_deleted_chapters')||'{}');
+    if(delAll[subject]){delAll[subject]=delAll[subject].filter(function(c){return c!==chapter;});localStorage.setItem('savya_deleted_chapters',JSON.stringify(delAll));}
+    var all=JSON.parse(localStorage.getItem('savya_custom_chapters')||'{}');
+    if(!all[subject])all[subject]=[];
+    if(!all[subject].includes(chapter)){all[subject].push(chapter);localStorage.setItem('savya_custom_chapters',JSON.stringify(all));}
+  }catch(e){}
+}
+function deleteSubject(subj) {
+  var list=getCustomSubjects().filter(function(s){return s!==subj;});
+  localStorage.setItem('savya_custom_subjects',JSON.stringify(list));
+  if(BUILTIN_SUBJECTS.includes(subj)){var del=getDeletedSubjects();if(!del.includes(subj)){del.push(subj);localStorage.setItem('savya_deleted_subjects',JSON.stringify(del));}}
+}
+function deleteChapter(subject,chapter) {
+  try{var all=JSON.parse(localStorage.getItem('savya_custom_chapters')||'{}');if(all[subject]){all[subject]=all[subject].filter(function(c){return c!==chapter;});localStorage.setItem('savya_custom_chapters',JSON.stringify(all));}}catch(e){}
+  if((BUILTIN_CHAPTERS[subject]||[]).includes(chapter)){try{var d=JSON.parse(localStorage.getItem('savya_deleted_chapters')||'{}');if(!d[subject])d[subject]=[];if(!d[subject].includes(chapter)){d[subject].push(chapter);localStorage.setItem('savya_deleted_chapters',JSON.stringify(d));}}catch(e){}}
+}
+function getAllSubjects() {
+  var del=getDeletedSubjects();
+  return [...new Set([...BUILTIN_SUBJECTS,...getCustomSubjects()])].filter(function(s){return!del.includes(s);});
+}
+function getAllChapters(subject) {
+  var del=getDeletedChapters(subject);
+  return [...new Set([...(BUILTIN_CHAPTERS[subject]||[]),...getCustomChapters(subject)])].filter(function(c){return!del.includes(c);});
+}
+
+function populateBankSubjectDropdown(sel_val) {
+  var sel=document.getElementById('bank-subject-select'); if(!sel)return;
+  sel.innerHTML='<option value="">-- Subject chunein --</option>';
+  getAllSubjects().forEach(function(s){var o=document.createElement('option');o.value=s;o.textContent=s;if(s===sel_val)o.selected=true;sel.appendChild(o);});
+}
+function populateBankChapterDropdown(subject,sel_val) {
+  var sel=document.getElementById('bank-chapter-select'); if(!sel)return;
+  sel.innerHTML='<option value="">-- Chapter chunein --</option>';
+  getAllChapters(subject||'').forEach(function(ch){var o=document.createElement('option');o.value=ch;o.textContent=ch;if(ch===sel_val)o.selected=true;sel.appendChild(o);});
+}
+function onBankSubjectSelectChange() {
+  var sel=document.getElementById('bank-subject-select'),inp=document.getElementById('bank-subject');
+  if(sel.value){inp.value=sel.value;populateBankChapterDropdown(sel.value);document.getElementById('bank-chapter').value='';document.getElementById('bank-chapter-select').value='';}
+  if (window.updateMathPreview) window.updateMathPreview();
+}
+function onBankChapterSelectChange() {
+  var sel=document.getElementById('bank-chapter-select'),inp=document.getElementById('bank-chapter');
+  if(sel.value)inp.value=sel.value;
+}
+function onBankSubjectInputChange() {
+  var val=(document.getElementById('bank-subject').value||'').trim();
+  document.getElementById('bank-subject-select').value=getAllSubjects().includes(val)?val:'';
+  populateBankChapterDropdown(val);
+  document.getElementById('bank-chapter').value='';
+  document.getElementById('bank-chapter-select').value='';
+}
+window.setBankSubject=function(subject){
+  var inp=document.getElementById('bank-subject'),sel=document.getElementById('bank-subject-select');
+  if(inp)inp.value=subject||'';
+  populateBankSubjectDropdown(subject);populateBankChapterDropdown(subject||'');
+  if(sel&&subject)sel.value=subject;
+  if (window.updateMathPreview) window.updateMathPreview();
+};
+
+// ── Bulk Upload: Subject/Chapter dropdowns (existing subjects/chapters dikhane ke liye) ──
+function populateBulkSubjectDropdown(sel_val) {
+  var sel=document.getElementById('bulk-subject-select'); if(!sel)return;
+  sel.innerHTML='<option value="">-- Subject chunein --</option>';
+  getAllSubjects().forEach(function(s){var o=document.createElement('option');o.value=s;o.textContent=s;if(s===sel_val)o.selected=true;sel.appendChild(o);});
+}
+function populateBulkChapterDropdown(subject,sel_val) {
+  var sel=document.getElementById('bulk-chapter-select'); if(!sel)return;
+  sel.innerHTML='<option value="">-- Chapter chunein --</option>';
+  getAllChapters(subject||'').forEach(function(ch){var o=document.createElement('option');o.value=ch;o.textContent=ch;if(ch===sel_val)o.selected=true;sel.appendChild(o);});
+}
+function onBulkSubjectSelectChange() {
+  var sel=document.getElementById('bulk-subject-select'),inp=document.getElementById('bulk-subject');
+  if(sel.value){
+    inp.value=sel.value;
+    populateBulkChapterDropdown(sel.value);
+    document.getElementById('bulk-chapter').value='';
+    document.getElementById('bulk-chapter-select').value='';
+  }
+}
+function onBulkChapterSelectChange() {
+  var sel=document.getElementById('bulk-chapter-select'),inp=document.getElementById('bulk-chapter');
+  if(sel.value)inp.value=sel.value;
+}
+function levenshtein(a, b) {
+  a = (a || '').toLowerCase(); b = (b || '').toLowerCase();
+  const m = a.length, n = b.length;
+  const dp = Array.from({ length: m + 1 }, (_, i) => [i, ...Array(n).fill(0)]);
+  for (let j = 0; j <= n; j++) dp[0][j] = j;
+  for (let i = 1; i <= m; i++)
+    for (let j = 1; j <= n; j++)
+      dp[i][j] = a[i - 1] === b[j - 1] ? dp[i - 1][j - 1] : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
+  return dp[m][n];
+}
+function findCloseSubjectMatch(val) {
+  if (!val || val.length < 3) return null;
+  const all = getAllSubjects();
+  if (all.includes(val)) return null; // exact match, no need
+  let best = null, bestDist = 99;
+  all.forEach(s => { const d = levenshtein(s, val); if (d < bestDist) { bestDist = d; best = s; } });
+  return (best && bestDist > 0 && bestDist <= 2) ? best : null;
+}
+function onBulkSubjectInputChange() {
+  var val=(document.getElementById('bulk-subject').value||'').trim();
+  document.getElementById('bulk-subject-select').value=getAllSubjects().includes(val)?val:'';
+  populateBulkChapterDropdown(val);
+  var hint = document.getElementById('bulk-subject-hint');
+  if (!hint) {
+    hint = document.createElement('div');
+    hint.id = 'bulk-subject-hint';
+    hint.style = 'font-size:.78rem;color:#b45309;margin-top:2px;';
+    document.getElementById('bulk-subject').parentNode.parentNode.appendChild(hint);
+  }
+  const close = findCloseSubjectMatch(val);
+  hint.innerHTML = close
+    ? `⚠️ Kya aapka matlab tha <a href="javascript:void(0)" onclick="document.getElementById('bulk-subject').value='${close}';onBulkSubjectInputChange();populateBulkSubjectDropdown('${close}');document.getElementById('bulk-subject-select').value='${close}';" style="color:#0ea5e9;text-decoration:underline;">${close}</a>? (existing subject)`
+    : '';
+}
+document.addEventListener('DOMContentLoaded', function(){
+  populateBulkSubjectDropdown('Mathematics');
+  populateBulkChapterDropdown('Mathematics');
+});
+var bulkUploadTabBtn=document.getElementById('bulk-upload-tab');
+if(bulkUploadTabBtn){
+  bulkUploadTabBtn.addEventListener('click', function(){
+    var s=document.getElementById('bulk-subject').value||'';
+    populateBulkSubjectDropdown(s);
+    populateBulkChapterDropdown(s);
+  });
+}
+
+// ── Manage Panel (Delete UI) ──
+function openManagePanel(){
+  var panel=document.getElementById('manage-sc-panel');
+  if(panel){renderManagePanel();panel.style.display='flex';return;}
+  var ov=document.createElement('div');
+  ov.id='manage-sc-panel';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.48);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;';
+  ov.innerHTML=`<div style="background:#fff;border-radius:16px;max-width:600px;width:100%;max-height:88vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.3);overflow:hidden;">
+    <div style="padding:16px 20px;border-bottom:1px solid #e5e7eb;display:flex;align-items:center;justify-content:space-between;background:linear-gradient(135deg,#1e1b4b,#3730a3);">
+      <h3 style="margin:0;color:#fff;font-size:1rem;">🗂️ Subject &amp; Chapter — Manage / Delete</h3>
+      <button onclick="closeManagePanel()" style="background:rgba(255,255,255,.2);border:none;color:#fff;width:30px;height:30px;border-radius:50%;cursor:pointer;font-size:1rem;">✕</button>
+    </div>
+    <div style="padding:12px 18px;border-bottom:1px solid #e5e7eb;background:#f8fafc;">
+      <label style="font-size:.82rem;font-weight:600;color:#374151;display:block;margin-bottom:5px;">Chapter delete karne ke liye pehle Subject chunein:</label>
+      <select id="manage-subject-sel" onchange="renderManageChapters()" style="width:100%;padding:7px 11px;border:1.5px solid #d1d5db;border-radius:8px;font-size:.88rem;"></select>
+    </div>
+    <div id="manage-panel-body" style="overflow-y:auto;flex:1;padding:16px 18px;"></div>
+  </div>`;
+  document.body.appendChild(ov);
+  ov.addEventListener('click',function(e){if(e.target===ov)closeManagePanel();});
+  renderManagePanel();
+}
+function closeManagePanel(){var p=document.getElementById('manage-sc-panel');if(p)p.style.display='none';}
+function renderManagePanel(){
+  var msel=document.getElementById('manage-subject-sel'); if(!msel)return;
+  var cur=msel.value;
+  msel.innerHTML='<option value="">-- Subject chunein --</option>';
+  getAllSubjects().forEach(function(s){var o=document.createElement('option');o.value=s;o.textContent=s;if(s===cur)o.selected=true;msel.appendChild(o);});
+  renderManageSubjectList(); renderManageChapters();
+}
+function renderManageSubjectList(){
+  var body=document.getElementById('manage-panel-body'); if(!body)return;
+  var subjects=getAllSubjects(), customList=getCustomSubjects();
+  var html='<div style="margin-bottom:18px;"><div style="font-weight:700;color:#1e293b;font-size:.9rem;margin-bottom:10px;display:flex;align-items:center;gap:6px;">📚 All Subjects <span style="background:#dbeafe;color:#1e40af;font-size:.75rem;padding:2px 8px;border-radius:20px;">'+subjects.length+'</span><span style="font-size:.73rem;color:#6b7280;"> — ✕ se delete karo</span></div><div style="display:flex;flex-wrap:wrap;gap:7px;">';
+  subjects.forEach(function(s){
+    var isC=customList.includes(s),bg=isC?'#fef9c3':'#eff6ff',bdr=isC?'#fbbf24':'#93c5fd',clr=isC?'#78350f':'#1e40af';
+    html+='<span style="display:inline-flex;align-items:center;gap:5px;background:'+bg+';border:1.5px solid '+bdr+';border-radius:20px;padding:5px 10px 5px 12px;font-size:.82rem;font-weight:600;color:'+clr+';">'+s+(isC?' <span style="font-size:.68rem;opacity:.65;">(custom)</span>':'')+' <button onclick="confirmDeleteSubject(\''+s.replace(/\\/g,'\\\\').replace(/'/g,"\\'")+'\''+')" style="background:#ef4444;border:none;color:#fff;border-radius:50%;width:18px;height:18px;cursor:pointer;font-size:.68rem;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;">✕</button></span>';
+  });
+  html+='</div></div>';
+  body.innerHTML=html+'<div id="manage-chapter-section"></div>';
+}
+function renderManageChapters(){
+  var msel=document.getElementById('manage-subject-sel'),section=document.getElementById('manage-chapter-section');
+  if(!msel||!section)return;
+  var subject=msel.value;
+  if(!subject){section.innerHTML='<p style="color:#9ca3af;font-size:.84rem;text-align:center;padding:12px 0;">Upar subject chunein — us subject ke chapters dikhenge</p>';return;}
+  var chapters=getAllChapters(subject),customChaps=getCustomChapters(subject);
+  var html='<div style="font-weight:700;color:#1e293b;font-size:.9rem;margin-bottom:10px;display:flex;align-items:center;gap:6px;">📖 &ldquo;'+subject+'&rdquo; Chapters <span style="background:#dcfce7;color:#166534;font-size:.75rem;padding:2px 8px;border-radius:20px;">'+chapters.length+'</span></div>';
+  if(!chapters.length){section.innerHTML=html+'<p style="color:#9ca3af;font-size:.84rem;">Koi chapter nahi mila.</p>';return;}
+  html+='<div style="display:flex;flex-direction:column;gap:5px;">';
+  chapters.forEach(function(ch){
+    var isC=customChaps.includes(ch);
+    html+='<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:'+(isC?'#fef9c3':'#f8fafc')+';border:1px solid '+(isC?'#fbbf24':'#e2e8f0')+';border-radius:8px;gap:8px;"><span style="font-size:.84rem;color:#1e293b;flex:1;">'+ch+(isC?' <span style="font-size:.7rem;color:#b45309;font-weight:600;">(custom)</span>':'')+'</span><button onclick="confirmDeleteChapter(\''+subject.replace(/\\/g,'\\\\').replace(/'/g,"\\'")+'\',\''+ch.replace(/\\/g,'\\\\').replace(/'/g,"\\'")+'\''+')" style="background:linear-gradient(135deg,#dc2626,#b91c1c);border:none;color:#fff;border-radius:6px;padding:4px 12px;cursor:pointer;font-size:.78rem;font-weight:600;white-space:nowrap;flex-shrink:0;">🗑️ Delete</button></div>';
+  });
+  html+='</div>';
+  section.innerHTML=html;
+}
+function confirmDeleteSubject(subj){
+  if(!confirm('Delete "'+subj+'" subject?\n\nDropdown se hat jayega. Existing questions safe rahenge.'))return;
+  deleteSubject(subj);
+  var cur=(document.getElementById('bank-subject')||{}).value;
+  populateBankSubjectDropdown(cur===subj?'':cur);
+  if(cur===subj&&document.getElementById('bank-subject')){document.getElementById('bank-subject').value='';populateBankChapterDropdown('');}
+  renderManagePanel();
+}
+function confirmDeleteChapter(subject,chapter){
+  if(!confirm('Delete "'+chapter+'" chapter?\n\nDropdown se hat jayega. Existing questions safe rahenge.'))return;
+  deleteChapter(subject,chapter);
+  var cur=(document.getElementById('bank-chapter')||{}).value;
+  populateBankChapterDropdown(subject,cur===chapter?'':cur);
+  if(cur===chapter&&document.getElementById('bank-chapter'))document.getElementById('bank-chapter').value='';
+  renderManagePanel();
+}
+
+// ══════════════════════════════════════════════════════
+//  DUPLICATE QUESTION DETECTOR (exact + fuzzy) + MERGE
+// ══════════════════════════════════════════════════════
+function normalizeText(t) {
+  return (t || '').toLowerCase().replace(/\s+/g,' ').replace(/[।,.\-–—?!""''()]/g,'').trim();
+}
+function wordSet(t) {
+  return new Set(normalizeText(t).split(' ').filter(Boolean));
+}
+function jaccard(a, b) {
+  if (!a.size || !b.size) return 0;
+  var inter = 0;
+  a.forEach(function(w){ if (b.has(w)) inter++; });
+  var union = a.size + b.size - inter;
+  return union ? inter / union : 0;
+}
+// ── Options bhi compare karne ke liye helpers (sirf question text kaafi nahi) ──
+function getQuestionOptions(q) {
+  var hi = Array.isArray(q.optionsHI) ? q.optionsHI.filter(Boolean) : [];
+  var en = Array.isArray(q.optionsEN) ? q.optionsEN.filter(Boolean) : [];
+  return hi.length >= en.length ? hi : en; // jismein zyada options bhare hain wahi use karo
+}
+// Order-independent exact key — same 4 options kisi bhi order mein ho, phir bhi match maanenge.
+function normalizeOptionsKey(q) {
+  var opts = getQuestionOptions(q).map(normalizeText).filter(Boolean).sort();
+  return opts.join('|');
+}
+// Fuzzy comparison ke liye options ke saare words ka ek combined set.
+function optionsWordSet(q) {
+  return wordSet(getQuestionOptions(q).join(' '));
+}
+function scoreQuestionCompleteness(q) {
+  var s = 0;
+  if (q.textEN) s++;
+  if (q.textHI) s++;
+  if (q.explanation || q.explanationEN || q.explanationHI) s++;
+  if (Array.isArray(q.optionsEN) && q.optionsEN.filter(Boolean).length >= 4) s++;
+  if (Array.isArray(q.optionsHI) && q.optionsHI.filter(Boolean).length >= 4) s++;
+  if (q.chapter) s++;
+  if (q.difficulty) s++;
+  return s;
+}
+function pickBestInGroup(group) {
+  var best = group[0];
+  for (var i = 1; i < group.length; i++) {
+    var a = scoreQuestionCompleteness(group[i]), b = scoreQuestionCompleteness(best);
+    if (a > b || (a === b && String(group[i].id) < String(best.id))) best = group[i];
+  }
+  return best;
+}
+function findDuplicates() {
+  var bank = (window.questionBank || []).filter(function(q){ return q && !q._test; });
+
+  // ── Exact pass: ab key mein question text + (order-independent) options dono shamil hain.
+  // Sirf question text same hone se duplicate nahi maanenge — options bhi same hone chahiye.
+  var exactGroups = {};
+  bank.forEach(function(q) {
+    var textKey = normalizeText(q.textHI || q.textEN || q.text);
+    if (!textKey) return;
+    var optKey = normalizeOptionsKey(q);
+    var key = textKey + '::' + optKey;
+    if (!exactGroups[key]) exactGroups[key] = [];
+    exactGroups[key].push(q);
+  });
+  var result = [];
+  var usedIds = {};
+  Object.values(exactGroups).forEach(function(g) {
+    if (g.length > 1) {
+      result.push({ type: 'exact', items: g });
+      g.forEach(function(q){ usedIds[q.id] = true; });
+    }
+  });
+
+  // Fuzzy pass: only among questions not already grouped, bucketed by subject+chapter to limit comparisons.
+  // Ab do questions tabhi "similar" maane jaayenge jab unka text bhi milta ho AUR unke options bhi milte-julte hon.
+  var TEXT_THRESHOLD = 0.82;
+  var OPTIONS_THRESHOLD = 0.6; // options mein chhota-mota farak (typo/order) chalega, par pura alag set nahi
+  var remaining = bank.filter(function(q){ return !usedIds[q.id]; });
+  var buckets = {};
+  remaining.forEach(function(q) {
+    var subj = (window.getQuestionSubject ? window.getQuestionSubject(q) : (q.subject || '?'));
+    var key = subj + '||' + (q.chapter || '?');
+    if (!buckets[key]) buckets[key] = [];
+    buckets[key].push(q);
+  });
+  Object.values(buckets).forEach(function(list) {
+    var visited = new Array(list.length).fill(false);
+    var textSets = list.map(function(q){ return wordSet(q.textHI || q.textEN || q.text); });
+    var optSets = list.map(optionsWordSet);
+    for (var i = 0; i < list.length; i++) {
+      if (visited[i] || usedIds[list[i].id]) continue;
+      var group = [list[i]];
+      for (var j = i + 1; j < list.length; j++) {
+        if (visited[j] || usedIds[list[j].id]) continue;
+        var textMatch = textSets[i].size && jaccard(textSets[i], textSets[j]) >= TEXT_THRESHOLD;
+        if (!textMatch) continue;
+        // Agar dono taraf options data maujood hai to unhe bhi milaan karo;
+        // agar kisi ek question ke options record nahi hain, to purane (text-only) tareeke par bharosa karo.
+        var bothHaveOptions = optSets[i].size > 0 && optSets[j].size > 0;
+        var optionsMatch = !bothHaveOptions || jaccard(optSets[i], optSets[j]) >= OPTIONS_THRESHOLD;
+        if (optionsMatch) {
+          group.push(list[j]);
+          visited[j] = true;
+        }
+      }
+      if (group.length > 1) {
+        result.push({ type: 'fuzzy', items: group });
+        group.forEach(function(q){ usedIds[q.id] = true; });
+      }
+      visited[i] = true;
+    }
+  });
+  return result;
+}
+
+var lastDupGroups = [];
+var autoDupInProgress = false;
+var autoDupDebounceTimer = null;
+var autoDupHasRunOnce = false;
+
+function showDuplicateReport() {
+  lastDupGroups = findDuplicates();
+  renderDupReportPanel();
+}
+
+// ── AUTOMATIC background merge DISABLED — duplicate check ab sirf manual hai. ──
+// Automatic detection kabhi kabhi galat questions ko duplicate maan leta tha,
+// isliye ab yeh sirf "🔁 Duplicates Check" button se (showDuplicateReport) chalega,
+// jahan aap khud dekh kar merge karoge.
+function scheduleAutoDuplicateCheck() {
+  // no-op: silent auto-merge disabled on purpose
+}
+
+async function runAutoDuplicateCheck() {
+  if (autoDupInProgress) return;
+  var groups = findDuplicates();
+  lastDupGroups = groups;
+  var panelOpen = document.getElementById('dup-report-panel');
+  if (panelOpen) renderDupReportPanel(); // keep an open report panel in sync
+  if (!groups.length) return;
+
+  autoDupInProgress = true;
+  var totalRemoved = 0, groupCount = groups.length;
+  showAutoDupToast('🔁 ' + groupCount + ' duplicate group(s) mile — automatic merge ho raha hai...', true);
+  for (var i = 0; i < groups.length; i++) {
+    var group = groups[i].items;
+    var keep = pickBestInGroup(group);
+    var removeIds = group.filter(function(q){ return q.id !== keep.id; }).map(function(q){ return q.id; });
+    try {
+      var res = await window.mergeDuplicateGroup(keep.id, removeIds);
+      totalRemoved += res.ok;
+    } catch (e) { console.warn('[AutoDup] merge failed for a group', e); }
+  }
+  autoDupInProgress = false;
+  autoDupHasRunOnce = true;
+  if (totalRemoved > 0) {
+    showAutoDupToast('✅ Automatic Duplicate Check: ' + totalRemoved + ' duplicate(s) Recycle Bin mein move ho gaye (' + groupCount + ' group' + (groupCount > 1 ? 's' : '') + ').', false);
+  }
+  lastDupGroups = findDuplicates();
+  if (document.getElementById('dup-report-panel')) renderDupReportPanel();
+  if (typeof renderBank === 'function') renderBank();
+}
+
+function showAutoDupToast(msg, persistent) {
+  var old = document.getElementById('auto-dup-toast');
+  if (old) old.remove();
+  var t = document.createElement('div');
+  t.id = 'auto-dup-toast';
+  t.style.cssText = 'position:fixed;bottom:20px;right:20px;left:auto;max-width:340px;background:linear-gradient(135deg,#059669,#047857);color:#fff;padding:12px 16px;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.28);z-index:99999;font-size:.82rem;font-weight:600;line-height:1.4;';
+  t.textContent = msg;
+  document.body.appendChild(t);
+  if (!persistent) {
+    setTimeout(function () {
+      t.style.transition = 'opacity .6s';
+      t.style.opacity = '0';
+      setTimeout(function () { t.remove(); }, 600);
+    }, 5500);
+  }
+}
+window.scheduleAutoDuplicateCheck = scheduleAutoDuplicateCheck;
+window.runAutoDuplicateCheck = runAutoDuplicateCheck;
+
+async function autoMergeAllDuplicates() {
+  if (autoDupInProgress) { alert('Automatic merge already chal raha hai, thoda wait karo.'); return; }
+  lastDupGroups = findDuplicates();
+  if (!lastDupGroups.length) { alert('Koi duplicate nahi mila jise merge karein.'); return; }
+  var totalRemove = lastDupGroups.reduce(function(n, g){ return n + g.items.length - 1; }, 0);
+  if (!confirm('🤖 Auto-Merge: ' + lastDupGroups.length + ' group(s) mein se best question rakha jayega aur ' + totalRemove + ' duplicate(s) Recycle Bin mein move ho jayenge.\n\nContinue karein?')) return;
+  var btn = document.getElementById('dup-automerge-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Merging...'; }
+  autoDupInProgress = true;
+  for (var i = 0; i < lastDupGroups.length; i++) {
+    var group = lastDupGroups[i].items;
+    var keep = pickBestInGroup(group);
+    var removeIds = group.filter(function(q){ return q.id !== keep.id; }).map(function(q){ return q.id; });
+    try { await window.mergeDuplicateGroup(keep.id, removeIds); } catch (e) { console.warn('Merge failed for group', e); }
+  }
+  autoDupInProgress = false;
+  alert('✅ Auto-merge complete! Duplicates Recycle Bin mein move ho gaye.');
+  lastDupGroups = findDuplicates();
+  renderDupReportPanel();
+  if (typeof renderBank === 'function') renderBank();
+}
+
+async function mergeOneGroup(groupIndex) {
+  if (autoDupInProgress) { alert('Automatic merge already chal raha hai, thoda wait karo.'); return; }
+  var group = lastDupGroups[groupIndex];
+  if (!group) return;
+  var panel = document.getElementById('dup-report-panel');
+  var checked = panel.querySelector('input[name="keep-' + groupIndex + '"]:checked');
+  if (!checked) { alert('Pehle ek question select karo jise rakhna hai.'); return; }
+  var keepId = checked.value;
+  var removeIds = group.items.filter(function(q){ return String(q.id) !== String(keepId); }).map(function(q){ return q.id; });
+  if (!confirm(removeIds.length + ' duplicate(s) Recycle Bin mein move honge, sirf selected question rahega.\n\nContinue?')) return;
+  var res = await window.mergeDuplicateGroup(keepId, removeIds);
+  alert('✅ Merged! ' + res.ok + ' duplicate(s) hata diye.');
+  lastDupGroups = findDuplicates();
+  renderDupReportPanel();
+  if (typeof renderBank === 'function') renderBank();
+}
+
+function renderDupReportPanel() {
+  var dups = lastDupGroups;
+  var old = document.getElementById('dup-report-panel');
+  var ov = old || document.createElement('div');
+  ov.id = 'dup-report-panel';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.48);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;';
+
+  var bodyHtml = '';
+  if (!dups.length) {
+    bodyHtml = '<div style="text-align:center;padding:32px 20px;"><div style="font-size:3rem;margin-bottom:12px;">✅</div><div style="font-size:1.1rem;font-weight:700;color:#166534;">Koi duplicate nahi mila!</div><div style="color:#6b7280;font-size:.88rem;margin-top:6px;">Sabhi questions unique hain.</div></div>';
+  } else {
+    var totalRemove = dups.reduce(function(n, g){ return n + g.items.length - 1; }, 0);
+    bodyHtml = '<div style="background:#fef3c7;border:1.5px solid #fbbf24;border-radius:10px;padding:10px 14px;margin-bottom:10px;font-size:.84rem;color:#92400e;font-weight:600;">⚠️ ' + dups.length + ' duplicate group' + (dups.length > 1 ? 's' : '') + ' mili (' + totalRemove + ' extra copies) — neeche details dekhen</div>';
+    bodyHtml += '<button id="dup-automerge-btn" onclick="autoMergeAllDuplicates()" style="width:100%;margin-bottom:14px;background:linear-gradient(135deg,#7c3aed,#6d28d9);color:#fff;border:none;border-radius:8px;padding:8px 12px;font-size:.85rem;cursor:pointer;font-weight:700;">🤖 Auto-Merge All (best wala rakho, baaki Recycle Bin mein)</button>';
+    dups.forEach(function(group, gi) {
+      var items = group.items;
+      var best = pickBestInGroup(items);
+      var badge = group.type === 'exact' ? '<span style="background:#dc2626;color:#fff;border-radius:20px;padding:1px 8px;font-size:.7rem;">EXACT</span>' : '<span style="background:#d97706;color:#fff;border-radius:20px;padding:1px 8px;font-size:.7rem;">SIMILAR</span>';
+      bodyHtml += '<div style="border:1.5px solid #fca5a5;border-radius:10px;margin-bottom:12px;overflow:hidden;">';
+      bodyHtml += '<div style="background:linear-gradient(135deg,#fee2e2,#fecaca);padding:8px 12px;font-weight:700;font-size:.84rem;color:#991b1b;display:flex;align-items:center;gap:6px;flex-wrap:wrap;">🔁 Group ' + (gi + 1) + ' ' + badge + ' <span style="background:#dc2626;color:#fff;border-radius:20px;padding:1px 8px;font-size:.75rem;">' + items.length + ' copies</span></div>';
+      items.forEach(function(q, qi) {
+        var subj = (window.getQuestionSubject ? window.getQuestionSubject(q) : (q.subject || '?'));
+        var txt = q.textHI || q.textEN || q.text || '(no text)';
+        var isBest = q.id === best.id;
+        bodyHtml += '<label style="display:flex;gap:8px;align-items:flex-start;padding:8px 12px;border-top:' + (qi > 0 ? '1px solid #fca5a5' : 'none') + ';background:' + (isBest ? '#f0fdf4' : (qi % 2 === 0 ? '#fff' : '#fff7f7')) + ';cursor:pointer;">';
+        bodyHtml += '<input type="radio" name="keep-' + gi + '" value="' + escHtml(String(q.id)) + '" ' + (isBest ? 'checked' : '') + ' style="margin-top:4px;">';
+        bodyHtml += '<div style="flex:1;">';
+        bodyHtml += '<div style="font-size:.78rem;color:#6b7280;margin-bottom:3px;display:flex;gap:8px;flex-wrap:wrap;">';
+        bodyHtml += '<span style="background:#eff6ff;color:#1e40af;border-radius:4px;padding:1px 6px;font-weight:600;">' + escHtml(subj) + '</span>';
+        bodyHtml += '<span style="background:#f0fdf4;color:#166534;border-radius:4px;padding:1px 6px;font-weight:600;">' + escHtml(q.chapter || '?') + '</span>';
+        bodyHtml += '<span style="color:#9ca3af;font-size:.73rem;">ID: ' + escHtml(String(q.id || '?')) + '</span>';
+        if (isBest) bodyHtml += '<span style="background:#16a34a;color:#fff;border-radius:4px;padding:1px 6px;font-weight:700;">⭐ Suggested keep</span>';
+        bodyHtml += '</div>';
+        bodyHtml += '<div style="font-size:.84rem;color:#1e293b;">' + escHtml(txt.substring(0, 140)) + (txt.length > 140 ? '...' : '') + '</div>';
+        bodyHtml += '</div></label>';
+      });
+      bodyHtml += '<div style="padding:8px 12px;background:#fff;border-top:1px solid #fca5a5;">';
+      bodyHtml += '<button onclick="mergeOneGroup(' + gi + ')" style="background:linear-gradient(135deg,#059669,#047857);color:#fff;border:none;border-radius:8px;padding:6px 12px;font-size:.8rem;cursor:pointer;font-weight:700;">✅ Merge Group ' + (gi + 1) + ' (selected wala rakho)</button>';
+      bodyHtml += '</div>';
+      bodyHtml += '</div>';
+    });
+  }
+
+  ov.innerHTML = '<div style="background:#fff;border-radius:16px;max-width:640px;width:100%;max-height:88vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.3);overflow:hidden;">'
+    + '<div style="padding:16px 20px;background:linear-gradient(135deg,#92400e,#b45309);display:flex;align-items:center;justify-content:space-between;">'
+    + '<div><h3 style="margin:0;color:#fff;font-size:1rem;">🔁 Duplicate Questions Report</h3>'
+    + '<div style="color:#fde68a;font-size:.78rem;margin-top:2px;">Total bank: ' + (window.questionBank || []).length + ' questions</div></div>'
+    + '<button onclick="document.getElementById(\'dup-report-panel\').remove()" style="background:rgba(255,255,255,.2);border:none;color:#fff;width:30px;height:30px;border-radius:50%;cursor:pointer;font-size:1rem;">✕</button>'
+    + '</div>'
+    + '<div style="overflow-y:auto;flex:1;padding:16px 18px;">' + bodyHtml + '</div>'
+    + '</div>';
+  if (!old) {
+    document.body.appendChild(ov);
+    ov.addEventListener('click', function(e){ if (e.target === ov) ov.remove(); });
+  }
+}
+
+// ── Init ──
+document.addEventListener('DOMContentLoaded',function(){
+  var si=document.getElementById('bank-subject');
+  if(si)si.addEventListener('input',onBankSubjectInputChange);
+  var bf=document.getElementById('bank-form');
+  if(bf){bf.addEventListener('submit',function(){
+    var subj=(document.getElementById('bank-subject').value||'').trim();
+    var chap=(document.getElementById('bank-chapter').value||'').trim();
+    if(subj)saveCustomSubject(subj);
+    if(subj&&chap)saveCustomChapter(subj,chap);
+    setTimeout(function(){populateBankSubjectDropdown(subj);populateBankChapterDropdown(subj,chap);},300);
+  },true);}
+  populateBankSubjectDropdown('Mathematics');
+  populateBankChapterDropdown('Mathematics');
+  if(document.getElementById('bank-subject'))document.getElementById('bank-subject').value='Mathematics';
+});
+</script>
+<script>
+  // ══════════════════════════════════════════════════════════════
+  // AUTO-UPDATE PWA — bina kisi manual version-bump ke
+  // ------------------------------------------------------------------
+  // 1) SW register hote hi turant ek update-check karte hain.
+  // 2) App foreground mein aane par (tab switch / app reopen) fir se
+  //    check karte hain — installed PWA jo bahut der khula rehta hai
+  //    usme bhi naya update pakड़ा jaayega.
+  // 3) Har 60 second pe bhi silently check karte hain jab tak app
+  //    foreground mein hai.
+  // 4) Jaise hi naya Service Worker "activate" ho kar control leta hai
+  //    (controllerchange event), hum PAGE KO EK BAAR RELOAD karte hain
+  //    — isi se naya HTML/JS/CSS turant load ho jaata hai, bina kisi
+  //    ko haath lagaye. Reload sirf genuinely naya SW activate hone
+  //    par hota hai, isliye koi infinite-loop nahi banega.
+  // ══════════════════════════════════════════════════════════════
+  if ('serviceWorker' in navigator) {
+    let swRegistration = null;
+    let reloadingForUpdate = false;
+
+    navigator.serviceWorker.register('/sw.js')
+      .then(function (reg) {
+        swRegistration = reg;
+        console.log('Service worker registered:', reg.scope);
+        reg.update().catch(function () {});
+      })
+      .catch(function (err) { console.warn('Service worker registration failed:', err); });
+
+    // Naya SW control lete hi ek dafa reload — asli fix yahi hai.
+    navigator.serviceWorker.addEventListener('controllerchange', function () {
+      if (reloadingForUpdate) return;
+      reloadingForUpdate = true;
+      location.reload();
+    });
+
+    // App foreground mein wapas aaye to fresh update-check karo.
+    document.addEventListener('visibilitychange', function () {
+      if (document.visibilityState === 'visible' && swRegistration) {
+        swRegistration.update().catch(function () {});
+      }
+    });
+
+    // App khula rehte hue bhi periodically check karte raho.
+    setInterval(function () {
+      if (document.visibilityState === 'visible' && swRegistration) {
+        swRegistration.update().catch(function () {});
+      }
+    }, 60 * 1000);
+  }
+</script>
+<script>
+  // ══════════════════════════════════════════════════════════════
+  // PWA "Install App" popup — SABHI devices/browsers ke liye, HAR
+  // baar site khulne par dikhta hai (jab tak app install na ho jaaye)
+  // ------------------------------------------------------------------
+  // - Chrome / Edge / Android / Samsung Internet / Brave / Opera:
+  //   native "beforeinstallprompt" pakad kar seedha install-popup
+  //   dikhate hain, "Install Karein" click par asli browser dialog
+  //   khulta hai.
+  // - iOS Safari, macOS Safari, Firefox (koi bhi platform) — inme
+  //   browser khud koi install-event nahi deta, isliye wahan sahi
+  //   manual steps (Share → Add to Home Screen, ya Menu → Install)
+  //   ek popup mein dikhate hain.
+  // - Agar app pehle se installed hai (standalone mode), to kabhi
+  //   popup nahi dikhega.
+  // - "Baad Mein" dabane par sirf ABHI ke liye band hota hai — agli
+  //   baar site kholne par (naya page-load) fir se dikhega, jaisa
+  //   chaha gaya hai.
+  // ══════════════════════════════════════════════════════════════
+  let deferredInstallPrompt = null;
+
+  function isStandaloneMode() {
+    return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches)
+      || window.navigator.standalone === true; // iOS Safari ka apna flag
+  }
+
+  function detectPlatformInstructions() {
+    const ua = window.navigator.userAgent || '';
+    const isIos = /iphone|ipad|ipod/i.test(ua);
+    const isAndroid = /android/i.test(ua);
+    const isFirefox = /firefox|fxios/i.test(ua);
+    const isSafari = /safari/i.test(ua) && !/crios|fxios|chrome|android|edg/i.test(ua);
+
+    if (isIos) {
+      return 'Neeche diye Share button ⬆️ par tap karein, phir "Add to Home Screen" chunein.';
+    }
+    if (isAndroid && isFirefox) {
+      return 'Upar-daayein 3-dot menu kholein aur "Install" ya "Add to Home screen" chunein.';
+    }
+    if (!isAndroid && !isIos && isFirefox) {
+      return 'Firefox is site ko app ki tarah install support nahi karta. Chrome ya Edge browser mein kholein taaki "Install Karein" button seedha kaam kare.';
+    }
+    if (!isAndroid && !isIos && isSafari) {
+      return 'Menu bar mein File → "Add to Dock" chunein (Safari 17+), ya Chrome/Edge browser mein kholein.';
+    }
+    // Generic Chromium fallback (agar beforeinstallprompt na mile)
+    return 'Address bar ke daayein taraf install icon ⊕ par click karein, ya browser ke 3-dot menu mein "Install App" dhoondein.';
+  }
+
+  function showAppInstallModal() {
+    if (isStandaloneMode()) return;
+    const modal = document.getElementById('app-install-modal');
+    const textEl = document.getElementById('app-install-modal-text');
+    const actionBtn = document.getElementById('app-install-modal-action-btn');
+    if (!modal || !textEl || !actionBtn) return;
+
+    if (deferredInstallPrompt) {
+      // Chromium browser: asli native install prompt available hai
+      textEl.textContent = 'Ek tap mein apne home screen / desktop par app install karein — offline bhi chalegi, aur test dene mein easy hoga.';
+      actionBtn.textContent = '⬇️ Install Karein';
+      actionBtn.onclick = function () {
+        if (!deferredInstallPrompt) { modal.classList.add('hidden'); return; }
+        deferredInstallPrompt.prompt();
+        deferredInstallPrompt.userChoice.finally(function () {
+          deferredInstallPrompt = null;
+          modal.classList.add('hidden');
+        });
+      };
+    } else {
+      // Non-Chromium ya event abhi tak nahi mila: manual steps dikhao
+      textEl.textContent = detectPlatformInstructions();
+      actionBtn.textContent = '👍 Samajh Gaya';
+      actionBtn.onclick = function () { modal.classList.add('hidden'); };
+    }
+    modal.classList.remove('hidden');
+  }
+
+  function dismissAppInstallModal() {
+    const modal = document.getElementById('app-install-modal');
+    if (modal) modal.classList.add('hidden');
+  }
+
+  window.addEventListener('beforeinstallprompt', function (e) {
+    e.preventDefault();
+    deferredInstallPrompt = e;
+    const btn = document.getElementById('install-app-btn');
+    if (btn && !isStandaloneMode()) btn.classList.remove('hidden');
+  });
+
+  window.addEventListener('appinstalled', function () {
+    deferredInstallPrompt = null;
+    const btn = document.getElementById('install-app-btn');
+    if (btn) btn.classList.add('hidden');
+    dismissAppInstallModal();
+  });
+
+  document.addEventListener('DOMContentLoaded', function () {
+    const btn = document.getElementById('install-app-btn');
+    if (btn) {
+      btn.addEventListener('click', async function () {
+        if (!deferredInstallPrompt) { showAppInstallModal(); return; }
+        deferredInstallPrompt.prompt();
+        try { await deferredInstallPrompt.userChoice; } catch (e) {}
+        deferredInstallPrompt = null;
+        btn.classList.add('hidden');
+      });
+    }
+
+    // Har fresh visit par popup dikhao (agar already installed nahi hai).
+    // Chromium browsers mein "beforeinstallprompt" thodi der baad fire
+    // hota hai, isliye 1.5s wait karke check karte hain — event mil
+    // jaaye to native prompt, warna platform ke hisaab se manual steps.
+    if (!isStandaloneMode()) {
+      setTimeout(showAppInstallModal, 1500);
+    }
+  });
+</script>
+<script>
+// ══════════════════════════════════════════════════════════════
+//  MATH EQUATION CONVERTER — Batch (Firebase) + Auto (on save)
+// ══════════════════════════════════════════════════════════════
+
+function needsMathConversion(q) {
+  if (!q) return false;
+  const subject = (q.subject || '').toLowerCase();
+  const isMath = /math|गणित|maths/.test(subject);
+  if (!isMath) return false;
+  const fields = [q.textHI, q.textEN, q.text, ...(q.optionsHI||[]), ...(q.optionsEN||[]), ...(q.options||[])];
+  const hasLatex = fields.some(f => f && /\\\(|\\\[|\$\$|\\frac|\\sqrt|\\cdot|\\times/.test(f));
+  if (hasLatex) return false;
+  return fields.some(f => f && /[=+\-*\/^√π≤≥≠×÷]|\b\d+\s*\/\s*\d+\b|\bsqrt\b|\b(sin|cos|tan|log)\b/i.test(f));
+}
+
+async function batchConvertMathEquations() {
+  const db = window.getDB ? window.getDB() : null;
+  if (!db) { alert('Firebase connected nahi hai.'); return; }
+
+  const btn = document.getElementById('batch-convert-btn');
+  let logEl = document.getElementById('batch-convert-log');
+  if (!logEl) {
+    logEl = document.createElement('div');
+    logEl.id = 'batch-convert-log';
+    logEl.style.cssText = 'margin-top:6px;padding:8px 12px;background:#f5f3ff;border-left:3px solid #7c3aed;border-radius:8px;font-size:.78rem;color:#5b21b6;max-height:150px;overflow-y:auto;';
+    btn.parentNode.insertBefore(logEl, btn.nextSibling);
+  }
+  logEl.style.display = 'block';
+  logEl.innerHTML = '';
+  const log = msg => { logEl.innerHTML += '<div>' + msg + '</div>'; logEl.scrollTop = logEl.scrollHeight; };
+
+  const toConvert = (window.questionBank || []).filter(needsMathConversion);
+  if (!toConvert.length) {
+    log('✅ Sab Math questions already equation format mein hain!');
+    return;
+  }
+  if (!confirm(toConvert.length + ' Math questions mein plain text equations hain. Inhe LaTeX format mein convert karein?\n\nYe undo nahi hoga.')) return;
+
+  btn.disabled = true;
+  btn.textContent = '⏳ Converting...';
+  log('🔍 ' + toConvert.length + ' questions convert ho rahe hain...');
+
+  let success = 0, failed = 0;
+  for (let i = 0; i < toConvert.length; i++) {
+    const q = Object.assign({}, toConvert[i]);
+    try {
+      if (window.autoFormatMathFields) window.autoFormatMathFields(q);
+      const id = q.id;
+      const data = Object.assign({}, q);
+      delete data.id;
+      await db.collection('questionBank').doc(id).set(data, { merge: true });
+      success++;
+      if ((i + 1) % 10 === 0 || i === toConvert.length - 1)
+        log('✔️ ' + (i+1) + '/' + toConvert.length + ' done...');
+    } catch(e) {
+      failed++;
+      log('❌ Q' + (i+1) + ' fail: ' + (e.message||e));
+    }
+  }
+  log('<br/><strong>🎉 Complete! ' + success + ' converted, ' + failed + ' failed.</strong>');
+  btn.disabled = false;
+  btn.textContent = '🧮 Convert to Equations';
+  if (window.syncBank) window.syncBank();
+}
+
+window.batchConvertMathEquations = batchConvertMathEquations;
+window.needsMathConversion = needsMathConversion;
+</script>
+</body>
+</html>

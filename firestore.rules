@@ -1,0 +1,215 @@
+rules_version = '2';
+
+// ══════════════════════════════════════════════════════════════════
+// SAVYASACHI — FIRESTORE SECURITY RULES
+// ══════════════════════════════════════════════════════════════════
+// IMPORTANT — README pehle padhein: FIREBASE_SECURITY_SETUP.md
+//
+// Ye rules maan kar chalti hain ki:
+//   1) Firebase Console > Authentication mein "Anonymous" provider ON hai
+//      (har visitor — student ho ya admin — silently sign-in ho jata hai,
+//       taaki request.auth kabhi null na ho).
+//   2) Firebase Console > Authentication mein "Email/Password" provider ON hai
+//      (real admin login ke liye).
+//   3) Neeche ADMIN_EMAILS list mein apna asli admin email daal diya hai.
+//      Jab tak yahan email nahi daalenge, KOI BHI admin panel se
+//      likh/delete nahi kar payega — is file ko deploy karne ke baad
+//      ye pehla kaam hai jo karna hai.
+// ══════════════════════════════════════════════════════════════════
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Admin allow-list ─────────────────────────────────────────
+    // Sirf inhi email addresses (Firebase Auth email/password accounts)
+    // ko admin maana jayega. Multiple admins ke liye comma se aur emails
+    // add kar sakte hain.
+    function isAdmin() {
+      return request.auth != null &&
+        request.auth.token.email != null &&
+        request.auth.token.email in [
+          "vishnu1234stmp@gmail.com"
+        ];
+    }
+
+    // Koi bhi signed-in visitor — chahe anonymous ho ya admin.
+    // (App load hote hi anonymous sign-in ho jata hai, isliye ye
+    //  practically "app se aaya hua request" ke barabar hai, random
+    //  script/bot ke barabar nahi.)
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // ── Public/shared content: question bank & tests ─────────────
+    // Student app ko ye padhna zaroori hai taaki test/questions load ho
+    // sakein. Likhna/delete karna sirf admin kar sakta hai.
+    match /questionBank/{docId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    match /tests/{docId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+
+      // ── Nested subcollection fix ──────────────────────────────────
+      // Test ke questions "tests/{id}/qchunks/{chunkId}" subcollection
+      // mein save hote hain (1MB doc-limit se bachne ke liye). Firestore
+      // rules mein har collection/subcollection ka apna alag match
+      // chahiye — upar wala "tests/{docId}" rule sirf test ke main doc
+      // par lagu hota hai, is nested subcollection par nahi. Isi wajah
+      // se pehle "Save Test Online" hamesha "Missing or insufficient
+      // permissions" ke saath fail ho raha tha aur test 0 questions par
+      // atka reh jaata tha.
+      match /qchunks/{chunkId} {
+        allow read: if isSignedIn();
+        allow write: if isAdmin();
+      }
+    }
+
+    // ── Admin-only working data (trash bin, drafts, chunks, keys) ──
+    // Inhe students ko kabhi dekhne/chhedne ki zaroorat nahi.
+    match /deletedQuestions/{docId} {
+      allow read, write: if isAdmin();
+    }
+
+    // Permanent record of question IDs that admin ne kabhi delete kiya —
+    // isse seed functions unhe dobara Firebase mein wapas nahi likhte,
+    // chahe Recycle Bin se "Delete Forever" bhi kyun na ho gaya ho.
+    match /seedExclusions/{docId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /deletedTests/{docId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /pdfDrafts/{docId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /draftQuestions/{docId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /qchunks/{docId} {
+      allow read, write: if isAdmin();
+    }
+
+    // app_settings holds sensitive things like the Groq AI API key —
+    // admin-only, full stop.
+    match /app_settings/{docId} {
+      allow read, write: if isAdmin();
+    }
+
+    // Legacy admin-credentials doc (old hash-based system). Kept locked
+    // to admin only; safe to ignore/delete once migration is complete.
+    match /appSettings/{docId} {
+      allow read, write: if isAdmin();
+    }
+
+    // ── Student accounts & records ────────────────────────────────
+    // "students/{mobile}" ab sirf PUBLIC-ish profile info rakhta hai:
+    // naam, mobile, aur ek "hasPin" flag. Password hash / PIN hash
+    // yahan KABHI nahi jaate — wo neeche "studentSecrets" mein locked
+    // rehte hain. Isliye is doc ka simple isSignedIn() access theek hai.
+    // DELETE sirf admin kar sakta hai — isse accidental/malicious mass
+    // data-loss nahi ho sakta.
+    match /students/{mobile} {
+      allow get, create, update: if isSignedIn();
+      allow list: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // ── Student secrets (password hash + Security PIN hash) ────────
+    // ══════════════════════════════════════════════════════════════
+    // SECURITY FIX: pehle hash/pinHash "students/{mobile}" doc mein
+    // hote the, jise koi bhi signed-in (anonymous bhi) client seedha
+    // `.get()` kar sakta tha — matlab jis kisi ko bhi student ka mobile
+    // number pata ho, wo uska password/PIN hash padh kar offline crack
+    // kar sakta tha, YA seedha `.set({hash: ...})` bulakar bina kuch
+    // proof diye hi password overwrite kar sakta tha. Yahi wo bug tha
+    // jiski wajah se "kisi ka bhi password koi bhi reset kar sakta tha
+    // agar uska number pata ho".
+    //
+    // FIX: is collection ko admin ke alawa kisi ke liye bhi `read`
+    // allowed nahi — student kabhi apna hash/pinHash seedha nahi
+    // padhta. Login aur "password bhool gaye" ab ek chhoti si WRITE
+    // attempt karte hain (sha256(entered password/PIN) ke saath), aur
+    // Firestore Rules khud, server-side, use stored hash se compare
+    // karti hain — sahi na ho to write reject (permission-denied) ho
+    // jaata hai. Isse secret kabhi client tak pahunchta hi nahi.
+    // ══════════════════════════════════════════════════════════════
+    match /studentSecrets/{mobile} {
+      allow read: if isAdmin();
+
+      // Registration (aur legacy-account migration) — pehli baar create.
+      allow create: if isSignedIn();
+
+      allow update: if isAdmin() ||
+        (
+          // (a) LOGIN proof: client bhejta hai lastLoginProof = sha256(entered
+          // password); tabhi accept hoga jab ye stored "hash" se match kare.
+          isSignedIn() &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastLoginProof', 'lastLoginAt']) &&
+          request.resource.data.lastLoginProof == resource.data.hash
+        ) ||
+        (
+          // (b) Pehli baar Security PIN set karna — sirf tabhi jab abhi
+          // tak koi pinHash set na ho (isliye koi baad mein bina purana
+          // PIN jaane ise overwrite nahi kar sakta).
+          isSignedIn() &&
+          !('pinHash' in resource.data) &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['pinHash'])
+        ) ||
+        (
+          // (c) PASSWORD RESET via PIN: client bhejta hai naya "hash" +
+          // pinProof = sha256(entered PIN); tabhi accept hoga jab pinProof
+          // stored "pinHash" se match kare.
+          isSignedIn() &&
+          'pinHash' in resource.data &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['hash', 'pinProof']) &&
+          request.resource.data.pinProof == resource.data.pinHash
+        );
+
+      allow delete: if isAdmin();
+    }
+
+    match /studentRecords/{docId} {
+      allow get, create, update: if isSignedIn();
+      allow list: if isSignedIn();
+      allow delete: if isAdmin();
+    }
+
+    // ── My Mistakes (auto-collected wrong answers, per student) ────
+    // Doc id = student's mobile number. Same trust model as
+    // "students/{mobile}" above — any signed-in client can read/write
+    // its own or (in principle) another student's mistake list, but
+    // there's nothing sensitive here (just question text + answers
+    // already visible in the question bank). Delete stays admin-only.
+    match /studentMistakes/{mobile} {
+      allow get, create, update: if isSignedIn();
+      allow list: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // ── Doubt Box (student asks, admin replies) ─────────────────────
+    // Students create their own doubts and can list/read all (needed
+    // for the "My Doubts" filter-by-mobile query on the client) —
+    // same list-access pattern already used for studentRecords.
+    // Only admin can update (write a reply / mark answered) or delete.
+    match /doubts/{docId} {
+      allow get, list, create: if isSignedIn();
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // ── Default deny ──────────────────────────────────────────────
+    // Koi bhi collection jo upar explicitly list nahi hui, uska
+    // access poori tarah band. Ye "test mode" jaisi open-access
+    // galti se dobara hone se rokta hai.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

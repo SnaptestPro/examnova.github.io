@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Savyasachi Coaching - Board Examination Format</title>
+  <style>
+    :root {
+      --navy: #0b1437;
+      --blue: #2563eb;
+      --ink: #172033;
+      --muted: #667085;
+      --line: #d9e1f2;
+      --soft: #eef3ff;
+      --paper: #ffffff;
+      --body: #f3f6fc;
+      --accent: #f97316;
+      --green: #15803d;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Arial, Helvetica, sans-serif;
+      background: var(--body);
+      color: var(--ink);
+      line-height: 1.45;
+    }
+
+    .topbar {
+      background: var(--navy);
+      color: #fff;
+      padding: 14px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .brand-title {
+      font-size: 1.15rem;
+      font-weight: 800;
+      letter-spacing: .02em;
+    }
+
+    .brand-subtitle {
+      font-size: .78rem;
+      color: #cbd5e1;
+      margin-top: 2px;
+    }
+
+    .topbar button {
+      border: 0;
+      border-radius: 8px;
+      background: var(--blue);
+      color: #fff;
+      padding: 10px 16px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .workspace {
+      max-width: 1120px;
+      margin: 24px auto;
+      padding: 0 18px 36px;
+      display: grid;
+      grid-template-columns: 320px 1fr;
+      gap: 20px;
+      align-items: start;
+    }
+
+    .panel,
+    .paper {
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      box-shadow: 0 8px 24px rgba(20, 35, 70, .08);
+    }
+
+    .panel {
+      padding: 18px;
+      position: sticky;
+      top: 18px;
+    }
+
+    .panel h2 {
+      margin: 0 0 14px;
+      font-size: 1rem;
+      color: var(--navy);
+    }
+
+    .field {
+      margin-bottom: 12px;
+    }
+
+    .field label {
+      display: block;
+      margin-bottom: 5px;
+      font-size: .74rem;
+      text-transform: uppercase;
+      color: var(--navy);
+      font-weight: 800;
+      letter-spacing: .04em;
+    }
+
+    .field input,
+    .field select,
+    .field textarea {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--soft);
+      color: var(--ink);
+      padding: 9px 10px;
+      font: inherit;
+    }
+
+    .field textarea {
+      min-height: 92px;
+      resize: vertical;
+    }
+
+    .paper {
+      padding: 34px 40px;
+      min-height: 1120px;
+    }
+
+    .exam-header {
+      text-align: center;
+      border-bottom: 2px solid var(--navy);
+      padding-bottom: 14px;
+      margin-bottom: 18px;
+    }
+
+    .coaching-name {
+      font-size: 1.65rem;
+      font-weight: 900;
+      color: var(--navy);
+      letter-spacing: .04em;
+      text-transform: uppercase;
+    }
+
+    .exam-label {
+      margin-top: 4px;
+      font-size: 1.05rem;
+      font-weight: 800;
+      color: var(--accent);
+      text-transform: uppercase;
+    }
+
+    .exam-meta {
+      margin-top: 12px;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      border: 1px solid var(--line);
+    }
+
+    .exam-meta div {
+      padding: 9px 10px;
+      border-right: 1px solid var(--line);
+      font-size: .92rem;
+    }
+
+    .exam-meta div:nth-child(3n) {
+      border-right: 0;
+    }
+
+    .student-line {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 18px;
+      margin: 18px 0;
+      font-size: .95rem;
+    }
+
+    .blank {
+      display: inline-block;
+      min-width: 190px;
+      border-bottom: 1px solid #111827;
+      height: 18px;
+      vertical-align: middle;
+    }
+
+    .instructions {
+      border: 1px solid var(--line);
+      background: #fbfdff;
+      padding: 12px 16px;
+      margin-bottom: 18px;
+    }
+
+    .instructions strong {
+      color: var(--navy);
+    }
+
+    .instructions ol {
+      margin: 8px 0 0 20px;
+      padding: 0;
+    }
+
+    .section {
+      margin-top: 20px;
+    }
+
+    .section-title {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      padding: 9px 12px;
+      background: var(--navy);
+      color: #fff;
+      font-weight: 800;
+      border-radius: 6px;
+      text-transform: uppercase;
+      font-size: .92rem;
+    }
+
+    .question-list {
+      margin: 12px 0 0;
+      padding-left: 22px;
+    }
+
+    .question-list li {
+      margin-bottom: 12px;
+      padding-right: 12px;
+    }
+
+    .marks {
+      float: right;
+      font-weight: 800;
+      color: var(--green);
+      margin-left: 12px;
+    }
+
+    .or {
+      text-align: center;
+      color: var(--muted);
+      font-weight: 800;
+      margin: 8px 0;
+    }
+
+    .answer-space {
+      height: 46px;
+      border-bottom: 1px dashed #b6c2d6;
+      margin-top: 8px;
+    }
+
+    .signature-row {
+      margin-top: 34px;
+      display: flex;
+      justify-content: space-between;
+      gap: 24px;
+      color: var(--muted);
+      font-size: .9rem;
+    }
+
+    @media (max-width: 900px) {
+      .workspace {
+        grid-template-columns: 1fr;
+      }
+
+      .panel {
+        position: static;
+      }
+
+      .paper {
+        padding: 24px;
+      }
+
+      .exam-meta,
+      .student-line {
+        grid-template-columns: 1fr;
+      }
+
+      .exam-meta div {
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .exam-meta div:last-child {
+        border-bottom: 0;
+      }
+    }
+
+    @media print {
+      body {
+        background: #fff;
+      }
+
+      .topbar,
+      .panel {
+        display: none;
+      }
+
+      .workspace {
+        display: block;
+        margin: 0;
+        padding: 0;
+        max-width: none;
+      }
+
+      .paper {
+        border: 0;
+        box-shadow: none;
+        border-radius: 0;
+        padding: 18mm;
+        min-height: auto;
+      }
+
+      .section {
+        break-inside: avoid;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <div class="brand-title">Savyasachi Coaching</div>
+      <div class="brand-subtitle">Board Examination Paper Format</div>
+    </div>
+    <button type="button" onclick="window.print()">Print / Save PDF</button>
+  </header>
+
+  <main class="workspace">
+    <aside class="panel">
+      <h2>Paper Details</h2>
+      <div class="field">
+        <label>Board</label>
+        <input id="boardName" value="CBSE / State Board" />
+      </div>
+      <div class="field">
+        <label>Class</label>
+        <input id="className" value="Class 10" />
+      </div>
+      <div class="field">
+        <label>Subject</label>
+        <input id="subjectName" value="Mathematics" />
+      </div>
+      <div class="field">
+        <label>Exam Name</label>
+        <input id="examName" value="Board Examination Practice Test" />
+      </div>
+      <div class="field">
+        <label>Time</label>
+        <input id="timeAllowed" value="3 Hours" />
+      </div>
+      <div class="field">
+        <label>Maximum Marks</label>
+        <input id="maxMarks" value="80" />
+      </div>
+      <div class="field">
+        <label>General Instructions</label>
+        <textarea id="instructions">All questions are compulsory.
+Read each question carefully before answering.
+Marks are indicated against each question.
+Use clean and proper steps wherever required.</textarea>
+      </div>
+    </aside>
+
+    <section class="paper">
+      <div class="exam-header">
+        <div class="coaching-name">Savyasachi Coaching</div>
+        <div class="exam-label" data-bind="examName">Board Examination Practice Test</div>
+      </div>
+
+      <div class="exam-meta">
+        <div><strong>Board:</strong> <span data-bind="boardName">CBSE / State Board</span></div>
+        <div><strong>Class:</strong> <span data-bind="className">Class 10</span></div>
+        <div><strong>Subject:</strong> <span data-bind="subjectName">Mathematics</span></div>
+        <div><strong>Time:</strong> <span data-bind="timeAllowed">3 Hours</span></div>
+        <div><strong>Maximum Marks:</strong> <span data-bind="maxMarks">80</span></div>
+        <div><strong>Date:</strong> <span class="blank"></span></div>
+      </div>
+
+      <div class="student-line">
+        <div><strong>Student Name:</strong> <span class="blank"></span></div>
+        <div><strong>Roll No.:</strong> <span class="blank"></span></div>
+      </div>
+
+      <div class="instructions">
+        <strong>General Instructions</strong>
+        <ol id="instructionList"></ol>
+      </div>
+
+      <div class="section">
+        <div class="section-title">
+          <span>Section A: Objective Type Questions</span>
+          <span>1 x 10 = 10 Marks</span>
+        </div>
+        <ol class="question-list">
+          <li>Choose the correct answer from the given options. <span class="marks">1</span></li>
+          <li>Fill in the blank with the correct answer. <span class="marks">1</span></li>
+          <li>State whether the given statement is true or false. <span class="marks">1</span></li>
+          <li>Answer the following in one word or one sentence. <span class="marks">1</span></li>
+        </ol>
+      </div>
+
+      <div class="section">
+        <div class="section-title">
+          <span>Section B: Very Short Answer Questions</span>
+          <span>2 x 5 = 10 Marks</span>
+        </div>
+        <ol class="question-list" start="11">
+          <li>Answer the following question briefly. <span class="marks">2</span><div class="answer-space"></div></li>
+          <li>Solve the given problem and write the final answer. <span class="marks">2</span><div class="answer-space"></div></li>
+          <li>Define the given term with one suitable example. <span class="marks">2</span><div class="answer-space"></div></li>
+        </ol>
+      </div>
+
+      <div class="section">
+        <div class="section-title">
+          <span>Section C: Short Answer Questions</span>
+          <span>3 x 6 = 18 Marks</span>
+        </div>
+        <ol class="question-list" start="16">
+          <li>Attempt the question with proper steps. <span class="marks">3</span><div class="answer-space"></div></li>
+          <li>Explain the concept with a neat example. <span class="marks">3</span><div class="answer-space"></div></li>
+          <li>Write a short note on the given topic. <span class="marks">3</span><div class="answer-space"></div></li>
+        </ol>
+      </div>
+
+      <div class="section">
+        <div class="section-title">
+          <span>Section D: Long Answer Questions</span>
+          <span>5 x 4 = 20 Marks</span>
+        </div>
+        <ol class="question-list" start="22">
+          <li>Solve the following question in detail. <span class="marks">5</span><div class="answer-space"></div></li>
+          <li>Answer the question with proper explanation and diagram if required. <span class="marks">5</span><div class="answer-space"></div></li>
+          <div class="or">OR</div>
+          <li>Attempt the alternative question in detail. <span class="marks">5</span><div class="answer-space"></div></li>
+        </ol>
+      </div>
+
+      <div class="section">
+        <div class="section-title">
+          <span>Section E: Case / Source Based Questions</span>
+          <span>4 x 3 = 12 Marks</span>
+        </div>
+        <ol class="question-list" start="26">
+          <li>Read the given passage or case and answer the sub-questions. <span class="marks">4</span><div class="answer-space"></div></li>
+          <li>Observe the data, diagram, map, or table and answer. <span class="marks">4</span><div class="answer-space"></div></li>
+        </ol>
+      </div>
+
+      <div class="signature-row">
+        <span>Prepared by: Savyasachi Coaching</span>
+        <span>Invigilator Signature: __________________</span>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const fields = ["boardName", "className", "subjectName", "examName", "timeAllowed", "maxMarks"];
+
+    function syncPaper() {
+      fields.forEach((id) => {
+        document.querySelectorAll(`[data-bind="${id}"]`).forEach((node) => {
+          node.textContent = document.getElementById(id).value || "";
+        });
+      });
+
+      const list = document.getElementById("instructionList");
+      list.innerHTML = "";
+      document.getElementById("instructions").value
+        .split(/\n+/)
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .forEach((line) => {
+          const li = document.createElement("li");
+          li.textContent = line;
+          list.appendChild(li);
+        });
+    }
+
+    fields.concat("instructions").forEach((id) => {
+      document.getElementById(id).addEventListener("input", syncPaper);
+    });
+
+    syncPaper();
+  </script>
+</body>
+</html>

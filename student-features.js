@@ -1,0 +1,597 @@
+/* ══════════════════════════════════════════════════════════════════
+   SAVYASACHI — EXTRA STUDENT+ADMIN FEATURES
+   ══════════════════════════════════════════════════════════════════
+   Ye file script.js ke baad load hoti hai aur usi ke globals
+   (current, records, questionBank, $, getDB, escHtml, fillFilter,
+   getCustomSubjectOptions, getCustomChapterOptions, isValidQ,
+   getQuestionSubject, cloneQ, shuffleArray, getStudentSession,
+   normalizeMobile, beginExam, formatResultDate, bindEvent) reuse
+   karti hai — koi bhi cheez dobara define nahi ki gayi.
+
+   Features:
+   1) Practice Mode      — unlimited, no timer-pressure, no leaderboard
+   2) My Mistakes         — auto-collected wrong answers (revise anytime)
+   3) My Progress         — score trend chart across all tests
+   4) Doubt Box           — student asks, admin replies (2-way)
+   5) Study Streak        — daily streak badge
+   ══════════════════════════════════════════════════════════════════ */
+
+(function () {
+
+  /* ── 1) PRACTICE MODE ─────────────────────────────────────────── */
+
+  let lastPracticeOptionsKey = "";
+  let lastPracticeChapterKey = "";
+
+  function getCheckedPracticeChapters() {
+    return Array.from(document.querySelectorAll('#practice-chapter-list input[type=checkbox]:checked')).map(cb => cb.value);
+  }
+
+  function renderPracticeChapterList(subject) {
+    const container = document.getElementById("practice-chapter-list");
+    if (!container || typeof getCustomChapterOptions !== "function") return;
+    const chapters = getCustomChapterOptions(subject);
+    const key = subject + "::" + chapters.join("|");
+    if (key === lastPracticeChapterKey && container.children.length) return; // avoid needless rebuild/flicker
+    lastPracticeChapterKey = key;
+
+    if (!chapters.length) {
+      container.innerHTML = '<p class="muted-text">Is subject mein koi chapter nahi mila.</p>';
+      return;
+    }
+    container.innerHTML = chapters.map(ch => `
+      <label class="chapter-choice">
+        <input type="checkbox" value="${escHtml(ch)}" />
+        ${escHtml(ch)}
+      </label>`).join("");
+  }
+
+  function selectAllPracticeChapters() {
+    document.querySelectorAll('#practice-chapter-list input[type=checkbox]').forEach(cb => { cb.checked = true; });
+  }
+
+  function clearAllPracticeChapters() {
+    document.querySelectorAll('#practice-chapter-list input[type=checkbox]').forEach(cb => { cb.checked = false; });
+  }
+
+  function syncPracticeFilters() {
+    const subjSel = document.getElementById("practice-subject-filter");
+    if (!subjSel || typeof questionBank === "undefined") return;
+
+    const subjects = getCustomSubjectOptions();
+    const key = subjects.join("|");
+    if (key !== lastPracticeOptionsKey || !subjSel.options.length) {
+      lastPracticeOptionsKey = key;
+      fillFilter(subjSel, subjects, subjSel.value || "all", "— Sabhi Subjects —");
+    }
+    renderPracticeChapterList(subjSel.value || "all");
+  }
+
+  function startPracticeMode() {
+    const session = getStudentSession();
+    if (!session) { alert("Practice ke liye pehle login karein."); return; }
+    if (typeof questionBank === "undefined" || !questionBank.length) {
+      alert("Abhi koi question bank load nahi hua. Thodi der baad try karein.");
+      return;
+    }
+
+    const subject = document.getElementById("practice-subject-filter")?.value || "all";
+    const checkedChapters = getCheckedPracticeChapters();
+    const count = Number(document.getElementById("practice-question-count")?.value || 10);
+    if (!count || count <= 0) { alert("Questions count 0 se zyada hona chahiye."); return; }
+
+    let pool = questionBank
+      .filter(q => isValidQ(q) &&
+        (subject === "all" || getQuestionSubject(q) === subject) &&
+        (checkedChapters.length === 0 || checkedChapters.includes(q.chapter)))
+      .map(cloneQ);
+    pool = shuffleArray(pool);
+
+    if (!pool.length) {
+      alert("Is filter ke liye koi question available nahi hai.");
+      return;
+    }
+    const finalQ = pool.slice(0, Math.min(count, pool.length));
+
+    const chapterLabel = checkedChapters.length === 1
+      ? checkedChapters[0]
+      : (checkedChapters.length > 1 ? checkedChapters.length + " Chapters" : (subject !== "all" ? subject : "Mixed Topics"));
+
+    current.student = {
+      name: document.getElementById("student-name")?.value.trim() || session.name || "Student",
+      mobile: document.getElementById("student-mobile")?.value.trim() || session.mobile || "",
+      email: ""
+    };
+    current.testId = "practice-" + Date.now();
+    current.test = {
+      title: "🎯 Practice: " + chapterLabel,
+      minutes: 999,
+      marksPerQuestion: 1,
+      negativeEnabled: false,
+      negativeMarks: 0,
+      custom: true,
+      isPractice: true,
+      questions: finalQ
+    };
+    beginExam();
+  }
+
+  /* ── 2) MY MISTAKES (auto-bookmark wrong answers) ────────────────── */
+
+  function mistakeKeyFor(d) {
+    const base = (d.subject || "") + "|" + (d.chapter || "") + "|" +
+      (d.questionEN || d.questionHI || "").slice(0, 60);
+    return base.toLowerCase().replace(/\s+/g, " ").trim();
+  }
+
+  async function saveMistakesFromDetails(student, testTitle, details) {
+    const db = getDB();
+    const mobile = normalizeMobile(student?.mobile || "");
+    if (!db || !mobile) return;
+    const wrongOnes = (details || []).filter(d => d.status === "Wrong");
+    if (!wrongOnes.length) return;
+
+    const ref = db.collection("studentMistakes").doc(mobile);
+    const snap = await ref.get();
+    let items = (snap.exists && Array.isArray(snap.data().items)) ? snap.data().items : [];
+    const existingKeys = new Set(items.map(mistakeKeyFor));
+
+    wrongOnes.forEach(d => {
+      const key = mistakeKeyFor(d);
+      if (existingKeys.has(key)) return;
+      existingKeys.add(key);
+      items.push({
+        subject: d.subject || "", chapter: d.chapter || "",
+        questionEN: d.questionEN || "", questionHI: d.questionHI || "",
+        optionsEN: d.optionsEN || [], optionsHI: d.optionsHI || [],
+        correctAnswer: d.correctAnswer,
+        explanationEN: d.explanationEN || "", explanationHI: d.explanationHI || "",
+        testTitle: testTitle || "", addedAt: new Date().toISOString()
+      });
+    });
+    if (items.length > 300) items = items.slice(items.length - 300);
+    try { await ref.set({ mobile, items }, { merge: true }); }
+    catch (e) { console.warn("Mistake save failed", e); }
+  }
+
+  let currentMistakes = [];
+
+  async function loadMyMistakes() {
+    const session = getStudentSession();
+    const db = getDB();
+    if (!session || !db) return [];
+    const mobile = normalizeMobile(session.mobile);
+    if (!mobile) return [];
+    try {
+      const snap = await db.collection("studentMistakes").doc(mobile).get();
+      return (snap.exists && Array.isArray(snap.data().items)) ? snap.data().items : [];
+    } catch (e) { console.warn("Mistake load failed", e); return []; }
+  }
+
+  async function renderMyMistakes() {
+    const list = document.getElementById("my-mistakes-list");
+    if (!list) return;
+    list.innerHTML = '<p class="muted-text">Loading...</p>';
+    currentMistakes = await loadMyMistakes();
+    if (!currentMistakes.length) {
+      list.innerHTML = '<p class="muted-text">Koi mistake save nahi hai — bahut badhiya! 🎉</p>';
+      return;
+    }
+    list.innerHTML = currentMistakes.map((it, idx) => {
+      const opts = (it.optionsHI && it.optionsHI.length) ? it.optionsHI : (it.optionsEN || []);
+      const correctText = opts[it.correctAnswer] || "";
+      const explain = it.explanationHI || it.explanationEN || "";
+      return `
+        <div class="card" style="margin-bottom:10px;padding:12px;">
+          <div style="font-size:.78rem;color:#64748b;margin-bottom:4px;">
+            ${escHtml(it.subject || "")}${it.chapter ? " · " + escHtml(it.chapter) : ""}
+          </div>
+          <div style="font-weight:600;margin-bottom:6px;">${escHtml(it.questionHI || it.questionEN || "")}</div>
+          <div style="font-size:.85rem;color:#16a34a;margin-bottom:6px;">✅ Sahi jawab: ${escHtml(correctText)}</div>
+          ${explain ? `<div style="font-size:.82rem;color:#475569;background:#f8fafc;border-radius:6px;padding:8px;margin-bottom:6px;">💡 ${escHtml(explain)}</div>` : ""}
+          <button type="button" class="btn-secondary" style="font-size:.78rem;padding:4px 10px;" onclick="window.SavyaExtras.removeMistake(${idx})">✅ Maine sikh liya</button>
+        </div>`;
+    }).join("");
+  }
+
+  async function removeMistake(idx) {
+    const session = getStudentSession();
+    const db = getDB();
+    if (!session || !db) return;
+    const mobile = normalizeMobile(session.mobile);
+    if (!mobile) return;
+    const items = currentMistakes.slice();
+    items.splice(idx, 1);
+    try {
+      await db.collection("studentMistakes").doc(mobile).set({ mobile, items }, { merge: true });
+      renderMyMistakes();
+    } catch (e) { console.warn("Remove mistake failed", e); alert("Remove nahi ho paya, dobara try karein."); }
+  }
+
+  function practiceMyMistakes() {
+    if (!currentMistakes.length) { alert("Koi mistake nahi hai practice ke liye! 🎉"); return; }
+    const session = getStudentSession();
+    const pool = currentMistakes.map(it => ({
+      textEN: it.questionEN, textHI: it.questionHI,
+      text: it.questionHI || it.questionEN,
+      optionsEN: it.optionsEN, optionsHI: it.optionsHI,
+      options: (it.optionsHI && it.optionsHI.length) ? it.optionsHI : it.optionsEN,
+      answer: Number(it.correctAnswer || 0),
+      explanationEN: it.explanationEN, explanationHI: it.explanationHI,
+      explanation: it.explanationHI || it.explanationEN,
+      subject: it.subject, chapter: it.chapter
+    }));
+    current.student = {
+      name: document.getElementById("student-name")?.value.trim() || session?.name || "Student",
+      mobile: document.getElementById("student-mobile")?.value.trim() || session?.mobile || "",
+      email: ""
+    };
+    current.testId = "mistakes-" + Date.now();
+    current.test = {
+      title: "🔁 Mistake Revision Practice",
+      minutes: 999, marksPerQuestion: 1, negativeEnabled: false, negativeMarks: 0,
+      custom: true, isPractice: true, questions: pool
+    };
+    beginExam();
+  }
+
+  /* ── 3) MY PROGRESS (score trend chart) ─────────────────────────── */
+
+  let progressChartInstance = null;
+
+  function renderMyProgress() {
+    const session = getStudentSession();
+    const emptyEl = document.getElementById("my-progress-empty");
+    const canvas = document.getElementById("my-progress-chart");
+    if (!session || !emptyEl || !canvas || typeof Chart === "undefined") return;
+    const mobile = normalizeMobile(session.mobile);
+
+    const myRecs = (records || [])
+      .filter(r => normalizeMobile(r.mobile) === mobile && r.submittedIso)
+      .sort((a, b) => (a.submittedIso || "").localeCompare(b.submittedIso || ""));
+
+    if (!myRecs.length) {
+      emptyEl.style.display = "block";
+      canvas.style.display = "none";
+      return;
+    }
+    emptyEl.style.display = "none";
+    canvas.style.display = "block";
+
+    const labels = myRecs.map(r => {
+      const dateTxt = (typeof formatResultDate === "function") ? formatResultDate(r.submittedIso) : "";
+      return (r.testTitle || "Test").slice(0, 16) + (dateTxt ? " · " + dateTxt : "");
+    });
+    const dataPct = myRecs.map(r => (r.maxScore > 0) ? Math.round((r.score / r.maxScore) * 100) : 0);
+
+    if (progressChartInstance) { progressChartInstance.destroy(); }
+    progressChartInstance = new Chart(canvas.getContext("2d"), {
+      type: "line",
+      data: {
+        labels,
+        datasets: [{
+          label: "Score %",
+          data: dataPct,
+          borderColor: "#2563eb",
+          backgroundColor: "rgba(37,99,235,.15)",
+          fill: true,
+          tension: 0.3,
+          pointRadius: 4
+        }]
+      },
+      options: {
+        responsive: true,
+        scales: { y: { min: 0, max: 100, ticks: { callback: v => v + "%" } } },
+        plugins: { legend: { display: false } }
+      }
+    });
+  }
+
+  /* ── 4) DOUBT BOX ─────────────────────────────────────────────────── */
+
+  async function submitDoubt() {
+    const session = getStudentSession();
+    if (!session) { alert("Doubt bhejne ke liye pehle login karein."); return; }
+    const db = getDB();
+    if (!db) { alert("Internet connection check karein."); return; }
+
+    const contextInput = document.getElementById("doubt-context-input");
+    const textInput = document.getElementById("doubt-text-input");
+    const contextText = (contextInput?.value || "").trim();
+    const doubtText = (textInput?.value || "").trim();
+    if (!doubtText) { alert("Kripya apna doubt likhein."); return; }
+
+    try {
+      await db.collection("doubts").add({
+        mobile: normalizeMobile(session.mobile),
+        name: session.name || "",
+        context: contextText,
+        doubtText,
+        status: "open",
+        adminReply: "",
+        createdAt: (typeof firebase !== "undefined") ? firebase.firestore.FieldValue.serverTimestamp() : null,
+        createdIso: new Date().toISOString()
+      });
+      if (contextInput) contextInput.value = "";
+      if (textInput) textInput.value = "";
+      alert("✅ Aapka doubt bhej diya gaya! Admin jald reply karega.");
+      renderMyDoubts();
+    } catch (err) {
+      console.error(err);
+      alert("Doubt bhejne mein error: " + (err.message || err));
+    }
+  }
+
+  async function renderMyDoubts() {
+    const list = document.getElementById("my-doubts-list");
+    const session = getStudentSession();
+    const db = getDB();
+    if (!list || !session || !db) return;
+    list.innerHTML = '<p class="muted-text">Loading...</p>';
+    try {
+      const mobile = normalizeMobile(session.mobile);
+      const snap = await db.collection("doubts").where("mobile", "==", mobile).get();
+      let docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      docs.sort((a, b) => (b.createdIso || "").localeCompare(a.createdIso || ""));
+      if (!docs.length) { list.innerHTML = '<p class="muted-text">Koi doubt nahi bheja abhi tak.</p>'; return; }
+      list.innerHTML = docs.map(d => `
+        <div class="card" style="margin-bottom:8px;padding:10px 12px;">
+          <div style="font-size:.78rem;color:#64748b;">
+            ${d.context ? escHtml(d.context) : "General"} · ${d.status === "answered" ? "✅ Answered" : "⏳ Pending"}
+          </div>
+          <div style="font-weight:600;margin:4px 0;">${escHtml(d.doubtText || "")}</div>
+          ${d.adminReply ? `<div style="background:#f0fdf4;border-radius:6px;padding:8px;font-size:.85rem;color:#15803d;">👨‍🏫 ${escHtml(d.adminReply)}</div>` : ""}
+        </div>`).join("");
+    } catch (err) {
+      console.error(err);
+      list.innerHTML = '<p class="muted-text">Load nahi ho paya.</p>';
+    }
+  }
+
+  async function renderAdminDoubts() {
+    const list = document.getElementById("admin-doubts-list");
+    const db = getDB();
+    if (!list || !db) return;
+    list.innerHTML = '<p class="muted-text">Loading...</p>';
+    try {
+      const snap = await db.collection("doubts").get();
+      let docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      docs.sort((a, b) => {
+        if (a.status !== b.status) return a.status === "answered" ? 1 : -1;
+        return (b.createdIso || "").localeCompare(a.createdIso || "");
+      });
+      const openCount = docs.filter(d => d.status !== "answered").length;
+      const badge = document.getElementById("doubts-open-count");
+      if (badge) {
+        badge.style.display = openCount > 0 ? "inline-block" : "none";
+        badge.textContent = String(openCount);
+      }
+      if (!docs.length) { list.innerHTML = '<p class="muted-text">Koi doubt nahi aaya abhi tak.</p>'; return; }
+      list.innerHTML = docs.map(d => `
+        <div class="card" style="margin-bottom:10px;padding:12px;border-left:4px solid ${d.status === "answered" ? "#22c55e" : "#f59e0b"};">
+          <div style="font-size:.8rem;color:#64748b;">
+            👤 ${escHtml(d.name || "Student")} · 📱 ${escHtml(d.mobile || "")}${d.context ? " · " + escHtml(d.context) : ""}
+          </div>
+          <div style="font-weight:600;margin:6px 0;">${escHtml(d.doubtText || "")}</div>
+          <textarea id="reply-input-${d.id}" rows="2" placeholder="Reply likhein..." style="width:100%;margin-bottom:6px;box-sizing:border-box;">${escHtml(d.adminReply || "")}</textarea>
+          <button type="button" class="btn-primary" style="font-size:.8rem;padding:4px 10px;" onclick="window.SavyaExtras.replyToDoubt('${d.id}')">📤 Reply Bhejein</button>
+        </div>`).join("");
+    } catch (err) {
+      console.error(err);
+      list.innerHTML = '<p class="muted-text">Load nahi ho paya.</p>';
+    }
+  }
+
+  async function replyToDoubt(id) {
+    const db = getDB();
+    const ta = document.getElementById("reply-input-" + id);
+    if (!db || !ta) return;
+    const reply = (ta.value || "").trim();
+    if (!reply) { alert("Kripya reply likhein."); return; }
+    try {
+      await db.collection("doubts").doc(id).update({ adminReply: reply, status: "answered" });
+      alert("✅ Reply bhej diya gaya.");
+      renderAdminDoubts();
+    } catch (err) {
+      console.error(err);
+      alert("Reply save nahi hua: " + (err.message || err));
+    }
+  }
+
+  /* ── 5) STUDY STREAK ─────────────────────────────────────────────── */
+
+  function dateStr(offsetDays) {
+    const d = new Date();
+    d.setDate(d.getDate() + (offsetDays || 0));
+    return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+  }
+
+  async function updateStreak(student) {
+    const db = getDB();
+    const mobile = normalizeMobile(student?.mobile || "");
+    if (!db || !mobile) return;
+    try {
+      const ref = db.collection("students").doc(mobile);
+      const snap = await ref.get();
+      const data = snap.exists ? snap.data() : {};
+      const today = dateStr(0);
+      if (data.lastActiveDate === today) return; // already counted today
+      const streak = (data.lastActiveDate === dateStr(-1)) ? Number(data.streakCount || 0) + 1 : 1;
+      await ref.set({ lastActiveDate: today, streakCount: streak }, { merge: true });
+    } catch (e) { console.warn("Streak update failed", e); }
+  }
+
+  async function renderStreakBadge() {
+    const session = getStudentSession();
+    const badge = document.getElementById("student-streak-badge");
+    const db = getDB();
+    if (!session || !badge || !db) return;
+    try {
+      const mobile = normalizeMobile(session.mobile);
+      const snap = await db.collection("students").doc(mobile).get();
+      const streak = snap.exists ? Number(snap.data().streakCount || 0) : 0;
+      if (streak > 0) {
+        badge.style.display = "inline-block";
+        badge.textContent = "🔥 " + streak + "-din streak";
+      } else {
+        badge.style.display = "none";
+      }
+    } catch (e) { badge.style.display = "none"; }
+  }
+
+  /* ── 6) MY RESULT — SAHI/GALAT DETAIL (works for ANY record: online
+     quiz, OMR-scan, or Manual Entry, since all three save the same
+     `details` array via saveRecordOnline()). Student types their mobile
+     number (no login required — matches how OMR/Manual Entry records
+     are saved with just name+mobile), sees every past attempt, and can
+     open a question-by-question sahi/galat breakdown reusing the exact
+     same solution-review screen normal online test-takers see. ────── */
+
+  async function lookupMyResults() {
+    const input = document.getElementById("my-result-mobile-input");
+    const listEl = document.getElementById("my-result-list");
+    if (!input || !listEl) return;
+    const mobile = normalizeMobile(input.value);
+    if (mobile.length !== 10) { alert("Sahi 10-digit WhatsApp number daalein."); return; }
+
+    listEl.innerHTML = '<p class="muted-text">Dhoondh rahe hain...</p>';
+    const db = getDB();
+    let myRecs = [];
+    try {
+      if (db) {
+        const snap = await db.collection("studentRecords").where("mobile", "==", mobile).get();
+        myRecs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      } else {
+        myRecs = (records || []).filter(r => normalizeMobile(r.mobile) === mobile);
+      }
+    } catch (err) {
+      console.warn("Firestore query fail hui, local records se try kar rahe hain:", err);
+      myRecs = (records || []).filter(r => normalizeMobile(r.mobile) === mobile);
+    }
+    myRecs.sort((a, b) => (b.submittedIso || "").localeCompare(a.submittedIso || ""));
+    renderMyResultsList(myRecs);
+  }
+
+  function renderMyResultsList(myRecs) {
+    const listEl = document.getElementById("my-result-list");
+    if (!listEl) return;
+    if (!myRecs.length) {
+      listEl.innerHTML = '<p class="muted-text">Is number se abhi tak koi result nahi mila.</p>';
+      return;
+    }
+    listEl.innerHTML = myRecs.map((r, idx) => {
+      const pct = r.maxScore > 0 ? Math.round((r.score / r.maxScore) * 100) : 0;
+      const dateTxt = (typeof formatResultDate === "function") ? formatResultDate(r.submittedIso) : "";
+      const hasDetails = Array.isArray(r.details) && r.details.length > 0;
+      return `
+        <div class="card" style="margin-bottom:8px;padding:10px 12px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+          <div>
+            <div style="font-weight:700;">${escHtml(r.testTitle || r.testId || "Test")}</div>
+            <div style="font-size:.78rem;color:#64748b;">${dateTxt ? dateTxt + " · " : ""}${escHtml(r.testMode || "Online")} · Score: ${r.score}/${r.maxScore} (${pct}%)</div>
+          </div>
+          <button type="button" class="btn-primary my-result-view-btn" data-idx="${idx}" style="font-size:.82rem;padding:6px 12px;" ${hasDetails ? "" : "disabled title=\"Purane record mein sawaal-wise detail save nahi hai\""}>
+            ${hasDetails ? "📖 Sahi/Galat Dekhein" : "Detail Unavailable"}
+          </button>
+        </div>`;
+    }).join("");
+
+    listEl.querySelectorAll(".my-result-view-btn").forEach(btn => {
+      btn.onclick = () => openMyResultDetail(myRecs[Number(btn.getAttribute("data-idx"))]);
+    });
+  }
+
+  function openMyResultDetail(record) {
+    if (!record || !Array.isArray(record.details) || !record.details.length) {
+      alert("Is result ke sath sawaal-wise detail save nahi hai.");
+      return;
+    }
+    // Reuse script.js's solution-review screen/globals as-is.
+    currentDetails = record.details;
+    currentSolIndex = 0;
+    currentSolLang = "hi";
+    document.getElementById("home-screen")?.classList.add("hidden");
+    document.getElementById("solution-screen")?.classList.remove("hidden");
+    setSolLang("hi");
+    renderSolNav();
+
+    const backBtn = document.getElementById("solution-back");
+    if (backBtn) {
+      backBtn.textContent = "← Wapas Jaayein";
+      backBtn.onclick = closeMyResultDetail;
+    }
+  }
+
+  function closeMyResultDetail() {
+    document.getElementById("solution-screen")?.classList.add("hidden");
+    document.getElementById("home-screen")?.classList.remove("hidden");
+    if (typeof showMode === "function") showMode("student");
+    const backBtn = document.getElementById("solution-back");
+    if (backBtn) {
+      backBtn.textContent = "← Back to Result";
+      backBtn.onclick = (typeof showResultFromSolution === "function") ? showResultFromSolution : null;
+    }
+  }
+
+  /* ── HOOK: called from script.js showResult() after every submit ─── */
+
+  async function onTestSubmitted({ student, testTitle, details, isPractice }) {
+    try { await updateStreak(student); } catch (e) { console.warn(e); }
+    try { if (!isPractice) await saveMistakesFromDetails(student, testTitle, details); } catch (e) { console.warn(e); }
+    renderStreakBadge();
+  }
+
+  /* ── INIT / WIRING ─────────────────────────────────────────────── */
+
+  function refreshStudentExtras() {
+    const session = (typeof getStudentSession === "function") ? getStudentSession() : null;
+    if (!session) return;
+    renderStreakBadge();
+    renderMyMistakes();
+    renderMyProgress();
+    renderMyDoubts();
+  }
+
+  function init() {
+    const startBtn = document.getElementById("practice-start-btn");
+    if (startBtn) startBtn.onclick = startPracticeMode;
+
+    const refreshBtn = document.getElementById("refresh-mistakes-btn");
+    if (refreshBtn) refreshBtn.onclick = renderMyMistakes;
+
+    const practiceMistakesBtn = document.getElementById("practice-mistakes-btn");
+    if (practiceMistakesBtn) practiceMistakesBtn.onclick = practiceMyMistakes;
+
+    const doubtSubmitBtn = document.getElementById("doubt-submit-btn");
+    if (doubtSubmitBtn) doubtSubmitBtn.onclick = submitDoubt;
+
+    const myResultBtn = document.getElementById("my-result-lookup-btn");
+    if (myResultBtn) myResultBtn.onclick = lookupMyResults;
+
+    const subjSel = document.getElementById("practice-subject-filter");
+    if (subjSel) subjSel.onchange = syncPracticeFilters;
+
+    const selectAllBtn = document.getElementById("practice-select-all-chapters");
+    if (selectAllBtn) selectAllBtn.onclick = selectAllPracticeChapters;
+
+    const clearAllBtn = document.getElementById("practice-clear-all-chapters");
+    if (clearAllBtn) clearAllBtn.onclick = clearAllPracticeChapters;
+
+    syncPracticeFilters();
+    setInterval(syncPracticeFilters, 5000);
+
+    // Refresh student widgets when Student tab is opened (uses addEventListener
+    // so we don't clobber script.js's own onclick handler on the same button).
+    document.getElementById("student-tab")?.addEventListener("click", refreshStudentExtras);
+    setTimeout(refreshStudentExtras, 900); // initial load after session restore
+  }
+
+  document.addEventListener("DOMContentLoaded", init);
+
+  window.SavyaExtras = {
+    onTestSubmitted,
+    removeMistake,
+    replyToDoubt,
+    renderAdminDoubts
+  };
+
+})();

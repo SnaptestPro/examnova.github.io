@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>Question Paper Generator | Savyasachi Coaching Test</title>
+<meta name="description" content="MCQ Question Paper Generator with Question Bank — Savyasachi Coaching"/>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Noto+Sans+Devanagari:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+<!-- KaTeX for Math Equations -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.css"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/contrib/auto-render.min.js"></script>
+<link rel="stylesheet" href="qgen-style.css?v=20260708-noback"/>
+<link rel="stylesheet" href="theme-picker.css"/>
+</head>
+<body>
+
+<div class="app">
+
+  <!-- ══════════════ SIDEBAR ══════════════ -->
+  <aside class="sidebar" id="sidebar">
+
+    <div class="sidebar-logo">
+      <div class="logo-wrap">
+        <img src="savyasachi-coaching-logo.png" alt="Savyasachi Coaching" class="qgen-logo-img" />
+        <div>
+          <div class="logo-name">Question Generator</div>
+          <div class="logo-site">savyasachitest.unaux.com</div>
+        </div>
+      </div>
+      <button class="menu-btn" onclick="toggleSidebar()">☰</button>
+      <button class="menu-btn" onclick="ThemeManager.togglePicker()" title="Theme" style="margin-left:4px">🎨</button>
+    </div>
+
+    <!-- Tab Switcher -->
+    <div class="side-tabs">
+      <button class="side-tab active" id="stab-bank" onclick="switchSideTab('bank')">📄 Generator</button>
+      <button class="side-tab" id="stab-add"  onclick="switchSideTab('add')">✏️ Add New</button>
+      <button class="side-tab" id="stab-bulk" onclick="switchSideTab('bulk')">📦 Bulk Add</button>
+      <button class="side-tab" id="stab-draftedit" onclick="switchSideTab('draftedit')">📋 Draft Edit</button>
+      <button class="side-tab" id="stab-settings" onclick="switchSideTab('settings')">⚙️ Settings</button>
+    </div>
+
+    <!-- Section tabs (shown when section mode is ON) -->
+    <div id="sectionTabsWrap" class="section-tabs-wrap" style="display:none"></div>
+
+    <!-- ── BANK TAB ── -->
+    <div class="side-panel" id="panel-bank">
+      <div class="bank-search-wrap">
+        <input id="bankSearch" type="text" placeholder="🔍 Search questions..." oninput="filterBankDebounced()"/>
+        <select id="bankSubject" onchange="onBankSubjectChange()">
+          <option value="">— कोई नहीं (Subject) —</option>
+        </select>
+        <select id="bankChapter" onchange="onBankChapterChange()">
+          <option value="">— कोई नहीं (Chapter) —</option>
+        </select>
+        <select id="bankQType" onchange="onBankQTypeChange()">
+          <option value="">— सभी Type —</option>
+          <option value="mcq">✅ MCQ</option>
+          <option value="subjective">📝 Subjective</option>
+        </select>
+        <select id="bankMarks" class="hidden" onchange="filterBankDebounced()">
+          <option value="">— सभी Marks —</option>
+        </select>
+      </div>
+      <div class="bank-stats">
+        <span id="bankTotal">0</span> questions · <span id="bankSelected">0</span> selected
+      </div>
+      <div class="bank-actions">
+        <button class="btn btn-xs btn-outline" onclick="selectAllVisible()">✅ Select All</button>
+        <button class="btn btn-xs btn-outline" onclick="deselectAll()">☐ Deselect All</button>
+        <button class="btn btn-xs btn-primary" onclick="addSelectedToPaper()">➕ Add to Paper</button>
+        <button class="btn btn-xs btn-sec-toggle" id="toggleSectionBtn" onclick="isSectionMode()?disableSections():initSections()" style="grid-column:span 3">🗂️ Sections OFF</button>
+      </div>
+      <div class="bank-list" id="bankList">
+        <div class="bank-loading">Loading questions...</div>
+      </div>
+    </div>
+
+    <!-- ── ADD TAB ── -->
+    <div class="side-panel hidden" id="panel-add">
+      <div class="form-group">
+        <label>Question Type</label>
+        <select id="qType" onchange="onQTypeChange()">
+          <option value="mcq">✅ MCQ (4 options)</option>
+          <option value="subjective">📝 Subjective (long-answer)</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Question (Hindi/English)</label>
+        <textarea id="qText" rows="3" placeholder="Question likhein... (e.g. x2+3x=0 ya √16 ka maan kya hai?)" oninput="updateQPreview()"></textarea>
+        <div id="q-math-preview" style="display:none;margin-top:6px;padding:8px 12px;background:#eff6ff;border:1.5px dashed #93c5fd;border-radius:8px;font-size:.93rem;color:#1e3a8a;"></div>
+      </div>
+      <div id="mcqFieldsBox">
+        <div class="form-group">
+          <label>Option A</label>
+          <input id="optA" type="text" placeholder="Option A"/>
+        </div>
+        <div class="form-group">
+          <label>Option B</label>
+          <input id="optB" type="text" placeholder="Option B"/>
+        </div>
+        <div class="form-group">
+          <label>Option C</label>
+          <input id="optC" type="text" placeholder="Option C"/>
+        </div>
+        <div class="form-group">
+          <label>Option D</label>
+          <input id="optD" type="text" placeholder="Option D"/>
+        </div>
+        <div class="form-group">
+          <label>Correct Answer</label>
+          <select id="correctAns">
+            <option value="0">[A] Option A</option>
+            <option value="1">[B] Option B</option>
+            <option value="2">[C] Option C</option>
+            <option value="3">[D] Option D</option>
+          </select>
+        </div>
+      </div>
+      <div id="subjectiveFieldsBox" class="hidden">
+        <div class="form-group">
+          <label>Marks</label>
+          <input id="qMarks" type="number" min="1" step="1" placeholder="e.g. 5"/>
+        </div>
+        <div class="form-group">
+          <label>Model Answer (Answer Key mein dikhega)</label>
+          <textarea id="qModelAnswer" rows="3" placeholder="Expected answer / key points... (ye 'Answer Key' tab mein Question ke saath dikhega, student ko test mein nahi)"></textarea>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Chapter</label>
+        <input id="qChapter" type="text" placeholder="e.g. Samajwad" value="Custom"/>
+      </div>
+      <button class="btn btn-primary full" id="addQuestionBtn" onclick="addCustomQuestion()">➕ Add to Paper</button>
+      <button class="btn btn-outline full mt6" onclick="clearAddForm()">↩️ Cancel Edit</button>
+      <button class="btn btn-outline full mt6" onclick="saveToBank()">💾 Save to Bank Also</button>
+    </div>
+
+    <!-- ── BULK ADD TAB ── -->
+    <div class="side-panel hidden" id="panel-bulk">
+      <div class="form-group">
+        <label>Subject</label>
+        <input id="bulkSubject" type="text" placeholder="e.g. Mathematics" value="General"/>
+      </div>
+      <div class="form-group">
+        <label>Chapter (agar text mein na diya ho to ye use hoga)</label>
+        <input id="bulkChapter" type="text" placeholder="e.g. Samajwad" value="Custom"/>
+      </div>
+      <div class="form-group">
+        <label>Questions Paste Karein</label>
+        <textarea id="bulkRawText" rows="12" style="font-family:monospace;font-size:.85rem;" placeholder="1. भारत की राजधानी क्या है?
+A) दिल्ली
+B) मुंबई
+C) पटना
+D) जयपुर
+Ans: A
+
+2. समाजवाद पर एक निबंध लिखिए।
+Marks: 5
+Model Answer: समाजवाद एक आर्थिक व्यवस्था है जिसमें...
+
+प्रश्‍न 3. किसी बहुपद में चर का घात इनमें से कौन होगा?
+(क) धन पूर्णांक
+(ख) ऋण पूर्णांक
+(ग) भिन्‍न संख्‍या
+(घ) कोई नहीं
+उत्तर– (क)"></textarea>
+        <div style="font-size:.78rem;color:#64748b;margin-top:4px;line-height:1.5;">
+          💡 Har question naye number se shuru karein (1. ya Q1.). MCQ ke liye A)/B)/C)/D) options aur "Ans: A" line. Subjective ke liye options ki jagah <b>"Marks: 5"</b> aur (optional) <b>"Model Answer: ..."</b> line likhein — options na hone par wo khud subjective maan liya jayega.
+        </div>
+      </div>
+      <button class="btn btn-outline full" onclick="previewBulkQuestions_QG()">🔍 Preview</button>
+      <div id="bulkPreviewBox" class="hidden" style="margin-top:10px;max-height:280px;overflow-y:auto;border:1px solid #e2e8f0;border-radius:8px;padding:8px;background:#f8fafc;"></div>
+      <button class="btn btn-primary full mt6" id="bulkUploadBtn" onclick="confirmBulkUpload_QG()" disabled style="opacity:.5;">🚀 Upload All (Bank + Paper)</button>
+      <div id="bulkUploadLog" class="hidden" style="margin-top:10px;font-size:.8rem;color:#475569;max-height:160px;overflow-y:auto;"></div>
+    </div>
+
+    <!-- ── DRAFT EDIT TAB ── -->
+    <div class="side-panel hidden" id="panel-draftedit">
+      <div class="draft-edit-head">
+        <div>
+          <div class="draft-edit-label">Paper Draft</div>
+          <div class="draft-edit-title" id="draftEditTitle">Naya Paper</div>
+        </div>
+        <span class="draft-edit-count" id="draftEditCount">0 questions</span>
+      </div>
+
+      <div class="draft-edit-list" id="draftEditList">
+        <div class="draft-empty">Abhi koi question nahi — Generator se add karein</div>
+      </div>
+
+      <div class="draft-edit-form-wrap">
+        <div class="draft-form-title" id="draftFormTitle">✏️ Question Edit</div>
+        <div class="form-group">
+          <label>Question</label>
+          <textarea id="de-qText" rows="2" placeholder="Question text..."></textarea>
+        </div>
+        <div class="form-group">
+          <label>Option A</label>
+          <input id="de-optA" type="text" placeholder="Option A"/>
+        </div>
+        <div class="form-group">
+          <label>Option B</label>
+          <input id="de-optB" type="text" placeholder="Option B"/>
+        </div>
+        <div class="form-group">
+          <label>Option C</label>
+          <input id="de-optC" type="text" placeholder="Option C"/>
+        </div>
+        <div class="form-group">
+          <label>Option D</label>
+          <input id="de-optD" type="text" placeholder="Option D"/>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Correct Answer</label>
+            <select id="de-correctAns">
+              <option value="0">[A]</option>
+              <option value="1">[B]</option>
+              <option value="2">[C]</option>
+              <option value="3">[D]</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Chapter</label>
+            <input id="de-qChapter" type="text" placeholder="Chapter"/>
+          </div>
+        </div>
+        <button class="btn btn-primary full" id="de-updateBtn" onclick="saveDraftEditForm()">💾 Update Question</button>
+        <button class="btn btn-outline full mt6" onclick="clearDraftEditForm()">↩️ Cancel</button>
+      </div>
+
+      <div class="drafts-section">
+        <div class="drafts-head">
+          <label>Saved Drafts</label>
+          <button type="button" class="btn btn-xs btn-outline" onclick="fetchDraftTests()">🔄</button>
+        </div>
+        <div class="drafts-list" id="draftsList">
+          <div class="draft-empty">Loading drafts...</div>
+        </div>
+      </div>
+
+      <button class="btn btn-success full mt6" onclick="savePaperAsDraft()">☁️ Save / Update Draft</button>
+    </div>
+
+    <!-- ── SETTINGS TAB ── -->
+    <div class="side-panel hidden" id="panel-settings">
+      <div class="form-group">
+        <label>Test Number</label>
+        <input id="testNo" type="text" value="4" oninput="syncHeader()"/>
+      </div>
+      <div class="form-group">
+        <label>Subject / Topic</label>
+        <input id="subject" type="text" value="Combined AUB" oninput="syncHeader()"/>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Max Marks</label>
+          <input id="maxMarks" type="number" value="100" oninput="syncHeader()"/>
+        </div>
+        <div class="form-group">
+          <label>Time (min)</label>
+          <input id="timeMin" type="number" value="27" oninput="syncHeader()"/>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Date</label>
+        <input id="testDate" type="date" oninput="syncHeader()"/>
+      </div>
+      <div class="form-group">
+        <label>Instructions (Hindi)</label>
+        <textarea id="instructions" rows="2">सभी प्रश्न अनिवार्य हैं। प्रत्येक प्रश्न के लिए एक ही सही उत्तर है।</textarea>
+      </div>
+      <button class="btn btn-success full" onclick="syncHeader()">✅ Apply Settings</button>
+    </div>
+
+    <!-- Actions bar -->
+    <div class="sidebar-actions">
+      <button class="btn btn-sm btn-info" onclick="switchMainTab('answerkey')">🔑 Answer Key</button>
+      <button class="btn btn-sm btn-warning" onclick="clearPaper()">🗑️ Clear</button>
+      <button class="btn btn-sm btn-primary" onclick="exportToWord()">📄 Download Word</button>
+      <button class="btn btn-sm btn-danger" onclick="printPaper()">🖨️ Print</button>
+      <button class="btn btn-sm btn-success" style="grid-column: span 2;" onclick="savePaperAsDraft()">☁️ Save to Drafts</button>
+    </div>
+
+  </aside>
+
+  <!-- ══════════════ MAIN ══════════════ -->
+  <main class="main">
+
+    <div class="topbar">
+      <div class="main-tabs">
+        <button class="btn btn-sm btn-outline qgen-options-btn" onclick="toggleSidebar()" title="Question generator options kholein">☰ Options</button>
+        <button class="main-tab active" id="mtab-preview" onclick="switchMainTab('preview')">📄 Preview</button>
+        <button class="main-tab" id="mtab-answerkey" onclick="switchMainTab('answerkey')">🔑 Answer Key</button>
+      </div>
+      <div class="topbar-right">
+        <span class="badge" id="paperCount">0 Questions</span>
+        <button class="btn btn-sm btn-outline" onclick="shuffleQuestions()">🔀 Shuffle</button>
+        <button class="btn btn-sm btn-primary" onclick="exportToWord()">📄 Word (.docx)</button>
+        <button class="btn btn-sm btn-danger" onclick="printPaper()">🖨️ Print PDF</button>
+      </div>
+    </div>
+
+    <!-- PREVIEW TAB -->
+    <div class="main-content" id="tab-preview">
+      <div class="paper-outer">
+        <div class="paper" id="paper">
+
+          <div class="paper-header">
+            <div class="paper-header-top">
+              <span class="hbadge">TEST NO. <span id="h-testno">4</span></span>
+              <span class="htopic" id="h-subject">COMBINED AUB.</span>
+              <span class="hbadge">ON <span id="h-date">——</span></span>
+            </div>
+            <div class="paper-header-meta">
+              <span>⏱ Time: <b id="h-time">27</b> min.</span>
+              <span class="sep">|</span>
+              <span>MM: <b id="h-marks">100</b></span>
+              <span class="sep">|</span>
+              <span>Total: <b id="h-total">0</b> Q</span>
+            </div>
+          </div>
+
+          <div class="paper-instructions" id="paper-instr">
+            📌 सभी प्रश्न अनिवार्य हैं। प्रत्येक प्रश्न के लिए एक ही सही उत्तर है।
+          </div>
+
+          <div class="paper-questions" id="paperQList">
+            <div class="empty-paper">
+              <div class="ep-icon">📋</div>
+              <div class="ep-title">Question paper khaali hai</div>
+              <div class="ep-sub">Left panel se Question Bank select karein ya naya question add karein</div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <!-- ANSWER KEY TAB -->
+    <div class="main-content hidden" id="tab-answerkey">
+      <div class="paper-outer">
+        <div class="paper">
+          <div class="paper-header">
+            <div class="paper-header-top">
+              <span class="hbadge">ANSWER KEY</span>
+              <span class="htopic" id="ak-subject">COMBINED AUB.</span>
+              <span class="hbadge">TEST NO. <span id="ak-testno">4</span></span>
+            </div>
+          </div>
+          <div class="ak-grid" id="akGrid">
+            <div class="empty-paper">
+              <div class="ep-icon">🔑</div>
+              <div class="ep-sub">Pehle questions add karein</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<!-- Firebase SDKs (same as Admin) -->
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+<script src="firebase-config.js"></script>
+<script src="qgen-admin-gate.js"></script>
+<script src="subject-resolver.js"></script>
+<script src="theme-palette.js"></script>
+<script src="theme-manager.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.iife.js"></script>
+<script>document.write('<script src="qgen-app.js?v=' + Date.now() + '"><\/script>');</script>
+<script>
+function updateQPreview() {
+  var raw = (document.getElementById('qText') || {}).value || '';
+  var box = document.getElementById('q-math-preview');
+  if (!box) return;
+  if (!raw.trim()) { box.style.display = 'none'; return; }
+  var fmt = typeof autoMathFmt === 'function' ? autoMathFmt(raw.trim()) : raw;
+  if (fmt === raw.trim()) { box.style.display = 'none'; return; }
+  box.style.display = 'block';
+  box.innerHTML = '<span style="font-size:.75rem;font-weight:600;color:#3b82f6;display:block;margin-bottom:4px;">Preview:</span>' + fmt;
+  if (window.renderMathInElement) {
+    try { window.renderMathInElement(box, { delimiters:[{left:"\\(",right:"\\)",display:false},{left:"\\[",right:"\\]",display:true}], throwOnError:false }); } catch(e){}
+  }
+}
+</script>
+
+<!-- ═════════════ THEME PICKER MODAL ═════════════ -->
+<div id="theme-picker-modal" onclick="if(event.target===this)ThemeManager.hidePicker()">
+  <div class="theme-picker-panel">
+    <div class="theme-picker-header">
+      <h3>🎨 Choose Your Theme (100 Live Themes)</h3>
+      <button class="theme-picker-close" onclick="ThemeManager.hidePicker()">✕</button>
+    </div>
+    <div id="theme-picker-grid"></div>
+  </div>
+</div>
+
+</body>
+</html>
