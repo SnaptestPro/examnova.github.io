@@ -3567,19 +3567,30 @@ window.addEventListener("afterprint", () => {
 });
 
 // ── Grade Subjective Answers (admin) ─────────────────────────────
+// Do tareeke se subjective marks yahan aate hain:
+//   1. "Embedded" — jab test ke andar hi Question Type = Subjective
+//      wala asli question tha aur student ne online type karke jawab diya.
+//   2. "Manual" — jab test ke Subjective Marks (optional) field mein
+//      total marks set hai (Word/offline wale subjective paper ke liye),
+//      aur admin sirf ek total number deta hai us student ke liye.
 function renderGradeTestSelect() {
   const sel = $("#grade-test-select");
   if (!sel) return;
   const curVal = sel.value;
-  const testIds = [...new Set(records.filter(r => Number(r.pendingSubjective) > 0).map(r => r.testId))];
+  const pendingTestIds = new Set(records.filter(r => Number(r.pendingSubjective) > 0).map(r => r.testId));
+  const manualTestIds = new Set(
+    Object.keys(tests).filter(id => getTestSubjectiveMarks(tests[id]) > 0 && records.some(r => r.testId === id))
+  );
+  const testIds = [...new Set([...pendingTestIds, ...manualTestIds])];
   sel.innerHTML = '<option value="">— Test chunein —</option>';
   testIds.forEach(id => {
     const t = tests[id];
     const title = t ? t.title : (records.find(r => r.testId === id)?.testTitle || id);
-    const count = records.filter(r => r.testId === id && Number(r.pendingSubjective) > 0).length;
+    const pendingCount = records.filter(r => r.testId === id && Number(r.pendingSubjective) > 0).length;
+    const label = pendingCount ? `${title} (${pendingCount} pending)` : `${title} (Subjective marks dena baaki)`;
     const op = document.createElement("option");
     op.value = id;
-    op.textContent = `${title} (${count} pending)`;
+    op.textContent = label;
     sel.appendChild(op);
   });
   if (curVal && testIds.includes(curVal)) sel.value = curVal;
@@ -3596,17 +3607,138 @@ function renderGradeStudentsList() {
   if (detail) { detail.classList.add("hidden"); detail.innerHTML = ""; }
   const testId = sel ? sel.value : "";
   if (!testId) { list.innerHTML = '<p class="empty-state">Upar se test chunein.</p>'; return; }
-  const pending = records.filter(r => r.testId === testId && Number(r.pendingSubjective) > 0);
-  if (!pending.length) { list.innerHTML = '<p class="empty-state">Is test mein koi subjective answer pending nahi hai.</p>'; return; }
-  pending.forEach(r => {
+
+  const test = tests[testId];
+  const manualMax = getTestSubjectiveMarks(test);
+  const pendingEmbedded = records.filter(r => r.testId === testId && Number(r.pendingSubjective) > 0);
+
+  // Combined list: embedded-pending students first, then (agar is test ka
+  // Subjective Marks field bhara hai) baaki sab students bhi — taaki unhe
+  // manually total subjective marks diya ja sake.
+  const seen = new Set();
+  const rows = [];
+  pendingEmbedded.forEach(r => { rows.push({ r, mode: "embedded" }); seen.add(r.id || r._localId); });
+  if (manualMax > 0) {
+    records.filter(r => r.testId === testId).forEach(r => {
+      const key = r.id || r._localId;
+      if (seen.has(key)) return;
+      rows.push({ r, mode: "manual" });
+      seen.add(key);
+    });
+  }
+
+  if (!rows.length) { list.innerHTML = '<p class="empty-state">Is test mein koi subjective grading pending nahi hai.</p>'; return; }
+
+  rows.forEach(({ r, mode }) => {
     const item = document.createElement("div");
     item.className = "item";
-    item.innerHTML = `<span><strong>${escHtml(r.name || "Student")}</strong> · ${escHtml(r.mobile || "")}<small>${r.pendingSubjective} subjective answer(s) pending · Score so far: ${fmtNum(r.score)}/${fmtNum(r.maxScore)}</small></span>`;
+    let statusLabel;
+    if (mode === "embedded") {
+      statusLabel = `${r.pendingSubjective} subjective answer(s) pending`;
+    } else {
+      const given = r.externalSubjectiveAwarded !== undefined && r.externalSubjectiveAwarded !== null;
+      statusLabel = given
+        ? `Subjective diya: ${fmtNum(r.externalSubjectiveAwarded)}/${fmtNum(manualMax)}`
+        : `Subjective marks abhi nahi diya (max ${fmtNum(manualMax)})`;
+    }
+    item.innerHTML = `<span><strong>${escHtml(r.name || "Student")}</strong> · ${escHtml(r.mobile || "")}<small>${statusLabel} · Score so far: ${fmtNum(r.score)}/${fmtNum(r.maxScore)}</small></span>`;
     const acts = document.createElement("div");
-    acts.appendChild(mkBtn("Grade Karein", "secondary", () => renderGradeDetail(r.id)));
+    if (mode === "embedded") {
+      acts.appendChild(mkBtn("Grade Karein", "secondary", () => renderGradeDetail(r.id)));
+    } else {
+      acts.appendChild(mkBtn("Subjective Marks Dein", "secondary", () => renderManualSubjectiveDetail(r.id, testId)));
+    }
     item.appendChild(acts);
     list.appendChild(item);
   });
+}
+
+// Manual subjective-marks entry (test.subjectiveMarks field wale tests ke liye) —
+// student ki Word/offline copy check karke admin sirf ek total number deta hai.
+function renderManualSubjectiveDetail(recordId, testId) {
+  const r = records.find(rec => rec.id === recordId);
+  const box = $("#grade-detail-box");
+  if (!r || !box) return;
+  box.classList.remove("hidden");
+  box.innerHTML = "";
+  const test = tests[testId];
+  const maxMarks = getTestSubjectiveMarks(test);
+
+  const h = document.createElement("h3");
+  h.className = "section-title";
+  h.textContent = `📝 ${r.name || "Student"} — Subjective Marks (Word/Offline)`;
+  box.appendChild(h);
+
+  const note = document.createElement("p");
+  note.className = "muted-text";
+  note.textContent = "Is test ka subjective portion system mein nahi hai (Word mein alag se hai) — student ki copy check karke yahan total marks daalein. Ye seedha uske total score/rank mein jud jayega.";
+  box.appendChild(note);
+
+  const totalRow = document.createElement("div");
+  totalRow.className = "field-row";
+  totalRow.style.cssText = "margin-top:8px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:12px;";
+  const label = document.createElement("label");
+  label.textContent = `Subjective Marks (max ${fmtNum(maxMarks)})`;
+  label.style.fontWeight = "700";
+  const input = document.createElement("input");
+  input.type = "number";
+  input.id = "manual-subjective-input";
+  input.min = "0";
+  input.max = String(maxMarks);
+  input.step = "0.5";
+  input.value = (r.externalSubjectiveAwarded !== undefined && r.externalSubjectiveAwarded !== null) ? r.externalSubjectiveAwarded : "";
+  input.style.maxWidth = "160px";
+  totalRow.appendChild(label);
+  totalRow.appendChild(input);
+  box.appendChild(totalRow);
+
+  const saveBtn = document.createElement("button");
+  saveBtn.type = "button";
+  saveBtn.className = "btn-primary";
+  saveBtn.textContent = "💾 Marks Save Karein";
+  saveBtn.onclick = () => saveManualSubjectiveMarks(r.id, input, maxMarks);
+  box.appendChild(saveBtn);
+}
+
+// Idempotent: pehli baar MCQ-only score/maxScore snapshot le leta hai, taaki
+// baad mein value edit karne par subjective marks double-count na ho.
+async function saveManualSubjectiveMarks(recordId, totalInput, maxMarks) {
+  const r = records.find(rec => rec.id === recordId);
+  if (!r) return;
+  if (totalInput.value === "") { alert("Subjective marks bharein."); return; }
+  let awarded = Number(totalInput.value);
+  if (isNaN(awarded)) { alert("Sahi number daalein."); return; }
+  if (awarded < 0) awarded = 0;
+  if (awarded > maxMarks) awarded = maxMarks;
+
+  const baseScore = (r.mcqOnlyScore !== undefined && r.mcqOnlyScore !== null) ? r.mcqOnlyScore : r.score;
+  const baseMax   = (r.mcqOnlyMaxScore !== undefined && r.mcqOnlyMaxScore !== null) ? r.mcqOnlyMaxScore : r.maxScore;
+
+  const newScore = baseScore + awarded;
+  const newMaxScore = baseMax + maxMarks;
+  const newPct = newMaxScore > 0 ? (newScore / newMaxScore) * 100 : 0;
+
+  const update = {
+    mcqOnlyScore: baseScore,
+    mcqOnlyMaxScore: baseMax,
+    externalSubjectiveAwarded: awarded,
+    externalSubjectiveMax: maxMarks,
+    score: newScore,
+    maxScore: newMaxScore,
+    percentage: newPct
+  };
+
+  try {
+    const db = getDB();
+    if (db) await db.collection("studentRecords").doc(recordId).update(update);
+    Object.assign(r, update);
+    renderGradeStudentsList();
+    renderRecords();
+    alert("✅ Subjective marks save ho gaye! Student ka total score/rank update ho gaya.");
+  } catch(err) {
+    console.warn(err);
+    alert("Marks save nahi hue. Error: " + (err.message || err));
+  }
 }
 
 function renderGradeDetail(recordId) {
