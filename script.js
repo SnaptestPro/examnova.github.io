@@ -3624,68 +3624,83 @@ function renderGradeDetail(recordId) {
     return;
   }
 
-  const inputs = {};
+  const isOfflineMode = r.testMode === "OMR Offline" || r.testMode === "Manual Entry";
   subjectiveQs.forEach(d => {
     const card = document.createElement("div");
     card.style.cssText = "background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:12px;margin-bottom:10px;";
+    const answerBoxText = d.studentAnswer
+      ? escHtml(d.studentAnswer)
+      : (isOfflineMode
+          ? "📄 Yeh answer physical answer-sheet par likha hai (digitize nahi hua) — student ki copy dekh kar marks daalein."
+          : "(khaali)");
     card.innerHTML =
-      `<div style="font-weight:700;margin-bottom:6px;">Q${d.questionNo}. ${escHtml(d.questionHI || d.questionEN || "")}</div>` +
-      `<div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:10px;margin-bottom:8px;white-space:pre-wrap;font-size:.92rem;color:#374151;">${escHtml(d.studentAnswer || "(khaali)")}</div>`;
-    const marksRow = document.createElement("div");
-    marksRow.className = "field-row";
-    marksRow.style.margin = "0";
-    const label = document.createElement("label");
-    label.textContent = `Marks (max ${fmtNum(d.marksPerQuestion)})`;
-    const input = document.createElement("input");
-    input.type = "number";
-    input.min = "0";
-    input.max = String(d.marksPerQuestion);
-    input.step = "0.5";
-    input.value = d.subjectiveGraded ? d.marksAwarded : "";
-    input.style.maxWidth = "140px";
-    marksRow.appendChild(label);
-    marksRow.appendChild(input);
-    card.appendChild(marksRow);
+      `<div style="font-weight:700;margin-bottom:6px;">Q${d.questionNo}. ${escHtml(d.questionHI || d.questionEN || "")} <span style="font-weight:400;color:#92400e;font-size:.82rem;">(max ${fmtNum(d.marksPerQuestion)})</span></div>` +
+      `<div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:10px;white-space:pre-wrap;font-size:.92rem;color:#374151;">${answerBoxText}</div>`;
     box.appendChild(card);
-    inputs[d.idx] = input;
   });
+
+  const maxTotal = subjectiveQs.reduce((s, d) => s + (Number(d.marksPerQuestion) || 0), 0);
+  const alreadyGraded = subjectiveQs.every(d => d.subjectiveGraded);
+  const prevTotal = alreadyGraded ? subjectiveQs.reduce((s, d) => s + (Number(d.marksAwarded) || 0), 0) : "";
+
+  const totalRow = document.createElement("div");
+  totalRow.className = "field-row";
+  totalRow.style.cssText = "margin-top:4px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:12px;";
+  const totalLabel = document.createElement("label");
+  totalLabel.textContent = `Kul Subjective Marks (max ${fmtNum(maxTotal)})`;
+  totalLabel.style.fontWeight = "700";
+  const totalInput = document.createElement("input");
+  totalInput.type = "number";
+  totalInput.id = "grade-total-marks-input";
+  totalInput.min = "0";
+  totalInput.max = String(maxTotal);
+  totalInput.step = "0.5";
+  totalInput.value = prevTotal;
+  totalInput.style.maxWidth = "160px";
+  totalRow.appendChild(totalLabel);
+  totalRow.appendChild(totalInput);
+  box.appendChild(totalRow);
 
   const saveBtn = document.createElement("button");
   saveBtn.type = "button";
   saveBtn.className = "btn-primary";
   saveBtn.textContent = "💾 Marks Save Karein";
-  saveBtn.onclick = () => saveSubjectiveGrades(r.id, inputs);
+  saveBtn.onclick = () => saveSubjectiveGrades(r.id, subjectiveQs.map(d => d.idx), totalInput, maxTotal);
   box.appendChild(saveBtn);
 }
 
-async function saveSubjectiveGrades(recordId, inputs) {
+async function saveSubjectiveGrades(recordId, idxList, totalInput, maxTotal) {
   const r = records.find(rec => rec.id === recordId);
   if (!r) return;
   const details = (r.details || []).map(d => ({ ...d }));
-  let pendingLeft = 0;
-  Object.keys(inputs).forEach(idxStr => {
-    const idx = Number(idxStr);
-    const input = inputs[idxStr];
-    const maxM = Number(details[idx].marksPerQuestion) || 0;
-    if (input.value === "") { pendingLeft++; return; } // abhi bhi ungraded, pending rahega
-    let val = Number(input.value);
-    if (isNaN(val)) { pendingLeft++; return; }
-    if (val < 0) val = 0;
-    if (val > maxM) val = maxM;
-    details[idx].marksAwarded = val;
+
+  if (totalInput.value === "") { alert("Kul subjective marks bharein."); return; }
+  let total = Number(totalInput.value);
+  if (isNaN(total)) { alert("Sahi number daalein."); return; }
+  if (total < 0) total = 0;
+  if (total > maxTotal) total = maxTotal;
+
+  // Teacher gives ONE total for the whole subjective portion rather than
+  // grading question-by-question — so the entire total is recorded on
+  // the first pending subjective question and the rest zeroed out. This
+  // only affects internal bookkeeping; the student's overall score
+  // (score = sum of all marksAwarded) comes out the same either way.
+  idxList.forEach((idx, i) => {
+    details[idx].marksAwarded = i === 0 ? total : 0;
     details[idx].subjectiveGraded = true;
     details[idx].status = "Graded";
   });
+
   const newScore = details.reduce((s, d) => s + (Number(d.marksAwarded) || 0), 0);
   const newPct = r.maxScore > 0 ? (newScore / r.maxScore) * 100 : 0;
   try {
     const db = getDB();
     if (db) {
       await db.collection("studentRecords").doc(recordId).update({
-        details, score: newScore, percentage: newPct, pendingSubjective: pendingLeft
+        details, score: newScore, percentage: newPct, pendingSubjective: 0
       });
     }
-    r.details = details; r.score = newScore; r.percentage = newPct; r.pendingSubjective = pendingLeft;
+    r.details = details; r.score = newScore; r.percentage = newPct; r.pendingSubjective = 0;
     alert("Marks save ho gaye! ✅ Student ka total score update ho gaya hai.");
     renderGradeStudentsList();
   } catch (err) {

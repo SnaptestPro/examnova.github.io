@@ -695,11 +695,33 @@
       answers[q] = sel.value === "" ? null : Number(sel.value);
     });
 
-    let correct = 0, wrong = 0, unattempted = 0;
+    let correct = 0, wrong = 0, unattempted = 0, pendingSubjective = 0;
     const marks = getMarks(test), neg = getNeg(test);
     const details = test.questions.map((ques, idx) => {
       const qNo = idx + 1;
       const sel = answers[qNo];
+      const isSubjective = ques.qType === "subjective";
+      const qM = (typeof getQuestionMarks === "function") ? getQuestionMarks(test, ques) : marks;
+
+      // Subjective (long-answer) questions aren't bubble-answers, so the
+      // OMR sheet has no MCQ option to match here. They can't be
+      // auto-scored — mark them "Pending Review" (same as the online
+      // quiz flow) so they show up in the admin "Grade Subjective" tab,
+      // where marks get added in by hand and folded into the total.
+      if (isSubjective) {
+        pendingSubjective++;
+        return {
+          questionNo: qNo, subject: ques.subject || "", chapter: ques.chapter || "",
+          questionEN: ques.textEN || ques.text || "", questionHI: ques.textHI || ques.text || "",
+          optionsEN: [], optionsHI: [],
+          correctAnswer: null, studentAnswer: null,
+          qType: "subjective", subjectiveGraded: false,
+          status: "Pending Review", marksAwarded: 0, marksPerQuestion: qM,
+          explanationEN: ques.explanationEN || ques.explanation || "",
+          explanationHI: ques.explanationHI || ques.explanation || ""
+        };
+      }
+
       const blank = sel === null || sel === undefined;
       const right = !blank && sel === ques.answer;
       if (blank) unattempted++; else if (right) correct++; else wrong++;
@@ -708,13 +730,13 @@
         questionEN: ques.textEN || ques.text || "", questionHI: ques.textHI || ques.text || "",
         optionsEN: ques.optionsEN || ques.options || [], optionsHI: ques.optionsHI || ques.options || [],
         correctAnswer: ques.answer, studentAnswer: blank ? null : sel,
-        status: blank ? "Not answered" : right ? "Correct" : "Wrong",
-        marksAwarded: blank ? 0 : right ? marks : (neg > 0 ? -neg : 0),
+        qType: "mcq", status: blank ? "Not answered" : right ? "Correct" : "Wrong",
+        marksAwarded: blank ? 0 : right ? qM : (neg > 0 ? -neg : 0), marksPerQuestion: qM,
         explanationEN: ques.explanationEN || ques.explanation || "",
         explanationHI: ques.explanationHI || ques.explanation || ""
       };
     });
-    const maxScore = test.questions.length * marks;
+    const maxScore = details.reduce((s, d) => s + (Number(d.marksPerQuestion) || marks), 0);
     const score = details.reduce((s, d) => s + d.marksAwarded, 0);
     const pct = maxScore > 0 ? (score / maxScore) * 100 : 0;
     const submittedAt = new Date();
@@ -726,11 +748,12 @@
         totalQuestions: test.questions.length, attempted: correct + wrong,
         negativeEnabled: neg > 0, negativeMarks: neg,
         maxScore, score, percentage: pct, correct, wrong, unattempted, details,
+        pendingSubjective,
         durationSeconds: 0,
         submittedAt: submittedAt.toLocaleString("en-IN"),
         submittedIso: submittedAt.toISOString()
       });
-      alert(`✅ Result save ho gaya!\n${name}: ${score}/${maxScore} (${Math.round(pct)}%)`);
+      alert(`✅ Result save ho gaya!\n${name}: ${score}/${maxScore} (${Math.round(pct)}%)` + (pendingSubjective ? `\n📝 ${pendingSubjective} subjective answer(s) abhi bhi grading ke liye pending hain — "Grade Subjective" tab mein jaakar marks daalein.` : ""));
       document.getElementById("omr-review-area").innerHTML = "";
       document.getElementById("omr-scan-file-input").value = "";
       document.getElementById("omr-scan-student-name").value = "";
@@ -832,11 +855,31 @@
       answers[q] = sel.value === "" ? null : Number(sel.value);
     });
 
-    let correct = 0, wrong = 0, unattempted = 0;
+    let correct = 0, wrong = 0, unattempted = 0, pendingSubjective = 0;
     const marks = getMarks(test), neg = getNeg(test);
     const details = test.questions.map((ques, idx) => {
       const qNo = idx + 1;
       const sel = answers[qNo];
+      const isSubjective = ques.qType === "subjective";
+      const qM = (typeof getQuestionMarks === "function") ? getQuestionMarks(test, ques) : marks;
+
+      // Same reasoning as confirmAndSaveOMR above: subjective questions
+      // have no MCQ option to type in here either, so mark them pending
+      // for manual grading instead of scoring them as wrong.
+      if (isSubjective) {
+        pendingSubjective++;
+        return {
+          questionNo: qNo, subject: ques.subject || "", chapter: ques.chapter || "",
+          questionEN: ques.textEN || ques.text || "", questionHI: ques.textHI || ques.text || "",
+          optionsEN: [], optionsHI: [],
+          correctAnswer: null, studentAnswer: null,
+          qType: "subjective", subjectiveGraded: false,
+          status: "Pending Review", marksAwarded: 0, marksPerQuestion: qM,
+          explanationEN: ques.explanationEN || ques.explanation || "",
+          explanationHI: ques.explanationHI || ques.explanation || ""
+        };
+      }
+
       const blank = sel === null || sel === undefined;
       const right = !blank && sel === ques.answer;
       if (blank) unattempted++; else if (right) correct++; else wrong++;
@@ -845,13 +888,13 @@
         questionEN: ques.textEN || ques.text || "", questionHI: ques.textHI || ques.text || "",
         optionsEN: ques.optionsEN || ques.options || [], optionsHI: ques.optionsHI || ques.options || [],
         correctAnswer: ques.answer, studentAnswer: blank ? null : sel,
-        status: blank ? "Not answered" : right ? "Correct" : "Wrong",
-        marksAwarded: blank ? 0 : right ? marks : (neg > 0 ? -neg : 0),
+        qType: "mcq", status: blank ? "Not answered" : right ? "Correct" : "Wrong",
+        marksAwarded: blank ? 0 : right ? qM : (neg > 0 ? -neg : 0), marksPerQuestion: qM,
         explanationEN: ques.explanationEN || ques.explanation || "",
         explanationHI: ques.explanationHI || ques.explanation || ""
       };
     });
-    const maxScore = test.questions.length * marks;
+    const maxScore = details.reduce((s, d) => s + (Number(d.marksPerQuestion) || marks), 0);
     const score = details.reduce((s, d) => s + d.marksAwarded, 0);
     const pct = maxScore > 0 ? (score / maxScore) * 100 : 0;
     const submittedAt = new Date();
@@ -863,11 +906,12 @@
         totalQuestions: test.questions.length, attempted: correct + wrong,
         negativeEnabled: neg > 0, negativeMarks: neg,
         maxScore, score, percentage: pct, correct, wrong, unattempted, details,
+        pendingSubjective,
         durationSeconds: 0,
         submittedAt: submittedAt.toLocaleString("en-IN"),
         submittedIso: submittedAt.toISOString()
       });
-      alert(`✅ Result save ho gaya!\n${name}: ${score}/${maxScore} (${Math.round(pct)}%)`);
+      alert(`✅ Result save ho gaya!\n${name}: ${score}/${maxScore} (${Math.round(pct)}%)` + (pendingSubjective ? `\n📝 ${pendingSubjective} subjective answer(s) abhi bhi grading ke liye pending hain — "Grade Subjective" tab mein jaakar marks daalein.` : ""));
       document.getElementById("omr-manual-review-area").innerHTML = "";
       document.getElementById("omr-manual-answers-text").value = "";
       document.getElementById("omr-manual-student-name").value = "";
