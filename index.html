@@ -666,7 +666,12 @@ B) मुंबई
 C) पटना
 D) जयपुर
 Ans: A
-Explanation: दिल्ली भारत की राजधानी है।</div>
+Explanation: दिल्ली भारत की राजधानी है।
+
+2. समाजवाद पर एक निबंध लिखिए।
+Marks: 5
+Model Answer: समाजवाद एक आर्थिक व्यवस्था है जिसमें...</div>
+          <p class="muted-text" style="font-size:.76rem;margin-top:-8px;">💡 Subjective sawaal ke liye options ki jagah <strong>"Marks: 5"</strong> aur <strong>"Model Answer: ..."</strong> line likhein.</p>
 
           <div class="field-row" style="display:flex;gap:14px;flex-wrap:wrap;">
             <div style="flex:1;min-width:200px;">
@@ -1356,6 +1361,25 @@ function parseBulkQuestions(text) {
   // Hindi option label map: क=0, ख=1, ग=2, घ=3, ङ=4
   const hindiOptMap = { 'क':0,'ख':1,'ग':2,'घ':3,'ङ':4,'A':0,'B':1,'C':2,'D':3,'E':4,'अ':0,'ब':1,'स':2,'द':3,'1':0,'2':1,'3':2,'4':3 };
 
+  // A block only counts as a real MCQ if it has 2+ options *and* an
+  // explicit answer-key line ("Ans: A" / "उत्तर: क") was found. Without
+  // that, whatever looked like "options" was very likely explanation
+  // bullets for a subjective (long-answer) question — so we reclassify
+  // and fold them into the model answer instead of silently dropping
+  // the question or mis-filing it as a 4-option MCQ.
+  function pushCurrent() {
+    if (!currentQ) return;
+    if (currentQ.qType === 'subjective') { questions.push(currentQ); return; }
+    if (currentQ.options.length >= 2 && currentQ._hasAnswerKey) { questions.push(currentQ); return; }
+    if (currentQ.text && currentQ.text.trim()) {
+      currentQ.qType = 'subjective';
+      if (currentQ.options.length && !currentQ.modelAnswer) {
+        currentQ.modelAnswer = currentQ.options.join(' ');
+      }
+      questions.push(currentQ);
+    }
+  }
+
   for (let i = 0; i < lines.length; i++) {
     let line = lines[i];
 
@@ -1365,20 +1389,61 @@ function parseBulkQuestions(text) {
       /^(?:प्र(?:श्‍?न)?\.?\s*|Q\.?\s*)?(\d+)[\.)\-\s]\s*(.+)/i
     );
     if (qMatch) {
-      if (currentQ && currentQ.options.length >= 2) questions.push(currentQ);
-      currentQ = { text: qMatch[2].trim(), options: [], answer: 0, explanation: "" };
+      pushCurrent();
+      currentQ = { text: qMatch[2].trim(), options: [], answer: 0, explanation: "", qType: 'mcq', marks: null, modelAnswer: '', _hasAnswerKey: false };
+      // Inline marks tag on the question line itself, e.g. "... (5 marks)"
+      const inlineMarks = currentQ.text.match(/[\(\[]\s*(\d+)\s*(?:marks?|अंक)\s*[\)\]]\s*$/i);
+      if (inlineMarks) {
+        currentQ.marks = parseInt(inlineMarks[1]);
+        currentQ.qType = 'subjective';
+        currentQ.text = currentQ.text.replace(inlineMarks[0], '').trim();
+      }
       continue;
     }
     if (!currentQ) continue;
 
+    // ── Subjective markers ─────────────────────────────────────────────────
+    // Explicit type tag: "Type: Subjective" / "(Subjective)" / "प्रकार: विषयनिष्ठ"
+    const typeTagMatch = line.match(/^(?:type|प्रकार)\s*[:\-]\s*(subjective|विषयनिष्ठ|वर्णनात्मक|long\s*answer|short\s*answer)/i) ||
+                          line.match(/^[\(\[]\s*subjective\s*[\)\]]\s*$/i);
+    if (typeTagMatch) {
+      currentQ.qType = 'subjective';
+      continue;
+    }
+
+    const marksMatch = line.match(/^(?:marks|अंक)\s*[:\-]\s*(\d+)/i);
+    if (marksMatch) {
+      currentQ.qType = 'subjective';
+      currentQ.marks = parseInt(marksMatch[1]);
+      continue;
+    }
+
+    const modelAnsMatch = line.match(/^(?:model\s*answer|मॉडल\s*उत्तर|expected\s*answer)\s*[:\-]\s*(.+)/i);
+    if (modelAnsMatch) {
+      currentQ.qType = 'subjective';
+      currentQ.modelAnswer = (currentQ.modelAnswer ? currentQ.modelAnswer + " " : "") + modelAnsMatch[1].trim();
+      continue;
+    }
+
     // ── Answer line detection (FIRST — before option check) ──────────────
     // Matches: "उत्तर– (क)", "उत्तर: ख", "Ans: A", "Answer: B", "सही उत्तर (ग)"
     const ansMatch = line.match(
-      /^(?:उत्तर[\u2013\u2014\-:\s]*|ans(?:wer)?[\s:\-]*|correct[\s:\-]*|सही\s*उत्तर[\s:\-]*)\s*[\(\[]?([कखगघङA-E1-4])[\)\]]?/i
+      /^(?:उत्तर[\u2013\u2014\-:\s]*|ans(?:wer)?[\s:\-]*|correct[\s:\-]*|सही\s*उत्तर[\s:\-]*)\s*[\(\[]?([कखगघङA-E1-4])[\)\]]?\s*$/i
     );
     if (ansMatch) {
       const key = ansMatch[1];
       currentQ.answer = hindiOptMap[key] ?? hindiOptMap[key.toUpperCase()] ?? 0;
+      currentQ._hasAnswerKey = true;
+      continue;
+    }
+
+    // Free-text answer, e.g. "Answer: Because of typhoid..." — this is a
+    // subjective (written) answer, not an MCQ option key, so route it
+    // into modelAnswer instead of falling through to option parsing.
+    const looseAnsMatch = line.match(/^(?:उत्तर[\u2013\u2014\-:\s]*|ans(?:wer)?[\s:\-]*|correct[\s:\-]*|सही\s*उत्तर[\s:\-]*)(.+)/i);
+    if (looseAnsMatch) {
+      currentQ.qType = 'subjective';
+      currentQ.modelAnswer = (currentQ.modelAnswer ? currentQ.modelAnswer + " " : "") + looseAnsMatch[1].trim();
       continue;
     }
 
@@ -1415,12 +1480,14 @@ function parseBulkQuestions(text) {
     const expMatch = line.match(/^(?:explanation|व्याख्या|हल|स्पष्टीकरण)\s*[:\-]\s*(.+)/i);
     if (expMatch) { currentQ.explanation = expMatch[1].trim(); continue; }
 
-    // ── Continuation of question text (before any option) ────────────────
-    if (currentQ.options.length === 0) {
+    // ── Continuation line — subjective answer, or question text ─────────
+    if (currentQ.qType === 'subjective') {
+      currentQ.modelAnswer = (currentQ.modelAnswer ? currentQ.modelAnswer + " " : "") + line;
+    } else if (currentQ.options.length === 0) {
       currentQ.text += " " + line;
     }
   }
-  if (currentQ && currentQ.options.length >= 2) questions.push(currentQ);
+  pushCurrent();
   return questions;
 }
 
@@ -1693,12 +1760,18 @@ function previewBulkQuestions() {
 
   // Mark duplicates + quality issues
   bulkParsedQuestions = parsed.map(q => {
+    const qType = q.qType === 'subjective' ? 'subjective' : 'mcq';
     while (q.options.length < 4) q.options.push("");
     const issues = [];
-    if (q.options.filter(o => !o.trim()).length > 0 && q.options.filter(Boolean).length < 4) issues.push("Khaali option");
-    if (q.answer == null || q.answer < 0 || q.answer > 3 || !q.options[q.answer]) issues.push("Answer galat/khaali option se match nahi");
+    if (qType === 'subjective') {
+      if (q.marks == null) issues.push("Marks nahi mila");
+      if (!q.modelAnswer || !q.modelAnswer.trim()) issues.push("Model answer nahi mila");
+    } else {
+      if (q.options.filter(o => !o.trim()).length > 0 && q.options.filter(Boolean).length < 4) issues.push("Khaali option");
+      if (q.answer == null || q.answer < 0 || q.answer > 3 || !q.options[q.answer]) issues.push("Answer galat/khaali option se match nahi");
+    }
     if (!q.text || q.text.length < 5) issues.push("Question text bahut chhota/khaali");
-    return { ...q, isDuplicate: isDuplicateQuestion(q.text), include: true, issues };
+    return { ...q, qType, marks: q.marks ?? null, modelAnswer: q.modelAnswer || '', isDuplicate: isDuplicateQuestion(q.text), include: true, issues };
   });
 
   renderBulkPreviewTable();
@@ -1721,23 +1794,34 @@ function renderBulkPreviewTable() {
 
   const tbody = document.getElementById('bulk-preview-tbody');
   tbody.innerHTML = bulkParsedQuestions.map((q, i) => {
-    const optsHtml = q.options.map((opt, oi) =>
+    const isSub = q.qType === 'subjective';
+    const optsHtml = isSub ? '' : q.options.map((opt, oi) =>
       `<div style="display:flex;gap:6px;align-items:center;margin-top:3px;">
          <span style="color:#94a3b8;font-size:.75rem;">${String.fromCharCode(65 + oi)}.</span>
          <span contenteditable="true" data-row="${i}" data-opt="${oi}" class="bulk-opt-edit" style="flex:1;border-bottom:1px dashed #cbd5e1;padding:1px 3px;">${escHtml(opt)}</span>
        </div>`
     ).join('');
+    const modelAnswerHtml = isSub ? `
+      <div style="margin-top:6px;display:flex;gap:6px;align-items:baseline;">
+        <span style="color:#94a3b8;font-size:.75rem;">Marks:</span>
+        <span contenteditable="true" data-row="${i}" class="bulk-marks-edit" style="border-bottom:1px dashed #cbd5e1;padding:1px 3px;min-width:24px;">${q.marks ?? ''}</span>
+      </div>
+      <div style="margin-top:3px;">
+        <span style="color:#94a3b8;font-size:.75rem;">Model answer:</span>
+        <div contenteditable="true" data-row="${i}" class="bulk-modelanswer-edit" style="border-bottom:1px dashed #cbd5e1;padding:1px 3px;">${escHtml(q.modelAnswer || '')}</div>
+      </div>` : '';
     return `<tr data-row="${i}" style="border-top:1px solid #e2e8f0;${q.isDuplicate ? 'background:#fff7ed;' : ''}">
       <td style="padding:6px;text-align:center;"><input type="checkbox" class="bulk-row-check" data-row="${i}" ${q.include ? 'checked' : ''} onchange="bulkParsedQuestions[${i}].include=this.checked" /></td>
-      <td style="padding:6px;color:#64748b;">${i + 1}</td>
+      <td style="padding:6px;color:#64748b;">${i + 1}${isSub ? '<div style="color:#7c3aed;font-size:.72rem;margin-top:2px;">📝 Subjective</div>' : ''}</td>
       <td style="padding:6px;">
         <div contenteditable="true" data-row="${i}" data-field="text" class="bulk-text-edit" style="font-weight:600;border-bottom:1px dashed #cbd5e1;padding:1px 3px;">${escHtml(q.text)}</div>
         ${optsHtml}
+        ${modelAnswerHtml}
       </td>
       <td style="padding:6px;">
-        <select data-row="${i}" class="bulk-answer-select" onchange="bulkParsedQuestions[${i}].answer=parseInt(this.value)">
+        ${isSub ? '—' : `<select data-row="${i}" class="bulk-answer-select" onchange="bulkParsedQuestions[${i}].answer=parseInt(this.value)">
           ${[0,1,2,3].map(oi => `<option value="${oi}" ${q.answer === oi ? 'selected' : ''}>${String.fromCharCode(65 + oi)}</option>`).join('')}
-        </select>
+        </select>`}
       </td>
       <td style="padding:6px;">
         ${q.imagePreviewUrl
@@ -1760,6 +1844,12 @@ function renderBulkPreviewTable() {
   tbody.querySelectorAll('.bulk-opt-edit').forEach(el => {
     el.addEventListener('blur', () => { bulkParsedQuestions[el.dataset.row].options[el.dataset.opt] = el.textContent.trim(); });
   });
+  tbody.querySelectorAll('.bulk-marks-edit').forEach(el => {
+    el.addEventListener('blur', () => { const n = parseInt(el.textContent.trim()); bulkParsedQuestions[el.dataset.row].marks = isNaN(n) ? null : n; });
+  });
+  tbody.querySelectorAll('.bulk-modelanswer-edit').forEach(el => {
+    el.addEventListener('blur', () => { bulkParsedQuestions[el.dataset.row].modelAnswer = el.textContent.trim(); });
+  });
 }
 
 function toggleAllBulkRows(checked) {
@@ -1780,12 +1870,16 @@ let bulkLastUploadedIds = [];
 async function uploadOneBulkQuestion(q, subject, chapter, difficulty, idx) {
   const docId = `bulk-${Date.now()}-${idx}-${Math.floor(Math.random() * 1000)}`;
   const imageUrl = await uploadBulkImageIfAny(q, idx);
+  const isSub = q.qType === 'subjective';
   let qObj = {
     subject, chapter, difficulty,
     textHI: q.text, textEN: q.textEN || "", text: q.text,
-    optionsHI: q.options, optionsEN: q.optionsEN || ["", "", "", ""], options: q.options,
-    answer: q.answer,
+    optionsHI: isSub ? ["", "", "", ""] : q.options, optionsEN: q.optionsEN || ["", "", "", ""], options: isSub ? ["", "", "", ""] : q.options,
+    answer: isSub ? 0 : q.answer,
     explanationHI: q.explanation || "", explanationEN: "", explanation: q.explanation || "",
+    qType: isSub ? 'subjective' : 'mcq',
+    marks: isSub ? (q.marks ?? null) : null,
+    modelAnswer: isSub ? (q.modelAnswer || '') : '',
     image: imageUrl || "",
     seededBy: "BulkUploadUI"
   };
