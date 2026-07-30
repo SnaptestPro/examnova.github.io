@@ -552,6 +552,12 @@
   }
 
   function init() {
+    // Practice Mode needs the full question bank (subject/chapter lists,
+    // question pool) — start that Firestore sync here for students too.
+    // syncBank() itself guards against double-subscribing if the admin
+    // panel already started it.
+    if (typeof syncBank === "function") syncBank();
+
     const startBtn = document.getElementById("practice-start-btn");
     if (startBtn) startBtn.onclick = startPracticeMode;
 

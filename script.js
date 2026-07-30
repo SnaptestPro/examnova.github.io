@@ -4296,9 +4296,12 @@ function syncDeletedTests() {
   });
 }
 
+let _bankSyncStarted = false;
 function syncBank() {
+  if (_bankSyncStarted) return; // already subscribed (admin panel or student practice mode)
   const db = getDB();
   if (!db) { renderBank(); return; }
+  _bankSyncStarted = true;
   db.collection("questionBank").onSnapshot(snap => {
     questionBank = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     // Auto-format math equations for Math subject questions (book-style LaTeX)
