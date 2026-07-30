@@ -986,12 +986,11 @@ B"></textarea>
 <!-- ═══════════════════════ EXAM SCREEN ═══════════════════════ -->
 <div id="exam-screen" class="hidden">
   <div class="exam-header">
-    <div>
+    <div class="exam-header-left">
       <div id="exam-title" class="exam-title-text"></div>
       <div id="exam-meta" class="exam-meta-text"></div>
     </div>
     <div class="exam-header-right">
-      <!-- Language toggle -->
       <div class="lang-toggle">
         <button id="lang-en" class="lang-btn">EN</button>
         <button id="lang-hi" class="lang-btn active">HI</button>
@@ -1000,33 +999,51 @@ B"></textarea>
       <div id="timer" class="timer-box">30:00</div>
     </div>
   </div>
+  <div class="exam-progress-track"><div id="exam-progress-fill" class="exam-progress-fill"></div></div>
 
   <div class="exam-body">
     <div class="exam-main">
-      <div id="question-count" class="q-count"></div>
-      <div id="question-marks" class="q-marks"></div>
+      <div class="q-meta-row">
+        <span id="question-count" class="q-count"></span>
+        <span class="q-meta-dot">·</span>
+        <span id="question-marks" class="q-marks"></span>
+      </div>
       <div id="exam-section-banner" class="exam-section-banner hidden"></div>
       <div id="exam-question" class="q-text"></div>
       <div id="exam-options" class="options-list"></div>
+
       <div class="exam-actions">
-        <button id="mark-review" class="btn-secondary">🔖 Mark For Review</button>
-        <button id="clear-response" class="btn-secondary">✖ Clear Response</button>
-        <button id="prev-question" class="btn-secondary">← Prev</button>
-        <button id="next-question" class="btn-secondary">Next →</button>
+        <div class="exam-actions-left">
+          <button id="mark-review" class="btn-ghost">🔖 Mark For Review</button>
+          <button id="clear-response" class="btn-ghost">✖ Clear Response</button>
+        </div>
+        <div class="exam-actions-right">
+          <button id="prev-question" class="btn-pager">← Prev</button>
+          <button id="next-question" class="btn-pager">Next →</button>
+        </div>
       </div>
       <div class="exam-footer-btns">
-        <button id="exam-back" class="btn-danger">🏠 Back Home</button>
+        <button id="exam-back" class="btn-text-muted">🏠 Back Home</button>
         <button id="submit-test" class="btn-primary">✅ Submit Test</button>
       </div>
     </div>
+
     <div class="exam-sidebar">
-      <div class="stats-row">
-        <span id="answered-count" class="stat answered">Answered 0</span>
-        <span id="unanswered-count" class="stat not-answered">Unanswered 0</span>
-        <span id="review-count" class="stat review">Review 0</span>
+      <div class="stats-card">
+        <div class="stats-row">
+          <span id="answered-count" class="stat answered">Answered 0</span>
+          <span id="unanswered-count" class="stat not-answered">Unanswered 0</span>
+          <span id="review-count" class="stat review">Review 0</span>
+        </div>
       </div>
       <div id="total-questions" class="total-q"></div>
       <div id="question-nav" class="q-nav-grid"></div>
+      <div class="q-nav-legend">
+        <span><i class="dot answered"></i>Answered</span>
+        <span><i class="dot not-answered"></i>Not answered</span>
+        <span><i class="dot review"></i>For review</span>
+        <span><i class="dot not-visited"></i>Not visited</span>
+      </div>
     </div>
   </div>
 </div>

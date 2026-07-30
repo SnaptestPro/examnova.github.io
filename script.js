@@ -1308,6 +1308,8 @@ function renderQuestion() {
   $("#question-count").textContent = `Question ${current.index + 1} of ${current.test.questions.length}`;
   const qMarks = getQuestionMarks(current.test, q);
   $("#question-marks").textContent = `Marks: +${qMarks}${getNeg(current.test) > 0 ? ` / -${getNeg(current.test)}` : ""}`;
+  const progressFill = $("#exam-progress-fill");
+  if (progressFill) progressFill.style.width = `${((current.index + 1) / current.test.questions.length) * 100}%`;
 
   const lang = current.lang;
   const tEN = q.textEN || q.text || "";
@@ -1338,6 +1340,10 @@ function renderQuestion() {
     const optsHI = q.optionsHI || q.options || [];
     const labels = ["A","B","C","D"];
 
+    const mcqLimit = getMcqAttemptLimit();
+    const alreadyAnswered = current.answers[current.index] !== null;
+    const limitReached = mcqLimit && !alreadyAnswered && countMcqAttempted() >= mcqLimit;
+
     for (let i = 0; i < 4; i++) {
       const oEN = optsEN[i] || "";
       const oHI = optsHI[i] || "";
@@ -1349,9 +1355,28 @@ function renderQuestion() {
       const btn = document.createElement("button");
       btn.type = "button";
       btn.className = current.answers[current.index] === i ? "selected" : "";
+      if (limitReached) {
+        btn.classList.add("limit-locked");
+        btn.style.opacity = "0.5";
+        btn.style.cursor = "not-allowed";
+      }
       btn.innerHTML = `<span class="radio-dot"></span><span><strong>${labels[i]}.</strong> ${escHtml(oText)}</span>`;
-      btn.onclick = () => { current.answers[current.index] = i; renderQuestion(); };
+      btn.onclick = () => {
+        if (mcqLimit && current.answers[current.index] === null && countMcqAttempted() >= mcqLimit) {
+          alert(`⚠️ Attempt limit poora ho gaya hai! Aap sirf ${mcqLimit} MCQ questions attempt kar sakte hain. Naya answer dene se pehle kisi answered question ko "Clear Response" karke slot khaali karein.`);
+          return;
+        }
+        current.answers[current.index] = i;
+        renderQuestion();
+      };
       $("#exam-options").appendChild(btn);
+    }
+
+    if (limitReached) {
+      const warn = document.createElement("div");
+      warn.style.cssText = "margin-top:10px;padding:8px 12px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;color:#b91c1c;font-size:.85rem;";
+      warn.textContent = `⚠️ Attempt limit (${mcqLimit}) poora ho gaya hai. Is question ka answer dene ke liye pehle kisi aur answered question ko "Clear Response" se khaali karein.`;
+      $("#exam-options").appendChild(warn);
     }
   }
   renderQuestionNav();
@@ -1397,12 +1422,25 @@ function renderExamStats() {
   const review   = current.marked.filter(Boolean).length;
   const total    = current.test.questions.length;
   const attemptLimit = Number(current.test.attemptLimit) > 0 ? Number(current.test.attemptLimit) : null;
+  const mcqAnswered = countMcqAttempted();
   $("#answered-count").textContent  = attemptLimit
-    ? `✅ Answered ${answered} / Limit ${attemptLimit}`
+    ? `✅ Answered ${answered} (MCQ: ${mcqAnswered} / Limit ${attemptLimit})`
     : `✅ Answered ${answered}`;
-  $("#answered-count").style.color = (attemptLimit && answered > attemptLimit) ? "#b91c1c" : "";
+  $("#answered-count").style.color = (attemptLimit && mcqAnswered >= attemptLimit) ? "#b91c1c" : "";
   $("#unanswered-count").textContent= `❌ Unanswered ${total - answered}`;
   $("#review-count").textContent    = `🔖 Review ${review}`;
+}
+
+function getMcqAttemptLimit() {
+  const lim = Number(current.test.attemptLimit) > 0 ? Number(current.test.attemptLimit) : null;
+  return lim;
+}
+
+function countMcqAttempted() {
+  return current.test.questions.reduce((n, q, i) => {
+    if (q.qType !== "subjective" && current.answers[i] !== null) n++;
+    return n;
+  }, 0);
 }
 
 function clearResponse()  { current.answers[current.index] = null; renderQuestion(); }
@@ -1425,7 +1463,7 @@ function updateTimer() {
   const m = Math.max(0, Math.floor(current.remaining / 60));
   const s = Math.max(0, current.remaining % 60);
   $("#timer").textContent = `${pad2(m)}:${pad2(s)}`;
-  $("#timer").style.background = current.remaining < 60 ? "#991b1b" : "var(--red)";
+  $("#timer").classList.toggle("low-time", current.remaining < 60);
 }
 
 /* ══════════════════════════════════════════
