@@ -4315,6 +4315,7 @@ function syncBank() {
     // chapters turant dikhne lagein (pehle sirf localStorage/builtin dikhte the).
     if (typeof refreshExistingSubjectChapterDropdowns === "function") refreshExistingSubjectChapterDropdowns();
     if (window.scheduleAutoDuplicateCheck) window.scheduleAutoDuplicateCheck();
+    if (window.SavyaExtras && window.SavyaExtras.syncPracticeFilters) window.SavyaExtras.syncPracticeFilters();
   }, (err) => {
     console.warn("[syncBank] Firestore error:", err);
     // Retry once after 3 seconds
@@ -4329,6 +4330,7 @@ function syncBank() {
         console.log("[syncBank] Retry loaded", questionBank.length, "questions");
         renderBank();
         if (window.scheduleAutoDuplicateCheck) window.scheduleAutoDuplicateCheck();
+        if (window.SavyaExtras && window.SavyaExtras.syncPracticeFilters) window.SavyaExtras.syncPracticeFilters();
       }).catch(e => { console.warn("[syncBank] Retry failed:", e); renderBank(); });
     }, 3000);
   });

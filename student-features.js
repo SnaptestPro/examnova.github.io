@@ -577,7 +577,7 @@
     if (clearAllBtn) clearAllBtn.onclick = clearAllPracticeChapters;
 
     syncPracticeFilters();
-    setInterval(syncPracticeFilters, 5000);
+    setInterval(syncPracticeFilters, 500);
 
     // Refresh student widgets when Student tab is opened (uses addEventListener
     // so we don't clobber script.js's own onclick handler on the same button).
@@ -591,7 +591,8 @@
     onTestSubmitted,
     removeMistake,
     replyToDoubt,
-    renderAdminDoubts
+    renderAdminDoubts,
+    syncPracticeFilters
   };
 
 })();
