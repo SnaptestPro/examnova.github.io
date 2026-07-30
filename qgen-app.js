@@ -497,6 +497,14 @@ function switchSideTab(tab) {
     document.getElementById(`panel-${t}`).classList.toggle('hidden', t !== tab);
   });
   if (tab === 'draftedit') renderDraftEditSection();
+  if (tab === 'add') {
+    refreshSubjectDatalists();
+    refreshChapterDatalist('qSubject', 'qChapterList');
+  }
+  if (tab === 'bulk') {
+    refreshSubjectDatalists();
+    refreshChapterDatalist('bulkSubject', 'bulkChapterList');
+  }
 }
 
 // ── Main tab switcher ─────────────────────────
@@ -706,8 +714,53 @@ function getBankSubjectOptions(bank) {
   return [...new Set(bank.map(getBankSubject))].sort();
 }
 
+// ── Subject/Chapter combobox helpers (Add New + Bulk Add panels) ──
+// These power the <input list="..."> comboboxes so users can pick from
+// subjects/chapters that already exist (either the app's standard list,
+// or whatever's actually in the live bank) while still being free to
+// type a brand-new one. Kept separate from the strict bankSubject/
+// bankChapter <select> filters above, which only ever show existing data.
+function getAllKnownSubjects() {
+  const bank = window.QUESTION_BANK || [];
+  const fromBank = getBankSubjectOptions(bank);
+  const standard = window.SubjectResolver?.STANDARD_SUBJECTS || [];
+  return [...new Set([...standard, ...fromBank])];
+}
+
+function getChaptersForSubject(subject) {
+  const bank = window.QUESTION_BANK || [];
+  const predefined = (subject && window.SubjectResolver?.SUBJECT_CHAPTERS?.[subject]) || [];
+  const pool = subject ? bank.filter(q => getBankSubject(q) === subject) : bank;
+  const fromBank = [...new Set(pool.map(q => q[3]).filter(Boolean))];
+  return [...new Set([...predefined, ...fromBank])].sort();
+}
+
+function fillDatalist(datalistId, values) {
+  const dl = document.getElementById(datalistId);
+  if (!dl) return;
+  dl.innerHTML = values.map(v => `<option value="${escAttr(v)}"></option>`).join('');
+}
+
+// Repopulates the Subject datalists (Add New + Bulk Add) from the current
+// bank data. Safe to call often — e.g. whenever the bank re-syncs, or a
+// side-panel tab that uses these fields is opened.
+function refreshSubjectDatalists() {
+  const subjects = getAllKnownSubjects();
+  fillDatalist('qSubjectList', subjects);
+  fillDatalist('bulkSubjectList', subjects);
+}
+
+// Repopulates a Chapter datalist based on whatever Subject is currently
+// typed into the paired Subject input, combining that subject's
+// predefined chapter list with any chapters already used in the bank.
+function refreshChapterDatalist(subjectInputId, chapterListId) {
+  const subj = document.getElementById(subjectInputId)?.value.trim();
+  fillDatalist(chapterListId, getChaptersForSubject(subj));
+}
+
 function buildBankList() {
   const bank = window.QUESTION_BANK || [];
+  refreshSubjectDatalists();
   const subjSel = document.getElementById('bankSubject');
   const chapSel = document.getElementById('bankChapter');
   const curSubj = subjSel?.value || '';
@@ -1151,6 +1204,7 @@ function readAddForm() {
   const qTypeEl = document.getElementById('qType');
   const qType = (qTypeEl && qTypeEl.value === 'subjective') ? 'subjective' : 'mcq';
   const chap = document.getElementById('qChapter').value.trim() || 'Custom';
+  const subj = document.getElementById('qSubject')?.value.trim() || 'General';
   if(!rawText){ toast('⚠️ Question text likhein!'); return null; }
   rawText = sanitizeQuestionText(rawText);
   const text = autoMathFmt(rawText);
@@ -1163,7 +1217,7 @@ function readAddForm() {
     // other function in this file (rendering, bank storage, WhatsApp export)
     // expects opts to be a 4-item array and ans to be a number — so we keep
     // harmless placeholders instead of threading `undefined` everywhere.
-    return { text, opts: ["", "", "", ""], ans: 0, chapter: chap, qType, marks, modelAnswer };
+    return { text, opts: ["", "", "", ""], ans: 0, chapter: chap, subject: subj, qType, marks, modelAnswer };
   }
 
   var rawA = document.getElementById('optA').value.trim();
@@ -1179,7 +1233,7 @@ function readAddForm() {
   rawD = sanitizeQuestionText(rawD);
   // Auto-convert plain math to LaTeX
   const opts = [autoMathFmt(rawA), autoMathFmt(rawB), autoMathFmt(rawC), autoMathFmt(rawD)];
-  return { text, opts, ans, chapter:chap, qType: 'mcq', marks: null, modelAnswer: '' };
+  return { text, opts, ans, chapter:chap, subject: subj, qType: 'mcq', marks: null, modelAnswer: '' };
 }
 
 function onQTypeChange() {
@@ -1206,7 +1260,10 @@ function populateAddFormFromData(data) {
   document.getElementById('optC').value = data.opts?.[2] || '';
   document.getElementById('optD').value = data.opts?.[3] || '';
   document.getElementById('correctAns').value = String(data.ans ?? 0);
+  const qSubjectEl = document.getElementById('qSubject');
+  if (qSubjectEl) qSubjectEl.value = data.subject || 'General';
   document.getElementById('qChapter').value = data.chapter || 'Custom';
+  refreshChapterDatalist('qSubject', 'qChapterList');
   const qTypeEl = document.getElementById('qType');
   if (qTypeEl) qTypeEl.value = data.qType === 'subjective' ? 'subjective' : 'mcq';
   const marksEl = document.getElementById('qMarks');
@@ -1264,6 +1321,7 @@ function editBankQuestion(visIdx) {
     opts: q[1],
     ans: q[2],
     chapter: q[3],
+    subject: getBankSubject(q),
     qType: q[6] === 'subjective' ? 'subjective' : 'mcq',
     marks: q[7] ?? null,
     modelAnswer: q[8] || ''
@@ -1284,7 +1342,7 @@ async function updateBankQuestion(data) {
   }
 
   const existing = window.QUESTION_BANK[bankIdx];
-  const subject = data._subject || existing[5] || "General";
+  const subject = data.subject || data._subject || existing[5] || "General";
   const saveDocId = docId;
   window.QUESTION_BANK[bankIdx] = [
     data.text,
@@ -1349,7 +1407,7 @@ function addCustomQuestion() {
     editingPaperQId = null;
   }
 
-  const newQ = { id: qIdCounter++, text: data.text, opts: data.opts, ans: data.ans, chapter: data.chapter, subject: 'Custom', qType: data.qType === 'subjective' ? 'subjective' : 'mcq', marks: data.marks ?? null, modelAnswer: data.modelAnswer || '', bankIdx:-1 };
+  const newQ = { id: qIdCounter++, text: data.text, opts: data.opts, ans: data.ans, chapter: data.chapter, subject: data.subject || 'General', qType: data.qType === 'subjective' ? 'subjective' : 'mcq', marks: data.marks ?? null, modelAnswer: data.modelAnswer || '', bankIdx:-1 };
   if (isSectionMode()) {
     const sec = getActiveSectionObj();
     if (sec) { sec.questions.push(newQ); paperQuestions = sec.questions; }
@@ -1376,9 +1434,10 @@ async function saveToBank() {
     return;
   }
 
-  const { text, opts: [optA, optB, optC, optD], ans, chapter: chap, qType, marks, modelAnswer } = data;
+  const { text, opts: [optA, optB, optC, optD], ans, chapter: chap, subject: subj, qType, marks, modelAnswer } = data;
   const docId = `custom-${Date.now()}`;
-  const newQ = [text,[optA,optB,optC,optD],ans,chap, docId, "Custom", qType, marks, modelAnswer];
+  const subject = subj || 'General';
+  const newQ = [text,[optA,optB,optC,optD],ans,chap, docId, subject, qType, marks, modelAnswer];
   
   window.QUESTION_BANK.unshift(newQ); // Add to top of local bank
   addCustomQuestion(); // Adds to paper
@@ -1389,7 +1448,7 @@ async function saveToBank() {
   try {
     const body = {
       fields: {
-        subject: { stringValue: "Custom" },
+        subject: { stringValue: subject },
         chapter: { stringValue: chap },
         textHI:  { stringValue: text },
         textEN:  { stringValue: "" },
@@ -1418,9 +1477,11 @@ async function saveToBank() {
 }
 
 function clearAddForm() {
-  ['qText','optA','optB','optC','optD','qChapter','qMarks','qModelAnswer'].forEach(id => { const el = document.getElementById(id); if (el) el.value=''; });
+  ['qText','optA','optB','optC','optD','qChapter','qSubject','qMarks','qModelAnswer'].forEach(id => { const el = document.getElementById(id); if (el) el.value=''; });
   document.getElementById('correctAns').value = '0';
   document.getElementById('qChapter').value = 'Custom';
+  const qSubjectEl = document.getElementById('qSubject');
+  if (qSubjectEl) qSubjectEl.value = 'General';
   const qTypeEl = document.getElementById('qType');
   if (qTypeEl) qTypeEl.value = 'mcq';
   onQTypeChange();

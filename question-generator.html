@@ -130,8 +130,14 @@
         </div>
       </div>
       <div class="form-group">
+        <label>Subject</label>
+        <input id="qSubject" type="text" list="qSubjectList" placeholder="e.g. Mathematics" value="General" oninput="refreshChapterDatalist('qSubject','qChapterList')"/>
+        <datalist id="qSubjectList"></datalist>
+      </div>
+      <div class="form-group">
         <label>Chapter</label>
-        <input id="qChapter" type="text" placeholder="e.g. Samajwad" value="Custom"/>
+        <input id="qChapter" type="text" list="qChapterList" placeholder="e.g. Samajwad" value="Custom"/>
+        <datalist id="qChapterList"></datalist>
       </div>
       <button class="btn btn-primary full" id="addQuestionBtn" onclick="addCustomQuestion()">➕ Add to Paper</button>
       <button class="btn btn-outline full mt6" onclick="clearAddForm()">↩️ Cancel Edit</button>
@@ -142,11 +148,13 @@
     <div class="side-panel hidden" id="panel-bulk">
       <div class="form-group">
         <label>Subject</label>
-        <input id="bulkSubject" type="text" placeholder="e.g. Mathematics" value="General"/>
+        <input id="bulkSubject" type="text" list="bulkSubjectList" placeholder="e.g. Mathematics" value="General" oninput="refreshChapterDatalist('bulkSubject','bulkChapterList')"/>
+        <datalist id="bulkSubjectList"></datalist>
       </div>
       <div class="form-group">
         <label>Chapter (agar text mein na diya ho to ye use hoga)</label>
-        <input id="bulkChapter" type="text" placeholder="e.g. Samajwad" value="Custom"/>
+        <input id="bulkChapter" type="text" list="bulkChapterList" placeholder="e.g. Samajwad" value="Custom"/>
+        <datalist id="bulkChapterList"></datalist>
       </div>
       <div class="form-group">
         <label>Questions Paste Karein</label>
