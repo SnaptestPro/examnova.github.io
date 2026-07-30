@@ -2409,6 +2409,7 @@ function loadDraftIntoPaper(testId) {
   toast(`📂 Draft "${loadedDraftTitle}" load — Draft Edit tab mein questions edit karein`);
 }
 
+let _draftTestsUnsub = null;
 async function fetchDraftTests() {
   const list = document.getElementById('draftsList');
   if (!list) return;
@@ -2417,12 +2418,22 @@ async function fetchDraftTests() {
     list.innerHTML = '<div class="draft-empty">Firebase connected nahi hai</div>';
     return;
   }
+  // Already live-syncing — no need to re-subscribe. The listener below
+  // keeps draftTestsCache in sync in real time, so this list always
+  // matches however many draft tests exist in the Tests tab, even ones
+  // created/saved after this page was opened.
+  if (_draftTestsUnsub) return;
   list.innerHTML = '<div class="draft-empty">Loading drafts... ⏳</div>';
   try {
-    const snap = await db.collection("tests").where("isDraft", "==", true).get();
-    draftTestsCache = snap.docs.map(d => ({ id: d.id, data: d.data() }));
-    draftTestsCache.sort((a, b) => (b.data.title || '').localeCompare(a.data.title || ''));
-    renderDraftsList();
+    _draftTestsUnsub = db.collection("tests").where("isDraft", "==", true)
+      .onSnapshot(snap => {
+        draftTestsCache = snap.docs.map(d => ({ id: d.id, data: d.data() }));
+        draftTestsCache.sort((a, b) => (b.data.title || '').localeCompare(a.data.title || ''));
+        renderDraftsList();
+      }, err => {
+        console.error(err);
+        list.innerHTML = '<div class="draft-empty">Drafts load nahi ho paye</div>';
+      });
   } catch (err) {
     console.error(err);
     list.innerHTML = '<div class="draft-empty">Drafts load nahi ho paye</div>';
