@@ -22,6 +22,14 @@ let loadedDraftTitle = "";
 let loadedDraftMarks = 2;
 let draftTestsCache = [];
 
+// ── QUESTION → TEST USAGE INDEX ──────────────────
+// Maps a bank question's Firestore docId to the list of tests (draft or
+// published) that already contain that question, so the bank list can
+// show "🔁 <Test Name> mein hai" when the same question is being added
+// again to a different test.
+let questionTestMap = {};      // { [questionId]: [{id, title}, ...] }
+let _testsIndexTimer = null;
+
 const LABELS = ['A','B','C','D'];
 
 // ── VIRTUAL SCROLLING + PERFORMANCE ──────────────
@@ -862,12 +870,13 @@ function renderBankPage() {
     // bankIdx. The docId never changes, so it's the only safe key here.
     const alreadyAdded = allQ.some(p => p.firestoreId && p.firestoreId === q[4]);
     const inActiveSection = isSectionMode() && (getActiveSectionObj()?.questions || []).some(p => p.firestoreId && p.firestoreId === q[4]);
+    const usedInLabel = getQuestionUsageLabel(q[4]);
     html += `
       <div class="bank-item${alreadyAdded?' selected':''}${inActiveSection?' in-active-sec':''}" id="bi-${visIdx}" onclick="toggleBankCheck(${visIdx})">
         <input type="checkbox" id="bc-${visIdx}" ${inActiveSection?'checked':''} onclick="event.stopPropagation();toggleBankCheck(${visIdx})"/>
         <div class="bank-item-body">
           <div class="bank-q-text">${escHtml(q[0].substring(0,90))}${q[0].length>90?'…':''}</div>
-          <div class="bank-q-chapter">📚 ${escHtml(getBankSubject(q))} · 📖 ${escHtml(q[3])}${q[6]==='subjective' ? ` · <span class="bank-subjective-tag">📝 Subjective${q[7]!=null?' · '+escHtml(String(q[7]))+' marks':''}</span>` : ''}${alreadyAdded && !inActiveSection ? ' · <span style="color:#f59e0b">⚠️ other section</span>':''}</div>
+          <div class="bank-q-chapter">📚 ${escHtml(getBankSubject(q))} · 📖 ${escHtml(q[3])}${q[6]==='subjective' ? ` · <span class="bank-subjective-tag">📝 Subjective${q[7]!=null?' · '+escHtml(String(q[7]))+' marks':''}</span>` : ''}${alreadyAdded && !inActiveSection ? ' · <span style="color:#f59e0b">⚠️ other section</span>':''}${usedInLabel ? ` · <span class="bank-used-in-tag" title="Ye question pehle se in test(s) mein hai: ${escHtml(usedInLabel)}">🔁 ${escHtml(usedInLabel)} mein hai</span>` : ''}</div>
         </div>
         <button type="button" class="bank-edit-btn" title="Edit question" onclick="event.stopPropagation();editBankQuestion(${visIdx})">✏️</button>
       </div>`;
@@ -1923,6 +1932,7 @@ function clearPaper() {
   loadedDraftMarks = 2;
   updateDraftSaveButton();
   renderDraftsList();
+  renderBankPage();
   document.querySelectorAll('.bank-item input[type=checkbox]').forEach(cb => cb.checked=false);
   document.querySelectorAll('.bank-item').forEach(item => item.classList.remove('selected'));
   reRenderPaper();
@@ -2403,10 +2413,99 @@ function loadDraftIntoPaper(testId) {
   document.querySelectorAll('.bank-item input[type=checkbox]').forEach(cb => cb.checked = false);
   document.querySelectorAll('.bank-item').forEach(item => item.classList.remove('selected'));
   reRenderPaper();
+  renderBankPage();
   updateSelectedCount();
   switchSideTab('draftedit');
   switchMainTab('preview');
   toast(`📂 Draft "${loadedDraftTitle}" load — Draft Edit tab mein questions edit karein`);
+}
+
+// ── QUESTION → TEST USAGE INDEX ──────────────────
+// Builds questionTestMap by scanning EVERY test doc in the "tests"
+// collection — both drafts (which store their questions inline as
+// data.questions) and published tests (which move questions into a
+// "qchunks" subcollection to stay under Firestore's 1MB doc limit, see
+// saveTestOnline() in script.js). For each question id found, we record
+// which test(s) already contain it so the bank list can warn the admin
+// when the same question is being added to another test.
+function addQuestionsToTestIndex(map, questions, testId, title) {
+  (questions || []).forEach(q => {
+    const qId = q && q.id;
+    if (!qId) return;
+    if (!map[qId]) map[qId] = [];
+    if (!map[qId].some(t => t.id === testId)) map[qId].push({ id: testId, title });
+  });
+}
+
+async function loadChunkedTestQuestions(db, testId, chunkCount) {
+  const snaps = await Promise.all(
+    Array.from({ length: chunkCount }, (_, i) => db.collection("tests").doc(testId).collection("qchunks").doc("c" + i).get())
+  );
+  let questions = [];
+  snaps.forEach(s => { if (s.exists) questions = questions.concat(s.data().questions || []); });
+  return questions;
+}
+
+async function rebuildQuestionTestIndex() {
+  const db = window.vishnuFirebase?.db;
+  if (!db) return;
+  try {
+    const snap = await db.collection("tests").get();
+    const map = {};
+    const chunkJobs = [];
+
+    snap.docs.forEach(doc => {
+      const data = doc.data();
+      const title = data.title || 'Untitled Test';
+      if (Array.isArray(data.questions)) {
+        // Draft tests (and any legacy inline-questions tests) store the
+        // full questions array right on the doc.
+        addQuestionsToTestIndex(map, data.questions, doc.id, title);
+      } else if (data.chunkCount) {
+        // Published tests: questions live in the qchunks subcollection.
+        chunkJobs.push(
+          loadChunkedTestQuestions(db, doc.id, data.chunkCount)
+            .then(qs => addQuestionsToTestIndex(map, qs, doc.id, title))
+            .catch(e => console.warn('[TestIndex] chunk load failed for', doc.id, e))
+        );
+      }
+    });
+
+    await Promise.all(chunkJobs);
+    questionTestMap = map;
+    renderBankPage(); // refresh "already in X" badges with fresh data
+  } catch (e) {
+    console.warn('[TestIndex] build failed', e);
+  }
+}
+
+function scheduleTestIndexRebuild() {
+  clearTimeout(_testsIndexTimer);
+  _testsIndexTimer = setTimeout(rebuildQuestionTestIndex, 800);
+}
+
+function initQuestionTestIndex() {
+  const db = window.vishnuFirebase?.db;
+  if (!db) return;
+  rebuildQuestionTestIndex();
+  // Live-refresh whenever any test is added/edited/published/deleted, so
+  // the badges never go stale without needing a manual page reload.
+  db.collection("tests").onSnapshot(() => {
+    scheduleTestIndexRebuild();
+  }, err => console.warn('[TestIndex] snapshot error', err));
+}
+
+// Returns a short display label (e.g. "Weekly Test 1") listing the other
+// saved test(s) this question already belongs to, excluding the test
+// currently being edited (so editing/re-saving your own draft doesn't
+// falsely flag itself). Empty string if the question is new / unused.
+function getQuestionUsageLabel(qId) {
+  if (!qId) return '';
+  const entries = (questionTestMap[qId] || []).filter(t => t.id !== editingDraftId);
+  if (!entries.length) return '';
+  const names = entries.map(t => t.title);
+  const shown = names.slice(0, 2).join(', ');
+  return names.length > 2 ? `${shown} +${names.length - 2}` : shown;
 }
 
 let _draftTestsUnsub = null;
@@ -2470,6 +2569,7 @@ function renderDraftsList() {
   // Fetch from same Firebase as Admin (onSnapshot calls buildBankList automatically)
   fetchBankFromFirebase();
   fetchDraftTests();
+  initQuestionTestIndex();
 
   updateCount();
   updateAnswerKey();
