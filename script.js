@@ -1896,7 +1896,11 @@ function renderTestList() {
     const secCount = t.sections?.length || [...new Set((t.questions || []).map(q => q.section).filter(Boolean))].length;
     const secLabel = secCount > 1 ? ` · ${secCount} sections` : "";
     const attemptLabel = t.attemptLimit ? ` · attempt any ${t.attemptLimit}` : "";
-    item.innerHTML = `<span><strong>${draftBadge}${escHtml(t.title)}</strong><small>${t.questions.length} questions${secLabel} · ${t.minutes}min · Max: ${fmtNum(getTestMaxMarks(t))} marks${attemptLabel}</small></span>`;
+    const subMarks = getTestSubjectiveMarks(t);
+    const marksLabel = subMarks
+      ? `MCQ: ${fmtNum(getTestMaxMarks(t))} + Subjective: ${fmtNum(subMarks)} = Total: ${fmtNum(getTestGrandTotalMarks(t))} marks`
+      : `Max: ${fmtNum(getTestMaxMarks(t))} marks`;
+    item.innerHTML = `<span><strong>${draftBadge}${escHtml(t.title)}</strong><small>${t.questions.length} questions${secLabel} · ${t.minutes}min · ${marksLabel}${attemptLabel}</small></span>`;
     const acts = document.createElement("div");
     
     if (t.isDraft) {
@@ -1936,6 +1940,7 @@ function editTest(id) {
   $("#test-minutes").value = t.minutes || 30;
   $("#test-marks").value = getMarks(t);
   if ($("#test-attempt-limit")) $("#test-attempt-limit").value = t.attemptLimit || "";
+  if ($("#test-subjective-marks")) $("#test-subjective-marks").value = (t.subjectiveMarks !== undefined && t.subjectiveMarks !== null) ? t.subjectiveMarks : "";
   if ($("#test-start-time")) $("#test-start-time").value = t.startTime ? t.startTime.replace(" ","T").slice(0,16) : "";
   if ($("#test-end-time")) $("#test-end-time").value = t.endTime ? t.endTime.replace(" ","T").slice(0,16) : "";
   const neg = getNeg(t);
@@ -2213,6 +2218,8 @@ async function saveTest(e) {
   const neg   = negEn ? Number($("#test-negative").value || 0) : 0;
   const attemptLimitRaw = Number($("#test-attempt-limit")?.value || 0);
   const attemptLimit = attemptLimitRaw > 0 ? attemptLimitRaw : null;
+  const subjectiveMarksRaw = Number($("#test-subjective-marks")?.value || 0);
+  const subjectiveMarks = subjectiveMarksRaw > 0 ? subjectiveMarksRaw : null;
   if (!title) { alert("Test title required hai."); return; }
   const id = editingTestId || `test-${Date.now()}`;
   const startTime = $("#test-start-time")?.value || "";
@@ -2220,6 +2227,7 @@ async function saveTest(e) {
   const t  = {
     title, minutes: min || 30, marksPerQuestion: marks, negativeEnabled: negEn, negativeMarks: neg,
     attemptLimit,
+    subjectiveMarks,
     startTime: startTime || null, endTime: endTime || null,
     sections: testSections.map(s => ({ id: s.id, title: s.title, marksPerQuestion: s.marksPerQuestion ?? null })),
     questions: draftQuestions.map(cloneQ)
@@ -4673,6 +4681,19 @@ function getTestMaxMarks(test) {
   return 0;
 }
 
+// Admin-only bookkeeping total: MCQ (online, auto-graded) marks + the
+// Subjective marks the admin manually notes per test (those questions
+// live in a separate MS Word paper, never in this system). Never used
+// for student-facing scoring/leaderboard — only for the admin Test List
+// so Vishnu can see the full paper's total marks at a glance.
+function getTestSubjectiveMarks(test) {
+  const v = Number(test?.subjectiveMarks || 0);
+  return (Number.isFinite(v) && v > 0) ? v : 0;
+}
+function getTestGrandTotalMarks(test) {
+  return getTestMaxMarks(test) + getTestSubjectiveMarks(test);
+}
+
 // Returns all section titles in order they appear
 function getTestSectionTitles(test) {
   const seen = [];
@@ -4742,12 +4763,15 @@ async function saveAsDraft() {
   const neg   = negEn ? Number($("#test-negative").value || 0) : 0;
   const attemptLimitRaw = Number($("#test-attempt-limit")?.value || 0);
   const attemptLimit = attemptLimitRaw > 0 ? attemptLimitRaw : null;
+  const subjectiveMarksRaw = Number($("#test-subjective-marks")?.value || 0);
+  const subjectiveMarks = subjectiveMarksRaw > 0 ? subjectiveMarksRaw : null;
   if (!title) { alert("Test title required hai."); return; }
   const id = editingTestId || `test-${Date.now()}`;
   const t  = {
     title, minutes: min || 30, marksPerQuestion: marks,
     negativeEnabled: negEn, negativeMarks: neg,
     attemptLimit,
+    subjectiveMarks,
     isDraft: true,
     sections: testSections.map(s => ({ id: s.id, title: s.title, marksPerQuestion: s.marksPerQuestion ?? null })),
     questions: draftQuestions.map(cloneQ)
@@ -4801,6 +4825,8 @@ async function autoSaveDraftSilently() {
   const neg   = negEn ? Number($("#test-negative")?.value || 0) : 0;
   const attemptLimitRaw = Number($("#test-attempt-limit")?.value || 0);
   const attemptLimit = attemptLimitRaw > 0 ? attemptLimitRaw : null;
+  const subjectiveMarksRaw = Number($("#test-subjective-marks")?.value || 0);
+  const subjectiveMarks = subjectiveMarksRaw > 0 ? subjectiveMarksRaw : null;
 
   const t = {
     title: title || `Auto-Draft ${new Date().toLocaleTimeString("en-IN")}`,
@@ -4809,6 +4835,7 @@ async function autoSaveDraftSilently() {
     negativeEnabled: negEn,
     negativeMarks: neg,
     attemptLimit,
+    subjectiveMarks,
     isDraft: true,
     autoSaved: true,
     autoSavedAt: new Date().toISOString(),
@@ -4866,6 +4893,7 @@ window.addEventListener("beforeunload", () => {
     negativeEnabled: $("#test-negative-enabled")?.value === "yes",
     negativeMarks: Number($("#test-negative")?.value || 0),
     attemptLimit: (Number($("#test-attempt-limit")?.value || 0) > 0) ? Number($("#test-attempt-limit").value) : null,
+    subjectiveMarks: (Number($("#test-subjective-marks")?.value || 0) > 0) ? Number($("#test-subjective-marks").value) : null,
     isDraft: true,
     autoSaved: true,
     autoSavedAt: new Date().toISOString(),
