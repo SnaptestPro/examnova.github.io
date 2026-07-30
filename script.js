@@ -1879,7 +1879,7 @@ function renderTests(selId) {
     if (t.isDraft) return; // Hide drafts from students
     const op = document.createElement("option");
     op.value = id;
-    const attemptNote = t.attemptLimit ? `, attempt any ${t.attemptLimit}` : "";
+    const attemptNote = t.attemptLimit ? `, attempt any ${t.attemptLimit} MCQs` : "";
     op.textContent = `${t.title} (${t.questions.length}Q, ${t.minutes}min${attemptNote})`;
     sel.appendChild(op);
   });
@@ -1895,7 +1895,7 @@ function renderTestList() {
     const draftBadge = t.isDraft ? '<span class="draft-badge">DRAFT</span>' : '';
     const secCount = t.sections?.length || [...new Set((t.questions || []).map(q => q.section).filter(Boolean))].length;
     const secLabel = secCount > 1 ? ` · ${secCount} sections` : "";
-    const attemptLabel = t.attemptLimit ? ` · attempt any ${t.attemptLimit}` : "";
+    const attemptLabel = t.attemptLimit ? ` · attempt any ${t.attemptLimit} MCQs` : "";
     const subMarks = getTestSubjectiveMarks(t);
     const marksLabel = subMarks
       ? `MCQ: ${fmtNum(getTestMaxMarks(t))} + Subjective: ${fmtNum(subMarks)} = Total: ${fmtNum(getTestGrandTotalMarks(t))} marks`
@@ -5122,7 +5122,7 @@ function renderLeaderboard() {
   }, {});
   const sorted = Object.values(seen).sort((a,b) => b.score - a.score).slice(0, 20);
   const t = tests[testId];
-  const maxScore = t ? getTestMaxMarks(t) : null;
+  const maxScore = t ? getTestGrandTotalMarks(t) : null;
   let html = '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.88rem;">';
   html += '<thead><tr style="background:linear-gradient(135deg,#1e1b4b,#3730a3);color:#fff;">';
   html += '<th style="padding:10px 12px;text-align:left;">#</th><th style="padding:10px 12px;text-align:left;">Student</th>';
