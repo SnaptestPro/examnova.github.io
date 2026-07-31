@@ -28,6 +28,7 @@ let draftTestsCache = [];
 // show "🔁 <Test Name> mein hai" when the same question is being added
 // again to a different test.
 let questionTestMap = {};      // { [questionId]: [{id, title}, ...] }
+let questionTestTextMap = {};  // { [normalizedText]: [{id, title}, ...] } — legacy fallback
 let _testsIndexTimer = null;
 
 const LABELS = ['A','B','C','D'];
@@ -870,7 +871,7 @@ function renderBankPage() {
     // bankIdx. The docId never changes, so it's the only safe key here.
     const alreadyAdded = allQ.some(p => p.firestoreId && p.firestoreId === q[4]);
     const inActiveSection = isSectionMode() && (getActiveSectionObj()?.questions || []).some(p => p.firestoreId && p.firestoreId === q[4]);
-    const usedInLabel = getQuestionUsageLabel(q[4]);
+    const usedInLabel = getQuestionUsageLabel(q[4], q[0]);
     html += `
       <div class="bank-item${alreadyAdded?' selected':''}${inActiveSection?' in-active-sec':''}" id="bi-${visIdx}" onclick="toggleBankCheck(${visIdx})">
         <input type="checkbox" id="bc-${visIdx}" ${inActiveSection?'checked':''} onclick="event.stopPropagation();toggleBankCheck(${visIdx})"/>
@@ -2431,22 +2432,33 @@ function loadDraftIntoPaper(testId) {
 // saveTestOnline() in script.js). For each question id found, we record
 // which test(s) already contain it so the bank list can warn the admin
 // when the same question is being added to another test.
-function addQuestionsToTestIndex(map, questions, testId, title) {
-  (questions || []).forEach(q => {
-    const qId = q && q.id;
-    if (!qId) return;
-    if (!map[qId]) map[qId] = [];
-    if (!map[qId].some(t => t.id === testId)) map[qId].push({ id: testId, title });
-  });
+//
+// FALLBACK: older tests built via the Admin panel's own "Tests" tab
+// (script.js) used to save questions through a cloneQ() that silently
+// dropped the bank question's id — so those tests can't be matched by id
+// at all. That's now fixed going forward, but already-saved old tests
+// still have no id on their questions. For those, we also index by
+// normalized question text as a best-effort fallback, so "already used"
+// still gets detected for pre-existing tests until they're re-saved.
+function normalizeQText(t) {
+  return (t || '').replace(/\s+/g, ' ').trim().toLowerCase();
 }
 
-async function loadChunkedTestQuestions(db, testId, chunkCount) {
-  const snaps = await Promise.all(
-    Array.from({ length: chunkCount }, (_, i) => db.collection("tests").doc(testId).collection("qchunks").doc("c" + i).get())
-  );
-  let questions = [];
-  snaps.forEach(s => { if (s.exists) questions = questions.concat(s.data().questions || []); });
-  return questions;
+function addQuestionsToTestIndex(map, textMap, questions, testId, title) {
+  (questions || []).forEach(q => {
+    if (!q) return;
+    const qId = q.id;
+    if (qId) {
+      if (!map[qId]) map[qId] = [];
+      if (!map[qId].some(t => t.id === testId)) map[qId].push({ id: testId, title });
+    } else {
+      // No id (legacy test) — fall back to matching by question text.
+      const key = normalizeQText(q.text || q.textHI || q.textEN);
+      if (!key) return;
+      if (!textMap[key]) textMap[key] = [];
+      if (!textMap[key].some(t => t.id === testId)) textMap[key].push({ id: testId, title });
+    }
+  });
 }
 
 async function rebuildQuestionTestIndex() {
@@ -2462,7 +2474,9 @@ async function rebuildQuestionTestIndex() {
 
     const snap = await db.collection("tests").get();
     const map = {};
+    const textMap = {};
     const chunkJobs = [];
+    let inlineCount = 0, chunkedCount = 0, emptyCount = 0;
 
     snap.docs.forEach(doc => {
       const data = doc.data();
@@ -2470,12 +2484,25 @@ async function rebuildQuestionTestIndex() {
       if (Array.isArray(data.questions)) {
         // Draft tests (and any legacy inline-questions tests) store the
         // full questions array right on the doc.
-        addQuestionsToTestIndex(map, data.questions, doc.id, title);
-      } else if (data.chunkCount) {
-        // Published tests: questions live in the qchunks subcollection.
+        addQuestionsToTestIndex(map, textMap, data.questions, doc.id, title);
+        inlineCount++;
+      } else {
+        // Published tests (including old/already-running ones the admin
+        // created before this feature existed) move their questions into
+        // the "qchunks" subcollection to stay under Firestore's 1MB doc
+        // limit — see saveTestOnline() in script.js. We read that
+        // subcollection directly here instead of trusting doc.chunkCount,
+        // so this still works even if that metadata field is missing or
+        // stale on an older test doc.
         chunkJobs.push(
-          loadChunkedTestQuestions(db, doc.id, data.chunkCount)
-            .then(qs => addQuestionsToTestIndex(map, qs, doc.id, title))
+          db.collection("tests").doc(doc.id).collection("qchunks").get()
+            .then(chunkSnap => {
+              if (chunkSnap.empty) { emptyCount++; return; }
+              let qs = [];
+              chunkSnap.docs.forEach(c => { qs = qs.concat(c.data().questions || []); });
+              addQuestionsToTestIndex(map, textMap, qs, doc.id, title);
+              chunkedCount++;
+            })
             .catch(e => console.warn('[TestIndex] chunk load failed for', doc.id, e))
         );
       }
@@ -2483,6 +2510,8 @@ async function rebuildQuestionTestIndex() {
 
     await Promise.all(chunkJobs);
     questionTestMap = map;
+    questionTestTextMap = textMap;
+    console.log(`[TestIndex] Scanned ${snap.docs.length} test(s) — ${inlineCount} inline (drafts), ${chunkedCount} chunked (published), ${emptyCount} empty. ${Object.keys(map).length} question id(s) + ${Object.keys(textMap).length} legacy no-id question(s) indexed.`);
     renderBankPage(); // refresh "already in X" badges with fresh data
     reRenderPaper();  // same badge also shown on the paper/right panel
   } catch (e) {
@@ -2510,9 +2539,14 @@ function initQuestionTestIndex() {
 // saved test(s) this question already belongs to, excluding the test
 // currently being edited (so editing/re-saving your own draft doesn't
 // falsely flag itself). Empty string if the question is new / unused.
-function getQuestionUsageLabel(qId) {
-  if (!qId) return '';
-  const entries = (questionTestMap[qId] || []).filter(t => t.id !== editingDraftId);
+// `qText` is optional — used as a fallback lookup (by matching question
+// text) for legacy tests whose saved questions have no bank id at all.
+function getQuestionUsageLabel(qId, qText) {
+  let entries = qId ? (questionTestMap[qId] || []) : [];
+  if (!entries.length && qText) {
+    entries = questionTestTextMap[normalizeQText(qText)] || [];
+  }
+  entries = entries.filter(t => t.id !== editingDraftId);
   if (!entries.length) return '';
   const names = entries.map(t => t.title);
   const shown = names.slice(0, 2).join(', ');
@@ -2523,7 +2557,7 @@ function getQuestionUsageLabel(qId) {
 // question that's already sitting in another saved test is flagged there
 // too — not just while browsing the bank.
 function pqUsageBadgeHtml(q) {
-  const label = getQuestionUsageLabel(q.firestoreId);
+  const label = getQuestionUsageLabel(q.firestoreId, q.text);
   if (!label) return '';
   return `<div class="bank-used-in-tag" style="font-size:10px;margin-top:4px" title="Ye question pehle se in test(s) mein hai: ${escHtml(label)}">🔁 ${escHtml(label)} mein hai</div>`;
 }

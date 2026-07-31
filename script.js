@@ -4887,6 +4887,7 @@ function isValidQ(q) {
 }
 function cloneQ(q) {
   return {
+    id: q.id || q.firestoreId || null,
     text: q.text || q.textHI || q.textEN || "",
     textEN: q.textEN || q.text || "",
     textHI: q.textHI || q.text || "",
