@@ -941,6 +941,17 @@ function filterBank() {
       return matchSubj && matchChap && matchSearch && matchQType && matchMarks;
     });
 
+    // Push questions already used in another saved test to the end —
+    // keeps fresh/unused questions on top within the current chapter/
+    // filter view so new tests can be built from not-yet-used questions
+    // first. Stable sort: relative order within each group (used /
+    // not-used) is otherwise unchanged.
+    filtered.sort((a, b) => {
+      const usedA = getQuestionUsageLabel(a[4], a[0]) ? 1 : 0;
+      const usedB = getQuestionUsageLabel(b[4], b[0]) ? 1 : 0;
+      return usedA - usedB;
+    });
+
     renderBankList(filtered);
     const totalEl = document.getElementById('bankTotal');
     if (totalEl) totalEl.textContent = filtered.length;
@@ -2512,7 +2523,7 @@ async function rebuildQuestionTestIndex() {
     questionTestMap = map;
     questionTestTextMap = textMap;
     console.log(`[TestIndex] Scanned ${snap.docs.length} test(s) — ${inlineCount} inline (drafts), ${chunkedCount} chunked (published), ${emptyCount} empty. ${Object.keys(map).length} question id(s) + ${Object.keys(textMap).length} legacy no-id question(s) indexed.`);
-    renderBankPage(); // refresh "already in X" badges with fresh data
+    filterBank(); // re-filter + re-sort so already-used questions drop to the end
     reRenderPaper();  // same badge also shown on the paper/right panel
   } catch (e) {
     console.warn('[TestIndex] build failed', e);
