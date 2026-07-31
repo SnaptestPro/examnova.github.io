@@ -1723,6 +1723,7 @@ function reRenderPaper() {
                   <span class="pq-num">${num}.</span>
                   <span class="pq-text math-text">${q.text}</span>
                 </div>
+                ${pqUsageBadgeHtml(q)}
                 <div class="pq-opts">${opts}</div>
               </div>`;
           }).join('');
@@ -1769,6 +1770,7 @@ function reRenderPaper() {
           <span class="pq-num">${i+1}.</span>
           <span class="pq-text math-text">${q.text}</span>
         </div>
+        ${pqUsageBadgeHtml(q)}
         <div class="pq-opts">${opts}</div>
       </div>`;
   }).join('');
@@ -1800,6 +1802,7 @@ function renderPaperPaginated(list, questions, isSectionMode) {
           <span class="pq-num">${globalIdx}.</span>
           <span class="pq-text math-text">${q.text}</span>
         </div>
+        ${pqUsageBadgeHtml(q)}
         <div class="pq-opts">${opts}</div>
       </div>`;
   }).join('');
@@ -2450,6 +2453,13 @@ async function rebuildQuestionTestIndex() {
   const db = window.vishnuFirebase?.db;
   if (!db) return;
   try {
+    // Anonymous sign-in (see firebase-config.js) can still be in flight when
+    // this runs right at page load. A live onSnapshot listener would just
+    // wait and auto-retry once signed in, but a one-time .get() does NOT —
+    // it fails immediately with "permission-denied" if auth isn't ready
+    // yet, and the map is silently left empty. Wait for it first.
+    if (window.vishnuFirebase.authReady) await window.vishnuFirebase.authReady;
+
     const snap = await db.collection("tests").get();
     const map = {};
     const chunkJobs = [];
@@ -2474,6 +2484,7 @@ async function rebuildQuestionTestIndex() {
     await Promise.all(chunkJobs);
     questionTestMap = map;
     renderBankPage(); // refresh "already in X" badges with fresh data
+    reRenderPaper();  // same badge also shown on the paper/right panel
   } catch (e) {
     console.warn('[TestIndex] build failed', e);
   }
@@ -2506,6 +2517,15 @@ function getQuestionUsageLabel(qId) {
   const names = entries.map(t => t.title);
   const shown = names.slice(0, 2).join(', ');
   return names.length > 2 ? `${shown} +${names.length - 2}` : shown;
+}
+
+// Same badge as the bank list, reused for the Paper (right panel) so a
+// question that's already sitting in another saved test is flagged there
+// too — not just while browsing the bank.
+function pqUsageBadgeHtml(q) {
+  const label = getQuestionUsageLabel(q.firestoreId);
+  if (!label) return '';
+  return `<div class="bank-used-in-tag" style="font-size:10px;margin-top:4px" title="Ye question pehle se in test(s) mein hai: ${escHtml(label)}">🔁 ${escHtml(label)} mein hai</div>`;
 }
 
 let _draftTestsUnsub = null;
