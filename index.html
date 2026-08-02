@@ -2938,6 +2938,26 @@ document.addEventListener('DOMContentLoaded',function(){
     return 'Address bar ke daayein taraf install icon ⊕ par click karein, ya browser ke 3-dot menu mein "Install App" dhoondein.';
   }
 
+  // Chrome/Edge/Android etc. sirf tab hi native "beforeinstallprompt" bhejte
+  // hain jab unke apne engagement-heuristics poore ho jaayein — kabhi
+  // turant, kabhi kuch second baad. Isi wajah se pehle turant fallback
+  // ("address bar dekhein") dikh jaata tha, jabki thoda ruk kar asli
+  // native "⬇️ Install Karein" popup mil sakta tha. Ab in Chromium-type
+  // browsers ke liye chand second ka wait diya jaata hai — waiting ke
+  // dauraan neutral loading text dikhta hai, fallback sirf tab dikhta
+  // hai jab sach mein native event nahi milta (ya iOS/Firefox jaise
+  // browsers jinme native install event kabhi aata hi nahi).
+  function couldGetNativePrompt() {
+    const ua = window.navigator.userAgent || '';
+    const isIos = /iphone|ipad|ipod/i.test(ua);
+    const isFirefox = /firefox|fxios/i.test(ua);
+    const isSafari = /safari/i.test(ua) && !/crios|fxios|chrome|android|edg/i.test(ua);
+    return !isIos && !isFirefox && !isSafari; // Chrome/Edge/Samsung/Brave/Opera etc.
+  }
+
+  let _installWaitTimer = null;
+  let _installWaitGen = 0;
+
   function showAppInstallModal() {
     if (isStandaloneMode()) return;
     const modal = document.getElementById('app-install-modal');
@@ -2945,10 +2965,14 @@ document.addEventListener('DOMContentLoaded',function(){
     const actionBtn = document.getElementById('app-install-modal-action-btn');
     if (!modal || !textEl || !actionBtn) return;
 
+    clearTimeout(_installWaitTimer);
+    const myGen = ++_installWaitGen; // invalidate any pending wait from a previous call
+
     if (deferredInstallPrompt) {
       // Chromium browser: asli native install prompt available hai
       textEl.textContent = 'Ek tap mein apne home screen / desktop par app install karein — offline bhi chalegi, aur test dene mein easy hoga.';
       actionBtn.textContent = '⬇️ Install Karein';
+      actionBtn.disabled = false;
       actionBtn.onclick = function () {
         if (!deferredInstallPrompt) { modal.classList.add('hidden'); return; }
         deferredInstallPrompt.prompt();
@@ -2957,10 +2981,28 @@ document.addEventListener('DOMContentLoaded',function(){
           modal.classList.add('hidden');
         });
       };
+    } else if (couldGetNativePrompt()) {
+      // Chrome/Edge/etc — native prompt event abhi tak nahi mila, par mil
+      // sakta hai. Neutral loading state dikhao aur thoda wait karo.
+      textEl.textContent = 'App taiyaar ho raha hai — ek pal rukein… ⏳';
+      actionBtn.textContent = '⬇️ Install Karein';
+      actionBtn.disabled = true;
+      actionBtn.onclick = null;
+      _installWaitTimer = setTimeout(function () {
+        if (myGen !== _installWaitGen) return; // popup already updated by something else
+        if (deferredInstallPrompt) { showAppInstallModal(); return; } // arrived in the meantime
+        // Sach mein nahi mila — ab hi manual fallback dikhao.
+        textEl.textContent = detectPlatformInstructions();
+        actionBtn.textContent = '👍 Samajh Gaya';
+        actionBtn.disabled = false;
+        actionBtn.onclick = function () { modal.classList.add('hidden'); };
+      }, 4000);
     } else {
-      // Non-Chromium ya event abhi tak nahi mila: manual steps dikhao
+      // iOS Safari / Firefox — yahan koi native install event kabhi aata
+      // hi nahi, wait karne ka koi fayda nahi, seedha steps dikhao.
       textEl.textContent = detectPlatformInstructions();
       actionBtn.textContent = '👍 Samajh Gaya';
+      actionBtn.disabled = false;
       actionBtn.onclick = function () { modal.classList.add('hidden'); };
     }
     modal.classList.remove('hidden');
@@ -2969,6 +3011,8 @@ document.addEventListener('DOMContentLoaded',function(){
   function dismissAppInstallModal() {
     const modal = document.getElementById('app-install-modal');
     if (modal) modal.classList.add('hidden');
+    clearTimeout(_installWaitTimer);
+    _installWaitGen++;
   }
 
   window.addEventListener('beforeinstallprompt', function (e) {
