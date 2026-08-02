@@ -29,7 +29,6 @@ let draftTestsCache = [];
 // again to a different test.
 let questionTestMap = {};      // { [questionId]: [{id, title}, ...] }
 let questionTestTextMap = {};  // { [normalizedText]: [{id, title}, ...] } — legacy fallback
-let _testsIndexTimer = null;
 
 const LABELS = ['A','B','C','D'];
 
@@ -946,11 +945,14 @@ function filterBank() {
     // filter view so new tests can be built from not-yet-used questions
     // first. Stable sort: relative order within each group (used /
     // not-used) is otherwise unchanged.
-    filtered.sort((a, b) => {
-      const usedA = getQuestionUsageLabel(a[4], a[0]) ? 1 : 0;
-      const usedB = getQuestionUsageLabel(b[4], b[0]) ? 1 : 0;
-      return usedA - usedB;
-    });
+    // Perf: compute each question's "used" flag once up front (O(n))
+    // instead of re-deriving it inside the comparator, which sort()
+    // would otherwise call O(n log n) times.
+    if (filtered.length) {
+      const usedFlag = new Map();
+      for (const q of filtered) usedFlag.set(q, getQuestionUsageLabel(q[4], q[0]) ? 1 : 0);
+      filtered.sort((a, b) => usedFlag.get(a) - usedFlag.get(b));
+    }
 
     renderBankList(filtered);
     const totalEl = document.getElementById('bankTotal');
@@ -2451,6 +2453,13 @@ function loadDraftIntoPaper(testId) {
 // still have no id on their questions. For those, we also index by
 // normalized question text as a best-effort fallback, so "already used"
 // still gets detected for pre-existing tests until they're re-saved.
+//
+// PERF: rather than re-fetching every test's questions (incl. re-reading
+// every published test's qchunks subcollection) on every "tests" change,
+// we keep a per-test cache (_testQuestionsCache) and only touch the
+// Firestore doc(s) for the test(s) that actually changed. The combined
+// map is then just rebuilt from local memory, which is instant even with
+// hundreds of tests, so nothing hangs while the admin is working.
 function normalizeQText(t) {
   return (t || '').replace(/\s+/g, ' ').trim().toLowerCase();
 }
@@ -2472,77 +2481,79 @@ function addQuestionsToTestIndex(map, textMap, questions, testId, title) {
   });
 }
 
-async function rebuildQuestionTestIndex() {
-  const db = window.vishnuFirebase?.db;
-  if (!db) return;
-  try {
-    // Anonymous sign-in (see firebase-config.js) can still be in flight when
-    // this runs right at page load. A live onSnapshot listener would just
-    // wait and auto-retry once signed in, but a one-time .get() does NOT —
-    // it fails immediately with "permission-denied" if auth isn't ready
-    // yet, and the map is silently left empty. Wait for it first.
-    if (window.vishnuFirebase.authReady) await window.vishnuFirebase.authReady;
+let _testQuestionsCache = {};  // testId -> { title, questions: [...] }
+let _testIndexRebuildTimer = null;
+let _testIndexInFlight = new Set(); // testIds currently being (re)fetched
 
-    const snap = await db.collection("tests").get();
-    const map = {};
-    const textMap = {};
-    const chunkJobs = [];
-    let inlineCount = 0, chunkedCount = 0, emptyCount = 0;
-
-    snap.docs.forEach(doc => {
-      const data = doc.data();
-      const title = data.title || 'Untitled Test';
-      if (Array.isArray(data.questions)) {
-        // Draft tests (and any legacy inline-questions tests) store the
-        // full questions array right on the doc.
-        addQuestionsToTestIndex(map, textMap, data.questions, doc.id, title);
-        inlineCount++;
-      } else {
-        // Published tests (including old/already-running ones the admin
-        // created before this feature existed) move their questions into
-        // the "qchunks" subcollection to stay under Firestore's 1MB doc
-        // limit — see saveTestOnline() in script.js. We read that
-        // subcollection directly here instead of trusting doc.chunkCount,
-        // so this still works even if that metadata field is missing or
-        // stale on an older test doc.
-        chunkJobs.push(
-          db.collection("tests").doc(doc.id).collection("qchunks").get()
-            .then(chunkSnap => {
-              if (chunkSnap.empty) { emptyCount++; return; }
-              let qs = [];
-              chunkSnap.docs.forEach(c => { qs = qs.concat(c.data().questions || []); });
-              addQuestionsToTestIndex(map, textMap, qs, doc.id, title);
-              chunkedCount++;
-            })
-            .catch(e => console.warn('[TestIndex] chunk load failed for', doc.id, e))
-        );
-      }
-    });
-
-    await Promise.all(chunkJobs);
-    questionTestMap = map;
-    questionTestTextMap = textMap;
-    console.log(`[TestIndex] Scanned ${snap.docs.length} test(s) — ${inlineCount} inline (drafts), ${chunkedCount} chunked (published), ${emptyCount} empty. ${Object.keys(map).length} question id(s) + ${Object.keys(textMap).length} legacy no-id question(s) indexed.`);
-    filterBank(); // re-filter + re-sort so already-used questions drop to the end
-    reRenderPaper();  // same badge also shown on the paper/right panel
-  } catch (e) {
-    console.warn('[TestIndex] build failed', e);
+// Cheap, local-only: recombine the per-test cache into the lookup maps
+// used by getQuestionUsageLabel(). No network calls here.
+function rebuildMapFromCache() {
+  const map = {};
+  const textMap = {};
+  for (const testId in _testQuestionsCache) {
+    const entry = _testQuestionsCache[testId];
+    addQuestionsToTestIndex(map, textMap, entry.questions, testId, entry.title);
   }
+  questionTestMap = map;
+  questionTestTextMap = textMap;
+  filterBank();    // re-filter + re-sort so already-used questions drop to the end
+  reRenderPaper();  // same badge also shown on the paper/right panel
 }
 
-function scheduleTestIndexRebuild() {
-  clearTimeout(_testsIndexTimer);
-  _testsIndexTimer = setTimeout(rebuildQuestionTestIndex, 800);
+function scheduleMapRebuild() {
+  clearTimeout(_testIndexRebuildTimer);
+  // Short debounce: this only coalesces bursts of doc changes into one
+  // render pass — the actual rebuild is local/instant, no fetch involved.
+  _testIndexRebuildTimer = setTimeout(rebuildMapFromCache, 150);
+}
+
+// Fetches (or re-fetches) just ONE test's questions and updates the cache.
+async function refreshTestInCache(db, doc) {
+  const testId = doc.id;
+  if (_testIndexInFlight.has(testId)) return; // already being fetched, skip duplicate work
+  _testIndexInFlight.add(testId);
+  try {
+    const data = doc.data() || {};
+    const title = data.title || 'Untitled Test';
+    if (Array.isArray(data.questions)) {
+      // Draft tests (and any legacy inline-questions tests) store the
+      // full questions array right on the doc — no extra read needed.
+      _testQuestionsCache[testId] = { title, questions: data.questions };
+    } else {
+      // Published tests: questions live in the qchunks subcollection.
+      // We read it directly (instead of trusting a chunkCount field) so
+      // this still works even if that metadata is missing/stale on an
+      // older test doc.
+      const chunkSnap = await db.collection("tests").doc(testId).collection("qchunks").get();
+      let qs = [];
+      chunkSnap.docs.forEach(c => { qs = qs.concat(c.data().questions || []); });
+      _testQuestionsCache[testId] = { title, questions: qs };
+    }
+  } catch (e) {
+    console.warn('[TestIndex] fetch failed for', testId, e);
+  } finally {
+    _testIndexInFlight.delete(testId);
+    scheduleMapRebuild();
+  }
 }
 
 function initQuestionTestIndex() {
   const db = window.vishnuFirebase?.db;
   if (!db) return;
-  rebuildQuestionTestIndex();
-  // Live-refresh whenever any test is added/edited/published/deleted, so
-  // the badges never go stale without needing a manual page reload.
-  db.collection("tests").onSnapshot(() => {
-    scheduleTestIndexRebuild();
+  // onSnapshot (unlike a one-time .get()) auto-retries once anonymous
+  // sign-in finishes, so no need to gate this on authReady.
+  db.collection("tests").onSnapshot(snap => {
+    snap.docChanges().forEach(change => {
+      if (change.type === 'removed') {
+        delete _testQuestionsCache[change.doc.id];
+        scheduleMapRebuild();
+      } else {
+        // 'added' (incl. initial load) or 'modified' — only this one
+        // test's questions need (re)fetching, everything else in the
+        // cache is left untouched.
+        refreshTestInCache(db, change.doc);
+      }
+    });
   }, err => console.warn('[TestIndex] snapshot error', err));
 }
 

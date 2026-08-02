@@ -2976,6 +2976,10 @@ document.addEventListener('DOMContentLoaded',function(){
     deferredInstallPrompt = e;
     const btn = document.getElementById('install-app-btn');
     if (btn && !isStandaloneMode()) btn.classList.remove('hidden');
+    // Popup pehle se khula ho (manual-steps version ke saath) to usko
+    // turant native "Install Karein" version mein upgrade kar do.
+    const modal = document.getElementById('app-install-modal');
+    if (modal && !modal.classList.contains('hidden')) showAppInstallModal();
   });
 
   window.addEventListener('appinstalled', function () {
@@ -2997,12 +3001,15 @@ document.addEventListener('DOMContentLoaded',function(){
       });
     }
 
-    // Har fresh visit par popup dikhao (agar already installed nahi hai).
-    // Chromium browsers mein "beforeinstallprompt" thodi der baad fire
-    // hota hai, isliye 1.5s wait karke check karte hain — event mil
-    // jaaye to native prompt, warna platform ke hisaab se manual steps.
+    // Site khulte hi SEEDHA popup dikhao (koi delay nahi) — agar
+    // already installed nahi hai. Chromium browsers mein
+    // "beforeinstallprompt" kabhi-kabhi thodi der baad fire hota hai;
+    // agar wo is popup ke khule rehte hue aa jaaye, to beforeinstallprompt
+    // listener khud hi popup ko native "Install Karein" version mein
+    // upgrade kar deta hai (neeche dekhein) — bina user ko kuch bhi
+    // dobara karne ki zaroorat ke.
     if (!isStandaloneMode()) {
-      setTimeout(showAppInstallModal, 1500);
+      showAppInstallModal();
     }
   });
 </script>
