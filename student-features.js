@@ -239,15 +239,39 @@
 
   let progressChartInstance = null;
 
-  function renderMyProgress() {
+  async function renderMyProgress() {
     const session = getStudentSession();
     const emptyEl = document.getElementById("my-progress-empty");
     const canvas = document.getElementById("my-progress-chart");
     if (!session || !emptyEl || !canvas || typeof Chart === "undefined") return;
     const mobile = normalizeMobile(session.mobile);
 
-    const myRecs = (records || [])
-      .filter(r => normalizeMobile(r.mobile) === mobile && r.submittedIso)
+    // NOTE: don't rely on the shared `records` array here — syncRecords()
+    // in script.js only keeps the most-recently-submitted 200 records
+    // SITE-WIDE (across every student) for performance. Once the site has
+    // more than 200 total submissions, an individual student's older
+    // attempts silently fall out of that window and this chart would
+    // show "no data" even though their records genuinely exist in
+    // Firestore (this is exactly what admin's per-student "📄 Answers"
+    // lookup in the Students Directory does correctly, since that runs
+    // its own unlimited `where("mobile","==",...)` query — which is why
+    // opening that panel "finds" data this chart couldn't). Query this
+    // student's own records directly instead, with no limit.
+    let myRecs = [];
+    const db = (typeof getDB === "function") ? getDB() : null;
+    try {
+      if (db) {
+        const snap = await db.collection("studentRecords").where("mobile", "==", mobile).get();
+        myRecs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      } else {
+        myRecs = (records || []).filter(r => normalizeMobile(r.mobile) === mobile);
+      }
+    } catch (err) {
+      console.warn("[MyProgress] Firestore query fail hui, cached records se try kar rahe hain:", err);
+      myRecs = (records || []).filter(r => normalizeMobile(r.mobile) === mobile);
+    }
+    myRecs = myRecs
+      .filter(r => r.submittedIso)
       .sort((a, b) => (a.submittedIso || "").localeCompare(b.submittedIso || ""));
 
     if (!myRecs.length) {

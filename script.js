@@ -4007,6 +4007,8 @@ window.renderAdminRecordsForSelectedTest = renderAdminRecordsForSelectedTest;
 ══════════════════════════════════════════ */
 let allStudentsCache = [];
 
+let studentRecordCountByMobile = {};
+
 async function loadStudentsDirectory() {
   const db = getDB();
   const listEl = $("#students-directory-list");
@@ -4017,6 +4019,30 @@ async function loadStudentsDirectory() {
     const snap = await db.collection(STUDENTS_COLLECTION).get();
     allStudentsCache = snap.docs.map(d => ({ mobile: d.id, ...d.data() }));
     allStudentsCache.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+
+    // NOTE: the live `records` array (synced elsewhere) only keeps the
+    // most-recent 200 studentRecords SITE-WIDE for performance, so
+    // filtering it per-student under-counts (often to 0) once the site
+    // has more than 200 total submissions — that's why a student could
+    // show "no data" here until you opened their individual "📄 Answers"
+    // view, which correctly queries just that student's own records
+    // with no limit. Do the same here: one accurate, unlimited pass over
+    // studentRecords (only when this tab is actually opened) so every
+    // student's real count shows up immediately.
+    try {
+      const recSnap = await db.collection("studentRecords").get();
+      const counts = {};
+      recSnap.docs.forEach(d => {
+        const m = normalizeMobile(d.data().mobile || "");
+        if (!m) return;
+        counts[m] = (counts[m] || 0) + 1;
+      });
+      studentRecordCountByMobile = counts;
+    } catch (e) {
+      console.warn("[StudentsDirectory] Full record count failed, falling back to cached records:", e);
+      studentRecordCountByMobile = {};
+    }
+
     renderStudentsDirectory();
   } catch (err) {
     console.error(err);
@@ -4047,7 +4073,9 @@ function renderStudentsDirectory() {
       </tr></thead>
       <tbody>
         ${list.map(s => {
-          const recCount = (records || []).filter(r => normalizeMobile(r.mobile) === s.mobile).length;
+          const recCount = studentRecordCountByMobile[s.mobile] != null
+            ? studentRecordCountByMobile[s.mobile]
+            : (records || []).filter(r => normalizeMobile(r.mobile) === s.mobile).length;
           const regDate = (s.createdAt && s.createdAt.toDate) ? s.createdAt.toDate().toLocaleDateString("en-IN") : "-";
           return `<tr style="border-top:1px solid #e2e8f0">
             <td style="padding:7px 10px">${escHtml(s.name || "-")}</td>
