@@ -2484,13 +2484,30 @@ function addQuestionsToTestIndex(map, textMap, questions, testId, title) {
 let _testQuestionsCache = {};  // testId -> { title, questions: [...] }
 let _testIndexRebuildTimer = null;
 let _testIndexInFlight = new Set(); // testIds currently being (re)fetched
+// Authoritative set of test IDs that currently exist in the "tests"
+// collection, refreshed from the FULL snapshot (snap.docs, not just the
+// deltas) every time onSnapshot fires below. This is the single source of
+// truth for "does this test still exist?" — see rebuildMapFromCache() and
+// refreshTestInCache() for why it's needed on top of _testQuestionsCache.
+let _liveTestIds = new Set();
 
 // Cheap, local-only: recombine the per-test cache into the lookup maps
 // used by getQuestionUsageLabel(). No network calls here.
+//
+// IMPORTANT: only cache entries whose testId is still in _liveTestIds are
+// included. Without this filter, a deleted test's "🔁 <Test> mein hai"
+// badge could keep showing: refreshTestInCache() awaits a Firestore read
+// (qchunks) before writing into _testQuestionsCache, and if the test gets
+// deleted while that read is still in-flight, the 'removed' doc-change
+// clears the cache entry first but the in-flight fetch then finishes and
+// writes it right back in — resurrecting a badge for a test that no
+// longer exists. Filtering against _liveTestIds here guarantees a deleted
+// test can never contribute to the badge, no matter how that race plays out.
 function rebuildMapFromCache() {
   const map = {};
   const textMap = {};
   for (const testId in _testQuestionsCache) {
+    if (!_liveTestIds.has(testId)) continue; // test no longer exists — skip
     const entry = _testQuestionsCache[testId];
     addQuestionsToTestIndex(map, textMap, entry.questions, testId, entry.title);
   }
@@ -2518,13 +2535,17 @@ async function refreshTestInCache(db, doc) {
     if (Array.isArray(data.questions)) {
       // Draft tests (and any legacy inline-questions tests) store the
       // full questions array right on the doc — no extra read needed.
-      _testQuestionsCache[testId] = { title, questions: data.questions };
+      if (_liveTestIds.has(testId)) _testQuestionsCache[testId] = { title, questions: data.questions };
     } else {
       // Published tests: questions live in the qchunks subcollection.
       // We read it directly (instead of trusting a chunkCount field) so
       // this still works even if that metadata is missing/stale on an
       // older test doc.
       const chunkSnap = await db.collection("tests").doc(testId).collection("qchunks").get();
+      // Re-check AFTER the await: the test may have been deleted while
+      // this read was in-flight. If so, drop the result instead of
+      // writing it back into the cache (see rebuildMapFromCache() comment).
+      if (!_liveTestIds.has(testId)) return;
       let qs = [];
       chunkSnap.docs.forEach(c => { qs = qs.concat(c.data().questions || []); });
       _testQuestionsCache[testId] = { title, questions: qs };
@@ -2543,6 +2564,10 @@ function initQuestionTestIndex() {
   // onSnapshot (unlike a one-time .get()) auto-retries once anonymous
   // sign-in finishes, so no need to gate this on authReady.
   db.collection("tests").onSnapshot(snap => {
+    // snap.docs is the FULL current set of test docs (not just what
+    // changed this event) — always rebuild _liveTestIds from it first, so
+    // it's authoritative before any of the per-change handling below runs.
+    _liveTestIds = new Set(snap.docs.map(d => d.id));
     snap.docChanges().forEach(change => {
       if (change.type === 'removed') {
         delete _testQuestionsCache[change.doc.id];
