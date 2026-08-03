@@ -1999,6 +1999,36 @@ async function deleteTest(id) {
   deletedTestIds.add(id);
   await deleteTestOnline(id);
   await saveDeletedTestOnline(id);
+
+  // IMPORTANT: clear any in-memory/local reference to this test, otherwise
+  // it can silently "undelete" itself. The Tests-tab form has an
+  // auto-save-on-tab-switch feature (autoSaveDraftSilently, triggered by
+  // showAdminTab()/showMode() below) plus a beforeunload emergency-save —
+  // both re-save whatever is in the edit form under editingTestId /
+  // _autoSaveDraftId. If this test was loaded into that form (via Edit) or
+  // is still tracked as the current auto-save id, the very next tab
+  // switch, mode switch, or page reload would write it straight back to
+  // Firestore with the same id.
+  if (editingTestId === id) {
+    editingTestId = null;
+    draftQuestions = [];
+    testSections = [{ id: "sec-1", title: "Section A", marksPerQuestion: null }];
+    activeSectionId = "sec-1";
+    $("#test-form")?.reset();
+    renderTestSections();
+    renderDrafts();
+  }
+  if (_autoSaveDraftId === id) _autoSaveDraftId = null;
+  // Also drop a pending "emergency draft" in localStorage if it points at
+  // this test, so a page reload can't resurrect it via recoverEmergencyDraft().
+  try {
+    const raw = localStorage.getItem("savyasachi_emergency_draft");
+    if (raw) {
+      const saved = JSON.parse(raw);
+      if (saved && saved.id === id) localStorage.removeItem("savyasachi_emergency_draft");
+    }
+  } catch(e) {}
+
   renderTests();
 }
 
@@ -5021,6 +5051,10 @@ async function autoSaveDraftSilently() {
   if (!hasQuestions && !title) return; // nothing to save
 
   const id = _autoSaveDraftId || editingTestId || `autodraft-${Date.now()}`;
+  // Never resurrect a test that's already in the Recycle Bin — without
+  // this, deleting a test that's (still) loaded in the edit form and then
+  // switching tabs would silently re-save it under the same id.
+  if (deletedTestIds.has(id)) { _autoSaveDraftId = null; return; }
   _autoSaveDraftId = id;
 
   const min   = Number($("#test-minutes")?.value || 30);
@@ -5089,8 +5123,13 @@ window.addEventListener("beforeunload", () => {
   const hasContent = draftQuestions.length > 0 || title;
   if (!hasContent) return;
 
+  const id = _autoSaveDraftId || editingTestId || ("autodraft-" + Date.now());
+  // Don't persist an emergency draft for a test that's already deleted —
+  // otherwise recoverEmergencyDraft() would resurrect it on the next load.
+  if (deletedTestIds.has(id)) return;
+
   const payload = {
-    id: _autoSaveDraftId || editingTestId || ("autodraft-" + Date.now()),
+    id,
     title: title || ("Auto-Draft " + new Date().toLocaleTimeString("en-IN")),
     minutes: Number($("#test-minutes")?.value || 30),
     marksPerQuestion: Number($("#test-marks")?.value || 2),
@@ -5136,23 +5175,37 @@ function recoverEmergencyDraft() {
       return;
     }
 
-    saveTestOnline(saved.id, { ...saved, isDraft: true, recoveredAt: firebase.firestore.FieldValue.serverTimestamp() }).then(() => {
-      localStorage.removeItem("savyasachi_emergency_draft");
-      _recoveryRetryCount = 0;
-      showAutoSaveToast(
-        "♻️ Recovered: \"" + saved.title + "\" (" +
-        (saved.questions?.length || 0) +
-        " questions) — All Tests mein DRAFT badge ke saath dekho"
-      );
-      renderTests();
-    }).catch(e => {
-      _recoveryRetryCount++;
-      if (_recoveryRetryCount > MAX_RECOVERY_RETRIES) {
-        console.warn("[Recovery] Max retries reached. Emergency draft saved in localStorage only.");
+    // Check the Recycle Bin directly (authoritative — doesn't depend on
+    // the deletedTestIds live-listener having synced yet this early in
+    // startup) before restoring. Without this, a test that was deleted
+    // right before the page closed/reloaded would get silently re-created
+    // by this exact recovery step every time the admin panel loads.
+    db.collection("deletedTests").doc(saved.id).get().then(delSnap => {
+      if (delSnap.exists) {
+        localStorage.removeItem("savyasachi_emergency_draft");
         return;
       }
-      console.warn("[Recovery] Firebase save failed, will retry:", e);
-      setTimeout(recoverEmergencyDraft, 2000 * _recoveryRetryCount);
+
+      saveTestOnline(saved.id, { ...saved, isDraft: true, recoveredAt: firebase.firestore.FieldValue.serverTimestamp() }).then(() => {
+        localStorage.removeItem("savyasachi_emergency_draft");
+        _recoveryRetryCount = 0;
+        showAutoSaveToast(
+          "♻️ Recovered: \"" + saved.title + "\" (" +
+          (saved.questions?.length || 0) +
+          " questions) — All Tests mein DRAFT badge ke saath dekho"
+        );
+        renderTests();
+      }).catch(e => {
+        _recoveryRetryCount++;
+        if (_recoveryRetryCount > MAX_RECOVERY_RETRIES) {
+          console.warn("[Recovery] Max retries reached. Emergency draft saved in localStorage only.");
+          return;
+        }
+        console.warn("[Recovery] Firebase save failed, will retry:", e);
+        setTimeout(recoverEmergencyDraft, 2000 * _recoveryRetryCount);
+      });
+    }).catch(e => {
+      console.warn("[Recovery] deletedTests check failed, skipping recovery this time:", e);
     });
 
   } catch(e) {
