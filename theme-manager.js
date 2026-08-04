@@ -35,6 +35,15 @@ window.ThemeManager = {
     // Also set a body attribute for CSS selectors
     document.body.setAttribute('data-theme', themeId);
 
+    // Live animated background (moving bubbles, snow, stars, etc.)
+    if (theme.live && theme.effect && window.LiveThemeFX) {
+      document.body.setAttribute('data-live-theme', 'true');
+      window.LiveThemeFX.start(theme.effect, theme);
+    } else {
+      document.body.removeAttribute('data-live-theme');
+      if (window.LiveThemeFX) window.LiveThemeFX.stop();
+    }
+
     // Dispatch event so other components can react
     window.dispatchEvent(new CustomEvent('themechange', { detail: theme }));
   },
@@ -79,9 +88,10 @@ window.ThemeManager = {
         if (!t) continue;
         const isActive = this.currentTheme === id;
         html += `
-          <div class="theme-swatch${isActive ? ' active' : ''}" onclick="ThemeManager.apply('${id}');ThemeManager.renderPicker();" title="${t.name}">
+          <div class="theme-swatch${isActive ? ' active' : ''}${t.live ? ' live' : ''}" onclick="ThemeManager.apply('${id}');ThemeManager.renderPicker();" title="${t.name}">
             <div class="swatch-colors" style="background:linear-gradient(135deg,${t.primary},${t.secondary});">
               <span class="swatch-accent" style="background:${t.accent}"></span>
+              ${t.live ? '<span class="live-badge">✨ LIVE</span>' : ''}
             </div>
             <div class="swatch-name">${t.name}</div>
           </div>`;

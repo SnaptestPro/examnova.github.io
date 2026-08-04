@@ -142,6 +142,59 @@
   text-overflow: ellipsis;
 }
 
+/* ── Live (animated) theme swatches ── */
+.theme-swatch.live .swatch-colors {
+  overflow: hidden;
+}
+.live-badge {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  background: rgba(0,0,0,0.55);
+  color: #fff;
+  font-size: 0.52rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  padding: 2px 5px;
+  border-radius: 20px;
+  line-height: 1.3;
+  animation: livePulse 1.6s ease-in-out infinite;
+  backdrop-filter: blur(2px);
+}
+@keyframes livePulse {
+  0%, 100% { opacity: 0.85; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.06); }
+}
+/* Little floating bubbles inside the swatch preview to hint it's animated */
+.theme-swatch.live .swatch-colors::before,
+.theme-swatch.live .swatch-colors::after {
+  content: '';
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.55);
+  bottom: -10px;
+  left: 28%;
+  animation: swatchBubbleFloat 2.4s ease-in infinite;
+  pointer-events: none;
+}
+.theme-swatch.live .swatch-colors::after {
+  width: 5px;
+  height: 5px;
+  left: 62%;
+  animation-delay: 1.1s;
+  animation-duration: 2s;
+}
+@keyframes swatchBubbleFloat {
+  0%   { transform: translateY(0) scale(0.6); opacity: 0; }
+  15%  { opacity: 0.9; }
+  100% { transform: translateY(-38px) scale(1.1); opacity: 0; }
+}
+.theme-swatch.live.active {
+  box-shadow: 0 0 0 3px var(--th-accent, #fbbf24), 0 0 16px 2px rgba(251,191,36,0.45);
+}
+
 /* Theme Toggle Button (add to header) */
 .theme-toggle-btn {
   background: transparent;
@@ -303,3 +356,13 @@ body.dark-mode[data-theme] .result-header-card { background: #1e293b !important;
 body.dark-mode[data-theme] .solution-body { background: #1e293b !important; }
 body.dark-mode[data-theme] table { background: #1e293b !important; }
 body.dark-mode[data-theme] td, body.dark-mode[data-theme] th { border-color: #334155 !important; color: #e2e8f0 !important; }
+
+/* ═══════════════════════════════════════════════════════════════
+   LIVE THEME BACKGROUND — let the fixed animated canvas show through
+   ═══════════════════════════════════════════════════════════════ */
+body[data-live-theme="true"] {
+  background: transparent !important;
+}
+body.dark-mode[data-live-theme="true"] {
+  background: transparent !important;
+}
