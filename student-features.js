@@ -18,6 +18,26 @@
 
 (function () {
 
+  /* ── STALE-WHILE-REVALIDATE CACHE for student widgets ────────────
+     Student baar-baar "Student" tab par click karta hai (kabhi Admin
+     ya Leaderboard tab dekhne jaake wapas aata hai), aur pehle har
+     baar mistakes/progress/doubts/streak — chaaron cheezein Firestore
+     se dobara fetch hoti thi, jisse har baar kuch pal ke liye poora
+     section khaali ya "Loading..." dikhta tha — jaise section refresh
+     ho raha ho. Ab pichhli baar ka data turant (cache se) dikh jaata
+     hai, aur background mein fresh data laa kar chup-chaap update kar
+     diya jaata hai — "Loading..." sirf pehli baar hi dikhega. Cache
+     mobile-number se linked hai, isliye agar dusra student login kare
+     to purana data kabhi nahi dikhta.
+  ──────────────────────────────────────────────────────────────── */
+  let extrasCache = { mobile: null, mistakes: null, progressRecs: null, doubts: null, streak: null };
+  function cacheFor(mobile) {
+    if (extrasCache.mobile !== mobile) {
+      extrasCache = { mobile, mistakes: null, progressRecs: null, doubts: null, streak: null };
+    }
+    return extrasCache;
+  }
+
   /* ── 1) PRACTICE MODE ─────────────────────────────────────────── */
 
   let lastPracticeOptionsKey = "";
@@ -168,16 +188,13 @@
     } catch (e) { console.warn("Mistake load failed", e); return []; }
   }
 
-  async function renderMyMistakes() {
-    const list = document.getElementById("my-mistakes-list");
+  function paintMistakesList(items, list) {
     if (!list) return;
-    list.innerHTML = '<p class="muted-text">Loading...</p>';
-    currentMistakes = await loadMyMistakes();
-    if (!currentMistakes.length) {
+    if (!items.length) {
       list.innerHTML = '<p class="muted-text">Koi mistake save nahi hai — bahut badhiya! 🎉</p>';
       return;
     }
-    list.innerHTML = currentMistakes.map((it, idx) => {
+    list.innerHTML = items.map((it, idx) => {
       const opts = (it.optionsHI && it.optionsHI.length) ? it.optionsHI : (it.optionsEN || []);
       const correctText = opts[it.correctAnswer] || "";
       const explain = it.explanationHI || it.explanationEN || "";
@@ -194,6 +211,28 @@
     }).join("");
   }
 
+  async function renderMyMistakes() {
+    const list = document.getElementById("my-mistakes-list");
+    const session = getStudentSession();
+    if (!list || !session) return;
+    const mobile = normalizeMobile(session.mobile);
+    const cache = cacheFor(mobile);
+
+    // Pichhli baar ka data cache mein ho to turant dikha do — "Loading..."
+    // sirf pehli baar hi dikhega, dobara tab kholne par nahi.
+    if (cache.mistakes) {
+      currentMistakes = cache.mistakes;
+      paintMistakesList(currentMistakes, list);
+    } else {
+      list.innerHTML = '<p class="muted-text">Loading...</p>';
+    }
+
+    const fresh = await loadMyMistakes();
+    currentMistakes = fresh;
+    cache.mistakes = fresh;
+    paintMistakesList(currentMistakes, list);
+  }
+
   async function removeMistake(idx) {
     const session = getStudentSession();
     const db = getDB();
@@ -204,6 +243,7 @@
     items.splice(idx, 1);
     try {
       await db.collection("studentMistakes").doc(mobile).set({ mobile, items }, { merge: true });
+      cacheFor(mobile).mistakes = items; // optimistic — list se turant hata hua dikhe
       renderMyMistakes();
     } catch (e) { console.warn("Remove mistake failed", e); alert("Remove nahi ho paya, dobara try karein."); }
   }
@@ -239,40 +279,10 @@
 
   let progressChartInstance = null;
 
-  async function renderMyProgress() {
-    const session = getStudentSession();
+  function paintProgressChart(myRecs) {
     const emptyEl = document.getElementById("my-progress-empty");
     const canvas = document.getElementById("my-progress-chart");
-    if (!session || !emptyEl || !canvas || typeof Chart === "undefined") return;
-    const mobile = normalizeMobile(session.mobile);
-
-    // NOTE: don't rely on the shared `records` array here — syncRecords()
-    // in script.js only keeps the most-recently-submitted 200 records
-    // SITE-WIDE (across every student) for performance. Once the site has
-    // more than 200 total submissions, an individual student's older
-    // attempts silently fall out of that window and this chart would
-    // show "no data" even though their records genuinely exist in
-    // Firestore (this is exactly what admin's per-student "📄 Answers"
-    // lookup in the Students Directory does correctly, since that runs
-    // its own unlimited `where("mobile","==",...)` query — which is why
-    // opening that panel "finds" data this chart couldn't). Query this
-    // student's own records directly instead, with no limit.
-    let myRecs = [];
-    const db = (typeof getDB === "function") ? getDB() : null;
-    try {
-      if (db) {
-        const snap = await db.collection("studentRecords").where("mobile", "==", mobile).get();
-        myRecs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      } else {
-        myRecs = (records || []).filter(r => normalizeMobile(r.mobile) === mobile);
-      }
-    } catch (err) {
-      console.warn("[MyProgress] Firestore query fail hui, cached records se try kar rahe hain:", err);
-      myRecs = (records || []).filter(r => normalizeMobile(r.mobile) === mobile);
-    }
-    myRecs = myRecs
-      .filter(r => r.submittedIso)
-      .sort((a, b) => (a.submittedIso || "").localeCompare(b.submittedIso || ""));
+    if (!emptyEl || !canvas || typeof Chart === "undefined") return;
 
     if (!myRecs.length) {
       emptyEl.style.display = "block";
@@ -311,6 +321,51 @@
     });
   }
 
+  async function renderMyProgress() {
+    const session = getStudentSession();
+    const emptyEl = document.getElementById("my-progress-empty");
+    const canvas = document.getElementById("my-progress-chart");
+    if (!session || !emptyEl || !canvas || typeof Chart === "undefined") return;
+    const mobile = normalizeMobile(session.mobile);
+    const cache = cacheFor(mobile);
+
+    // Cache mein pichhle records hue to unse chart turant bana do — tab
+    // dobara kholte hi khaali chart flash na ho.
+    if (cache.progressRecs) paintProgressChart(cache.progressRecs);
+
+    // NOTE: don't rely on the shared `records` array here — syncRecords()
+    // in script.js only keeps the most-recently-submitted 200 records
+    // SITE-WIDE (across every student) for performance. Once the site has
+    // more than 200 total submissions, an individual student's older
+    // attempts silently fall out of that window and this chart would
+    // show "no data" even though their records genuinely exist in
+    // Firestore (this is exactly what admin's per-student "📄 Answers"
+    // lookup in the Students Directory does correctly, since that runs
+    // its own unlimited `where("mobile","==",...)` query — which is why
+    // opening that panel "finds" data this chart couldn't). Query this
+    // student's own records directly instead, with no limit.
+    let myRecs = [];
+    const db = (typeof getDB === "function") ? getDB() : null;
+    try {
+      if (db) {
+        const snap = await db.collection("studentRecords").where("mobile", "==", mobile).get();
+        myRecs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      } else {
+        myRecs = (records || []).filter(r => normalizeMobile(r.mobile) === mobile);
+      }
+    } catch (err) {
+      console.warn("[MyProgress] Firestore query fail hui:", err);
+      if (cache.progressRecs) return; // cache pehle se dikh rahi hai, ussi ko rehne do
+      myRecs = (records || []).filter(r => normalizeMobile(r.mobile) === mobile);
+    }
+    myRecs = myRecs
+      .filter(r => r.submittedIso)
+      .sort((a, b) => (a.submittedIso || "").localeCompare(b.submittedIso || ""));
+
+    cache.progressRecs = myRecs;
+    paintProgressChart(myRecs);
+  }
+
   /* ── 4) DOUBT BOX ─────────────────────────────────────────────────── */
 
   async function submitDoubt() {
@@ -346,29 +401,42 @@
     }
   }
 
+  function paintDoubtsList(docs, list) {
+    if (!list) return;
+    if (!docs.length) { list.innerHTML = '<p class="muted-text">Koi doubt nahi bheja abhi tak.</p>'; return; }
+    list.innerHTML = docs.map(d => `
+      <div class="card" style="margin-bottom:8px;padding:10px 12px;">
+        <div style="font-size:.78rem;color:#64748b;">
+          ${d.context ? escHtml(d.context) : "General"} · ${d.status === "answered" ? "✅ Answered" : "⏳ Pending"}
+        </div>
+        <div style="font-weight:600;margin:4px 0;">${escHtml(d.doubtText || "")}</div>
+        ${d.adminReply ? `<div style="background:#f0fdf4;border-radius:6px;padding:8px;font-size:.85rem;color:#15803d;">👨‍🏫 ${escHtml(d.adminReply)}</div>` : ""}
+      </div>`).join("");
+  }
+
   async function renderMyDoubts() {
     const list = document.getElementById("my-doubts-list");
     const session = getStudentSession();
     const db = getDB();
     if (!list || !session || !db) return;
-    list.innerHTML = '<p class="muted-text">Loading...</p>';
+    const mobile = normalizeMobile(session.mobile);
+    const cache = cacheFor(mobile);
+
+    if (cache.doubts) {
+      paintDoubtsList(cache.doubts, list);
+    } else {
+      list.innerHTML = '<p class="muted-text">Loading...</p>';
+    }
+
     try {
-      const mobile = normalizeMobile(session.mobile);
       const snap = await db.collection("doubts").where("mobile", "==", mobile).get();
       let docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       docs.sort((a, b) => (b.createdIso || "").localeCompare(a.createdIso || ""));
-      if (!docs.length) { list.innerHTML = '<p class="muted-text">Koi doubt nahi bheja abhi tak.</p>'; return; }
-      list.innerHTML = docs.map(d => `
-        <div class="card" style="margin-bottom:8px;padding:10px 12px;">
-          <div style="font-size:.78rem;color:#64748b;">
-            ${d.context ? escHtml(d.context) : "General"} · ${d.status === "answered" ? "✅ Answered" : "⏳ Pending"}
-          </div>
-          <div style="font-weight:600;margin:4px 0;">${escHtml(d.doubtText || "")}</div>
-          ${d.adminReply ? `<div style="background:#f0fdf4;border-radius:6px;padding:8px;font-size:.85rem;color:#15803d;">👨‍🏫 ${escHtml(d.adminReply)}</div>` : ""}
-        </div>`).join("");
+      cache.doubts = docs;
+      paintDoubtsList(docs, list);
     } catch (err) {
       console.error(err);
-      list.innerHTML = '<p class="muted-text">Load nahi ho paya.</p>';
+      if (!cache.doubts) list.innerHTML = '<p class="muted-text">Load nahi ho paya.</p>';
     }
   }
 
@@ -445,22 +513,32 @@
     } catch (e) { console.warn("Streak update failed", e); }
   }
 
+  function paintStreakBadge(streak, badge) {
+    if (!badge) return;
+    if (streak > 0) {
+      badge.style.display = "inline-block";
+      badge.textContent = "🔥 " + streak + "-din streak";
+    } else {
+      badge.style.display = "none";
+    }
+  }
+
   async function renderStreakBadge() {
     const session = getStudentSession();
     const badge = document.getElementById("student-streak-badge");
     const db = getDB();
     if (!session || !badge || !db) return;
+    const mobile = normalizeMobile(session.mobile);
+    const cache = cacheFor(mobile);
+
+    if (cache.streak !== null) paintStreakBadge(cache.streak, badge);
+
     try {
-      const mobile = normalizeMobile(session.mobile);
       const snap = await db.collection("students").doc(mobile).get();
       const streak = snap.exists ? Number(snap.data().streakCount || 0) : 0;
-      if (streak > 0) {
-        badge.style.display = "inline-block";
-        badge.textContent = "🔥 " + streak + "-din streak";
-      } else {
-        badge.style.display = "none";
-      }
-    } catch (e) { badge.style.display = "none"; }
+      cache.streak = streak;
+      paintStreakBadge(streak, badge);
+    } catch (e) { if (cache.streak === null) badge.style.display = "none"; }
   }
 
   /* ── 6) MY RESULT — SAHI/GALAT DETAIL (works for ANY record: online
