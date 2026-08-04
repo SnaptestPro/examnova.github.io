@@ -1552,8 +1552,10 @@ async function showResult() {
   const durSec      = current.startedAt
     ? Math.max(0, Math.round((submittedAt - current.startedAt) / 1000)) : 0;
 
-  // Rank & percentile from records
-  const testRecs = [...records.filter(r => r.testId === current.testId), { score }];
+  // Rank & percentile from records — ek student ke multiple attempts mein
+  // sirf uska best (highest) score count hota hai, taaki rank/total
+  // "kitne students" ko reflect kare, na ki "kitne attempts" ko.
+  const testRecs = getBestRecordsForTest(current.testId, { ...current.student, score });
   testRecs.sort((a, b) => b.score - a.score);
   const rank  = testRecs.findIndex(r => r.score === score) + 1;
   const total2 = testRecs.length;
@@ -1830,26 +1832,51 @@ function renderSolQuestion() {
     ? `<div class="lang-hi">${qHI}</div><div class="lang-en" style="font-size:.9em;color:#555;margin-top:6px;">${qEN}</div>`
     : qHI || qEN;
 
-  const statusMap = { Correct: "correct", Wrong: "wrong", "Not answered": "skipped" };
+  const statusMap = {
+    Correct: "correct", Wrong: "wrong", "Not answered": "skipped",
+    "Pending Review": "skipped", "Extra (Not Counted)": "skipped"
+  };
   const sc   = statusMap[d.status] || "skipped";
   const labels = ["A","B","C","D"];
+  const isSubjective = d.qType === "subjective";
 
   let optHTML = "";
-  for (let i = 0; i < 4; i++) {
-    const oEN = (d.optionsEN || [])[i] || "";
-    const oHI = (d.optionsHI || [])[i] || "";
-    let oText = "";
-    if (lang === "en")      oText = oEN || oHI;
-    else if (lang === "hi") oText = oHI || oEN;
-    else oText = (oHI && oEN && oHI !== oEN) ? `${oHI} / ${oEN}` : oHI || oEN;
+  if (isSubjective) {
+    // Subjective questions have no A/B/C/D options — show the student's
+    // actual saved text answer instead (previously this fell through to the
+    // MCQ rendering below and showed 4 blank options).
+    const rawAns = d.studentAnswer;
+    const hasAns = rawAns !== null && rawAns !== undefined && String(rawAns).trim() !== "";
+    const answerText = hasAns ? String(rawAns) : "— Koi jawab nahi diya gaya (Blank) —";
+    let gradedHTML = "";
+    if (d.subjectiveGraded) {
+      gradedHTML = `<div class="sol-subjective-marks" style="margin-top:8px;font-weight:700;color:#0f766e;">✅ Marks Awarded: ${fmtNum(d.marksAwarded)}${d.marksPerQuestion ? " / " + fmtNum(d.marksPerQuestion) : ""}</div>`;
+    } else if (hasAns) {
+      gradedHTML = `<div class="sol-subjective-marks" style="margin-top:8px;font-style:italic;color:#a16207;">⏳ Teacher dwara abhi check nahi kiya gaya hai.</div>`;
+    }
+    optHTML = `
+      <div class="sol-subjective-answer" style="border:1.5px solid #cbd5e1;border-radius:8px;padding:12px;background:${hasAns ? "#f8fafc" : "#fef2f2"};">
+        <div style="font-size:.8rem;font-weight:700;color:#475569;margin-bottom:6px;">✏️ Aapka Jawab:</div>
+        <div style="white-space:pre-wrap;">${escHtml(answerText)}</div>
+        ${gradedHTML}
+      </div>`;
+  } else {
+    for (let i = 0; i < 4; i++) {
+      const oEN = (d.optionsEN || [])[i] || "";
+      const oHI = (d.optionsHI || [])[i] || "";
+      let oText = "";
+      if (lang === "en")      oText = oEN || oHI;
+      else if (lang === "hi") oText = oHI || oEN;
+      else oText = (oHI && oEN && oHI !== oEN) ? `${oHI} / ${oEN}` : oHI || oEN;
 
-    const isCorrect  = i === d.correctAnswer;
-    const isSelected = i === d.studentAnswer;
-    let cls = "";
-    if (isCorrect)            cls = "correct-opt";
-    else if (isSelected)      cls = "wrong-opt";
-    const icon = isCorrect ? "✅" : (isSelected ? "❌" : "");
-    optHTML += `<div class="sol-option ${cls}"><span class="opt-label">${labels[i]}.</span><span>${escHtml(oText)}</span>${icon ? `<span style="margin-left:auto">${icon}</span>` : ""}</div>`;
+      const isCorrect  = i === d.correctAnswer;
+      const isSelected = i === d.studentAnswer;
+      let cls = "";
+      if (isCorrect)            cls = "correct-opt";
+      else if (isSelected)      cls = "wrong-opt";
+      const icon = isCorrect ? "✅" : (isSelected ? "❌" : "");
+      optHTML += `<div class="sol-option ${cls}"><span class="opt-label">${labels[i]}.</span><span>${escHtml(oText)}</span>${icon ? `<span style="margin-left:auto">${icon}</span>` : ""}</div>`;
+    }
   }
 
   const exEN = d.explanationEN || "";
@@ -3453,9 +3480,40 @@ function formatResultDate(dateStr) {
   return d.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
 }
 
-function getRankedResultsForTest(testId, extraRecord = null) {
+// Ek student ka "pehchaan" nikaalta hai (mobile number ko priority — do students
+// ka naam same ho sakta hai, lekin mobile unique hota hai). Mobile na ho to
+// naam (lowercase/trimmed) par fallback karta hai.
+function studentIdentityKey(r) {
+  const m = normalizeMobile(r.mobile || r.parentPhone || "");
+  if (m && m.length === 10) return "m:" + m;
+  return "n:" + String(r.name || "").trim().toLowerCase();
+}
+
+// Ek hi student ke multiple attempts (bar-bar test dene) mein se sirf uska
+// SABSE ACHHA (highest score) attempt rakhta hai — taaki Result Sheet /
+// Leaderboard / Rank mein wahi student baar-baar alag-alag result ke saath
+// na dikhe. Tie hone par pehle submit kiya gaya attempt priority leta hai.
+function getBestRecordsForTest(testId, extraRecord = null) {
   let recs = records.filter(r => r.testId === testId);
   if (extraRecord) recs = [...recs, extraRecord];
+  const best = new Map();
+  recs.forEach(r => {
+    const key = studentIdentityKey(r);
+    const cur = best.get(key);
+    if (!cur) { best.set(key, r); return; }
+    const rScore = r.score || 0, curScore = cur.score || 0;
+    if (rScore > curScore) { best.set(key, r); return; }
+    if (rScore === curScore) {
+      const rTime = String(r.submittedIso || r.submittedAt || "");
+      const curTime = String(cur.submittedIso || cur.submittedAt || "");
+      if (rTime && curTime && rTime < curTime) best.set(key, r);
+    }
+  });
+  return [...best.values()];
+}
+
+function getRankedResultsForTest(testId, extraRecord = null) {
+  let recs = getBestRecordsForTest(testId, extraRecord);
   recs.sort((a, b) => {
     const scoreDiff = (b.score || 0) - (a.score || 0);
     if (scoreDiff !== 0) return scoreDiff;
