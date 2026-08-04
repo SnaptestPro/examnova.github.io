@@ -327,21 +327,14 @@ function generateQuestionsForChapters(chapters, count) {
 }
 
 /* ── State ── */
-const defaultTests = {
-  foundation: {
-    title: "Foundation Practice Test",
-    minutes: 15,
-    marksPerQuestion: 2,
-    negativeEnabled: false,
-    negativeMarks: 0,
-    questions: [
-      { textEN: "2 + 2 = ?", textHI: "2 + 2 = ?", text: "2 + 2 = ?",
-        options: ["1","2","3","4"], optionsEN: ["1","2","3","4"], optionsHI: ["1","2","3","4"],
-        answer: 3, subject: "Mathematics", chapter: "Number System",
-        explanationEN: "2 + 2 = 4", explanationHI: "2 + 2 = 4" }
-    ]
-  }
-};
+// NOTE: previously this held a hardcoded "foundation" placeholder test
+// ("Foundation Practice Test", 1 dummy question) that was force-merged into
+// `tests` on every load via rebuildTests(). Because it was always inserted
+// first, it became the default pre-selected option in the "Select Test"
+// dropdown — so any new student who clicked "Start Test →" without
+// deliberately changing the dropdown ended up attempting this dummy test.
+// Removed so students only ever see real, admin-created tests.
+const defaultTests = {};
 
 let tests = { ...defaultTests };
 let remoteTests = {};
@@ -1238,6 +1231,7 @@ function startTest(e) {
   };
   if (studentTestMode === "custom") { alert("Custom Test option remove ho gaya hai — Practice Mode use karein."); return; }
   current.testId = $("#test-select").value;
+  if (!current.testId) { alert("Pehle upar se ek test select karein."); return; }
   current.test   = tests[current.testId];
   if (!current.test) { alert("Koi test nahi mila."); return; }
   const sched = checkTestSchedule(current.test);
@@ -1731,7 +1725,8 @@ async function showResult() {
           answer: d.correctAnswer, subject: d.subject, chapter: d.chapter,
           explanationEN: d.explanationEN, explanationHI: d.explanationHI
         }).filter(Boolean),
-        custom: true
+        custom: true,
+        isPractice: true // re-attempt of wrong Qs is self-practice — must not be saved as a scored record / show up in Result Sheet
       };
       current.test = miniTest;
       current.testId = "reattempt-" + Date.now();
@@ -1913,6 +1908,12 @@ function renderTests(selId) {
   rebuildTests();
   const sel = $("#test-select");
   sel.innerHTML = "";
+  // Placeholder so a test is never silently pre-selected — student must
+  // deliberately choose one before "Start Test →" will work.
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = "— Test chunein —";
+  sel.appendChild(placeholder);
   Object.entries(tests).forEach(([id, t]) => {
     if (t.isDraft) return; // Hide drafts from students
     const op = document.createElement("option");
@@ -1921,6 +1922,7 @@ function renderTests(selId) {
     op.textContent = `${t.title} (${t.questions.length}Q, ${t.minutes}min${attemptNote})`;
     sel.appendChild(op);
   });
+  sel.value = "";
   if (selId && tests[selId] && !tests[selId].isDraft) sel.value = selId;
   renderTestList();
 }
