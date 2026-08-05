@@ -1,49 +1,41 @@
 /* ════════════════════════════════════════════════════════════════
-   SAVYASACHI — ANDROID BACK BUTTON GUARD
+   SAVYASACHI — ANDROID BACK BUTTON GUARD (v2)
    ════════════════════════════════════════════════════════════════
-   PROBLEM: App ko Android par TWA/APK ki tarah wrap kiya gaya hai.
-   Puri app single HTML page hai jahan screens/modals sirf CSS
-   (.hidden class / style.display) se show-hide hote hain — kabhi
-   bhi `history.pushState` nahi hota. Isliye jab student "back"
-   button dabata hai, WebView ke paas history mein kuch nahi hota
-   aur poora app turant band ho jata hai — chahe exam beech mein
-   ho ya kahin bhi.
+   PROBLEM 1: App APK (TWA) ke andar back button dabate hi poora
+   app band ho jata hai — chahe kahin bhi ho — kyunki app kabhi
+   history.pushState use nahi karti (sirf CSS show/hide).
 
-   FIX: Ye script har screen/modal ke visible hone par ek history
-   entry banata hai (MutationObserver se — isliye poore app mein
-   kaam karta hai, kisi bhi individual button/function ko chhue
-   bina). Back button dabane par:
-     1. Agar EXAM chal raha hai      -> seedha exit nahi hone deta,
-                                         pehle confirm poochta hai.
-     2. Agar koi MODAL khula hai     -> sirf modal band karta hai.
-     3. Agar koi aur screen khula hai -> home screen par le jata hai.
-     4. Home par ho                  -> "Wapas dabayein exit ke liye"
-                                         (double-back-to-exit).
+   PROBLEM 2 (is version ka fix): Pehle back dabate hi seedha
+   "exit/submit" confirm aa jata tha. Sahi behavior ye hai ki:
+     - Exam ke andar back dabane par har baar EK QUESTION PEECHE
+       jaye (jaise "Previous" button) — jab tak pehle question
+       (Q1) tak na pahunch jaye.
+     - Solution/Answer-review screen mein bhi back se ek-ek karke
+       peechla question dikhe.
+     - Kisi bhi doosri screen (admin, login/register, result,
+       leaderboard) se back dabane par pichli screen par jaye —
+       ek hi jhatke mein home par nahi phekna.
+     - Sirf jab bilkul shuruaat (Q1, ya home screen) par pahunch
+       jaye, tab hi exit/submit confirm ya "dobara back se exit"
+       dikhna chahiye.
    ════════════════════════════════════════════════════════════════ */
 (function () {
   "use strict";
 
   var $$ = function (sel) { return document.querySelector(sel); };
 
-  // Screens aur modals jinhe guard karna hai. Naye modal/screen add
-  // karne ho to bas yahan ek entry badha dein — baaki sab khud-ba-khud
-  // kaam karega (MutationObserver poore <body> ko dekhta hai).
-  var GUARDED = [
-    { sel: "#exam-screen",         type: "exam"   },
-    { sel: "#result-screen",       type: "screen" },
-    { sel: "#solution-screen",     type: "screen" },
-    { sel: "#student-auth-screen", type: "screen" },
-    { sel: "#student-form",        type: "screen" },
-    { sel: "#admin-panel",         type: "screen" },
-    { sel: "#leaderboard-section", type: "screen" },
-    { sel: "#bank-edit-modal",     type: "modal",
-      close: function (el) { if (typeof hideBankModal === "function") hideBankModal(); else el.classList.add("hidden"); } },
-    { sel: "#move-chapter-modal",  type: "modal",
-      close: function (el) { if (typeof closeMoveChapterModal === "function") closeMoveChapterModal(); else el.style.display = "none"; } },
-    { sel: "#theme-picker-modal",  type: "modal",
-      close: function (el) { if (window.ThemeManager && typeof ThemeManager.hidePicker === "function") ThemeManager.hidePicker(); else el.style.display = "none"; } },
-    { sel: "#app-install-modal",   type: "modal",
-      close: function (el) { el.classList.add("hidden"); } }
+  // Poori-page screens jinhe track karna hai (modal alag se neeche hai)
+  var SCREENS = [
+    "#exam-screen", "#result-screen", "#solution-screen",
+    "#student-auth-screen", "#student-form", "#admin-panel",
+    "#leaderboard-section"
+  ];
+
+  var MODALS = [
+    { sel: "#bank-edit-modal",    close: function (el) { if (typeof hideBankModal === "function") hideBankModal(); else el.classList.add("hidden"); } },
+    { sel: "#move-chapter-modal", close: function (el) { if (typeof closeMoveChapterModal === "function") closeMoveChapterModal(); else el.style.display = "none"; } },
+    { sel: "#theme-picker-modal", close: function (el) { if (window.ThemeManager && typeof ThemeManager.hidePicker === "function") ThemeManager.hidePicker(); else el.style.display = "none"; } },
+    { sel: "#app-install-modal",  close: function (el) { el.classList.add("hidden"); } }
   ];
 
   function isVisible(el) {
@@ -56,63 +48,125 @@
 
   function visibleSignature() {
     var parts = [];
-    for (var i = 0; i < GUARDED.length; i++) {
-      var el = $$(GUARDED[i].sel);
-      if (isVisible(el)) parts.push(GUARDED[i].sel);
+    for (var i = 0; i < SCREENS.length; i++) {
+      if (isVisible($$(SCREENS[i]))) parts.push(SCREENS[i]);
     }
     return parts.join("|");
   }
 
-  function isExamActive() {
-    var examEl = $$("#exam-screen");
-    return isVisible(examEl) && typeof current !== "undefined" && current && current.test;
-  }
-
   function topVisibleModal() {
-    for (var i = GUARDED.length - 1; i >= 0; i--) {
-      if (GUARDED[i].type === "modal" && isVisible($$(GUARDED[i].sel))) return GUARDED[i];
+    for (var i = MODALS.length - 1; i >= 0; i--) {
+      if (isVisible($$(MODALS[i].sel))) return MODALS[i];
     }
     return null;
   }
 
-  function goHome() {
-    try {
-      var resultScr = $$("#result-screen");
-      var solutionScr = $$("#solution-screen");
-      var examScr = $$("#exam-screen");
-      var homeScr = $$("#home-screen");
-      if (resultScr) resultScr.classList.add("hidden");
-      if (solutionScr) solutionScr.classList.add("hidden");
-      if (examScr) examScr.classList.add("hidden");
-      if (homeScr) homeScr.classList.remove("hidden");
-      if (typeof showMode === "function") showMode("student");
-    } catch (e) { /* fail-safe: no-op */ }
+  function isExamActive() {
+    return isVisible($$("#exam-screen")) && typeof current !== "undefined" && current && current.test;
   }
 
-  // ── History bookkeeping ──────────────────────────────────────
-  var lastSignature = "";
-  history.replaceState({ savyaGuard: true, tag: "base" }, "", location.href);
-
-  function pushGuardState(tag) {
-    history.pushState({ savyaGuard: true, tag: tag }, "", location.href);
+  function isSolutionActive() {
+    return isVisible($$("#solution-screen")) && typeof currentDetails !== "undefined" &&
+      Array.isArray(currentDetails) && currentDetails.length > 0;
   }
 
-  function checkAndTrack() {
-    var sig = visibleSignature();
-    if (sig !== lastSignature) {
-      lastSignature = sig;
-      if (sig !== "") pushGuardState(sig);
+  function reconcileToSignature(targetSig) {
+    var targetSet = targetSig ? targetSig.split("|") : [];
+    for (var i = 0; i < SCREENS.length; i++) {
+      var sel = SCREENS[i];
+      var el = $$(sel);
+      if (!el) continue;
+      var shouldShow = targetSet.indexOf(sel) !== -1;
+      if (shouldShow && !isVisible(el)) {
+        el.classList.remove("hidden");
+        if (el.style && el.style.display === "none") el.style.display = "";
+      } else if (!shouldShow && isVisible(el)) {
+        el.classList.add("hidden");
+      }
+    }
+    if (targetSet.length === 0) {
+      var home = $$("#home-screen");
+      if (home) home.classList.remove("hidden");
+      if (typeof showMode === "function") { try { showMode("student"); } catch (e) {} }
     }
   }
 
-  var observer = new MutationObserver(checkAndTrack);
-  observer.observe(document.body, {
-    attributes: true,
-    attributeFilter: ["class", "style"],
-    subtree: true
-  });
+  // ── History state bookkeeping ────────────────────────────────
+  var lastSignature = "";
+  var lastExamIndex = null;
+  var lastSolIndex  = null;
+  var suppress = false; // true jab hum khud UI update kar rahe hain (loop rokne ke liye)
 
-  // ── "Back dobara dabayein exit karne ke liye" toast ──────────
+  history.replaceState({ g: true, sig: "", examIndex: null, solIndex: null }, "", location.href);
+
+  function pushGuardState(sig, examIndex, solIndex) {
+    history.pushState({
+      g: true,
+      sig: sig || "",
+      examIndex: (typeof examIndex === "number") ? examIndex : null,
+      solIndex:  (typeof solIndex  === "number") ? solIndex  : null
+    }, "", location.href);
+  }
+
+  // ── Screen-level changes track karo (MutationObserver) ───────
+  var pending = false;
+  function scheduleCheck() {
+    if (pending) return;
+    pending = true;
+    requestAnimationFrame(function () {
+      pending = false;
+      checkScreenChange();
+    });
+  }
+  function checkScreenChange() {
+    if (suppress) return;
+    var sig = visibleSignature();
+    if (sig === lastSignature) return;
+    lastSignature = sig;
+    lastExamIndex = isExamActive() ? (typeof current.index === "number" ? current.index : 0) : null;
+    lastSolIndex  = isSolutionActive() ? currentSolIndex : null;
+    pushGuardState(sig, lastExamIndex, lastSolIndex);
+  }
+  var observer = new MutationObserver(scheduleCheck);
+  observer.observe(document.body, { attributes: true, attributeFilter: ["class", "style"], subtree: true });
+
+  // ── Exam: har question-change par history step banao ─────────
+  if (typeof window.renderQuestion === "function") {
+    var _origRenderQuestion = window.renderQuestion;
+    window.renderQuestion = function () {
+      var result = _origRenderQuestion.apply(this, arguments);
+      trackExamIndex();
+      return result;
+    };
+  }
+  function trackExamIndex() {
+    if (suppress) return;
+    if (!isExamActive()) return;
+    if (typeof current.index !== "number") return;
+    if (current.index === lastExamIndex) return;
+    lastExamIndex = current.index;
+    pushGuardState(lastSignature, lastExamIndex, lastSolIndex);
+  }
+
+  // ── Solution review: har question-change par history step ────
+  if (typeof window.renderSolQuestion === "function") {
+    var _origRenderSolQuestion = window.renderSolQuestion;
+    window.renderSolQuestion = function () {
+      var result = _origRenderSolQuestion.apply(this, arguments);
+      trackSolIndex();
+      return result;
+    };
+  }
+  function trackSolIndex() {
+    if (suppress) return;
+    if (!isSolutionActive()) return;
+    if (typeof currentSolIndex !== "number") return;
+    if (currentSolIndex === lastSolIndex) return;
+    lastSolIndex = currentSolIndex;
+    pushGuardState(lastSignature, lastExamIndex, lastSolIndex);
+  }
+
+  // ── "Dobara Back dabayein exit karne ke liye" toast ───────────
   var toastEl = null;
   function showExitToast() {
     if (toastEl) return;
@@ -130,55 +184,84 @@
       setTimeout(function () { if (toastEl) { toastEl.remove(); toastEl = null; } }, 250);
     }, 1800);
   }
-
   var lastHomeBackAt = 0;
 
   // ── Main back-button handler ─────────────────────────────────
-  window.addEventListener("popstate", function () {
-    // 1) Test chal raha hai — turant exit mat karo, confirm lo.
-    if (isExamActive()) {
-      pushGuardState("exam-block"); // back navigation cancel
+  window.addEventListener("popstate", function (e) {
+    var st = (e.state && e.state.g) ? e.state : { g: true, sig: "", examIndex: null, solIndex: null };
+
+    // 1) Exam active, aur target state mein exam-screen nahi hai
+    //    -> matlab student pehle question par tha aur ab back se
+    //    poora exam chhodna chahta hai -> confirm poocho.
+    if (isExamActive() && (!st.sig || st.sig.indexOf("#exam-screen") === -1)) {
+      suppress = true;
+      pushGuardState(lastSignature, lastExamIndex, lastSolIndex); // is back ko cancel karo
+      suppress = false;
       var wantsExit = confirm(
         "⚠️ Test abhi chal raha hai!\n\n" +
-        "Back jaane se test SUBMIT ho jayega.\n" +
+        "Ye pehla sawaal hai — back jaane se test SUBMIT ho jayega.\n" +
         "Submit karke exit karna chahte hain?"
       );
-      if (wantsExit && typeof showResult === "function") {
-        showResult();
-      }
+      if (wantsExit && typeof showResult === "function") showResult();
       return;
     }
 
-    // 2) Koi modal khula hai — sirf usse band karo.
+    // 2) Exam active aur exam-screen abhi bhi target mein hai
+    //    -> sirf pichle QUESTION par le jao (slide-by-slide back).
+    if (isExamActive() && st.sig && st.sig.indexOf("#exam-screen") !== -1) {
+      var idx = (typeof st.examIndex === "number") ? st.examIndex : 0;
+      suppress = true;
+      current.index = idx;
+      try { (window.renderQuestion || function () {})(); } catch (e) {}
+      lastExamIndex = idx;
+      suppress = false;
+      return;
+    }
+
+    // 3) Solution-review screen: pichle reviewed question par jao
+    if (isSolutionActive() && st.sig && st.sig.indexOf("#solution-screen") !== -1) {
+      var sidx = (typeof st.solIndex === "number") ? st.solIndex : 0;
+      suppress = true;
+      currentSolIndex = sidx;
+      try { (window.renderSolQuestion || function () {})(); } catch (e) {}
+      try { if (typeof renderSolNav === "function") renderSolNav(); } catch (e) {}
+      lastSolIndex = sidx;
+      suppress = false;
+      return;
+    }
+
+    // 4) Koi modal khula hai -> sirf usse band karo, screen wahi rahe
     var modal = topVisibleModal();
     if (modal) {
-      pushGuardState("after-modal-close");
+      suppress = true;
+      pushGuardState(lastSignature, lastExamIndex, lastSolIndex);
+      suppress = false;
       var el = $$(modal.sel);
-      if (el && modal.close) {
-        try { modal.close(el); } catch (e) { el.classList.add("hidden"); }
-      }
+      if (el) { try { modal.close(el); } catch (e2) { el.classList.add("hidden"); } }
       return;
     }
 
-    // 3) Koi aur screen khula hai (admin panel, result, solution,
-    //    login/register form, leaderboard) — home par le jao.
-    var sig = visibleSignature();
-    if (sig !== "") {
-      pushGuardState("after-go-home");
-      goHome();
+    // 5) Baaki sab screens (admin/login-register/result/leaderboard)
+    //    -> ek step peechli screen par jao (seedha home mat phenko)
+    if ((st.sig || "") !== lastSignature) {
+      suppress = true;
+      reconcileToSignature(st.sig);
+      suppress = false;
+      lastSignature = st.sig || "";
+      lastExamIndex = null;
+      lastSolIndex  = null;
       return;
     }
 
-    // 4) Home/root par ho — double-back-to-exit.
+    // 6) Ab bilkul home/root par hain -> dobara back = exit
     var now = Date.now();
     if (now - lastHomeBackAt < 2000) {
-      // Doosri baar back dabaya — asli exit hone do (state re-push
-      // nahi karte, isliye TWA/Browser apna default back-navigation
-      // karega jo ab app close karega).
-      return;
+      return; // asli exit hone do
     }
     lastHomeBackAt = now;
-    pushGuardState("home-guard");
+    suppress = true;
+    pushGuardState("", null, null);
+    suppress = false;
     showExitToast();
   });
 })();
