@@ -593,9 +593,33 @@ function showMode(mode) {
     $("#student-form")?.classList.add("hidden");
   }
 
-  const adminLoginShown = !$("#admin-panel").classList.contains("hidden");
-  $("#admin-login-form").classList.toggle("hidden", mode !== "admin" || adminLoginShown);
-  if (mode !== "admin") $("#admin-panel").classList.add("hidden");
+  // Student login ho chuka ho to Admin tab hi hide kar do — student kabhi
+  // admin login screen tak pahunch hi na sake. (Admin khud login karke
+  // is check se bypass ho jata hai — neeche dekhein.)
+  const studentIsLoggedIn = !!getStudentSession();
+  const adminTabBtn = $("#admin-tab");
+  if (adminTabBtn) {
+    adminTabBtn.classList.toggle("hidden", studentIsLoggedIn && sessionStorage.getItem("admin_logged_in") !== "true");
+  }
+  if (studentIsLoggedIn && mode === "admin" && sessionStorage.getItem("admin_logged_in") !== "true") {
+    // Safety net: koi student seedhe URL/state se admin mode force kare
+    // to bhi student hi wapas dikhega, admin login form nahi.
+    showMode("student");
+    return;
+  }
+
+  if (mode === "admin" && sessionStorage.getItem("admin_logged_in") === "true") {
+    // Admin pehle se is session mein login hai (Student/Leaderboard tab
+    // dekhne ke baad wapas Admin par aaya hai) — dobara password mat
+    // maango, seedha panel dikha do taaki admin apna kaam turant dekh sake.
+    $("#admin-login-form").classList.add("hidden");
+    $("#admin-panel").classList.remove("hidden");
+    startAdminSyncs();
+  } else {
+    const adminLoginShown = !$("#admin-panel").classList.contains("hidden");
+    $("#admin-login-form").classList.toggle("hidden", mode !== "admin" || adminLoginShown);
+    if (mode !== "admin") $("#admin-panel").classList.add("hidden");
+  }
   const lbSection = $("#leaderboard-section");
   if (lbSection) {
     lbSection.classList.toggle("hidden", mode !== "leaderboard");
