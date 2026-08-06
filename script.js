@@ -482,6 +482,7 @@ function init() {
   bindEvent("#solution-back", 'onclick', showResultFromSolution);
   const seedBtn = $("#seed-questions-btn");
   if (seedBtn) seedBtn.onclick = seedAllQuestions;
+  bindEvent("#admin-logout-btn", "onclick", logoutAdmin);
   bindEvent("#change-admin-password-btn", "onclick", changeAdminPassword);
   bindEvent("#set-recovery-btn", "onclick", setRecoveryQuestion);
   bindEvent("#forgot-password-link", "onclick", forgotPassword);
@@ -999,6 +1000,27 @@ function enterAdminPanel() {
   sessionStorage.setItem("admin_logged_in", "true");
   startAdminSyncs();
   showAdminTab("tests");
+}
+
+// ── Admin logout ────────────────────────────────────────────────
+// PEHLE koi admin-logout button hi nahi tha — admin_logged_in flag
+// sirf tab band karne (ya sessionStorage khud clear karne) par hi
+// jaata tha. Shared/kiosk device par (ya installed APK/TWA jo
+// background mein khula reh sakta hai) agar admin bhool jaaye to
+// agla student usi tab mein Admin panel dekh sakta tha. Ab admin
+// khud ek click se safely session end kar sakta hai.
+function logoutAdmin() {
+  if (!confirm("Admin session se logout karein?")) return;
+  try {
+    const auth = getAuth();
+    if (auth && auth.currentUser) auth.signOut().catch(() => {});
+  } catch (e) {}
+  sessionStorage.removeItem("admin_logged_in");
+  // Poora page reload (query params ke bina, taaki ?admin=1 se dobara
+  // auto-login na ho jaaye) — isse admin ka in-memory data (bank/trash/
+  // drafts) aur live Firestore listeners bhi poori tarah clear ho
+  // jaate hain, sirf UI hide karne se wo memory mein reh jaate.
+  window.location.href = window.location.pathname;
 }
 
 async function loginAdmin(e) {
