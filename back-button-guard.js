@@ -70,6 +70,32 @@
       Array.isArray(currentDetails) && currentDetails.length > 0;
   }
 
+  // ── Admin panel ke ANDAR ke sections (dashboard-home <-> Tests/Bank/
+  //    OMR/Grade/... ) — ye #admin-panel ke andar hi CSS show/hide se
+  //    switch hote hain, isliye topSCREENS signature nahi badalti aur
+  //    pehle koi history step nahi banta tha. Isi wajah se section ke
+  //    andar se back dabate hi seedha student/home pe chala jata tha —
+  //    beech ka "admin dashboard" step history mein tha hi nahi.
+  var ADMIN_SUBTABS = [
+    { tab: "tests",       box: "tests-area" },
+    { tab: "bank",        box: "bank-box" },
+    { tab: "bulk-upload", box: "bulk-upload-box" },
+    { tab: "records",     box: "records-box" },
+    { tab: "generator",   box: "generator-box" },
+    { tab: "trash",       box: "trash-box" },
+    { tab: "doubts",      box: "doubts-box" },
+    { tab: "omr",         box: "omr-box" },
+    { tab: "grade",       box: "grade-box" },
+    { tab: "settings",    box: "settings-box" }
+  ];
+  function currentAdminTab() {
+    if (!isVisible($$("#admin-panel"))) return null;
+    for (var i = 0; i < ADMIN_SUBTABS.length; i++) {
+      if (isVisible(document.getElementById(ADMIN_SUBTABS[i].box))) return ADMIN_SUBTABS[i].tab;
+    }
+    return null; // dashboard-home (admin ka "root") khula hai
+  }
+
   function reconcileToSignature(targetSig) {
     var targetSet = targetSig ? targetSig.split("|") : [];
     for (var i = 0; i < SCREENS.length; i++) {
@@ -95,16 +121,18 @@
   var lastSignature = "";
   var lastExamIndex = null;
   var lastSolIndex  = null;
+  var lastAdminTab  = null;
   var suppress = false; // true jab hum khud UI update kar rahe hain (loop rokne ke liye)
 
-  history.replaceState({ g: true, sig: "", examIndex: null, solIndex: null }, "", location.href);
+  history.replaceState({ g: true, sig: "", examIndex: null, solIndex: null, adminTab: null }, "", location.href);
 
-  function pushGuardState(sig, examIndex, solIndex) {
+  function pushGuardState(sig, examIndex, solIndex, adminTab) {
     history.pushState({
       g: true,
       sig: sig || "",
       examIndex: (typeof examIndex === "number") ? examIndex : null,
-      solIndex:  (typeof solIndex  === "number") ? solIndex  : null
+      solIndex:  (typeof solIndex  === "number") ? solIndex  : null,
+      adminTab:  (typeof adminTab  !== "undefined") ? adminTab : null
     }, "", location.href);
   }
 
@@ -125,7 +153,8 @@
     lastSignature = sig;
     lastExamIndex = isExamActive() ? (typeof current.index === "number" ? current.index : 0) : null;
     lastSolIndex  = isSolutionActive() ? currentSolIndex : null;
-    pushGuardState(sig, lastExamIndex, lastSolIndex);
+    lastAdminTab  = currentAdminTab();
+    pushGuardState(sig, lastExamIndex, lastSolIndex, lastAdminTab);
   }
   var observer = new MutationObserver(scheduleCheck);
   observer.observe(document.body, { attributes: true, attributeFilter: ["class", "style"], subtree: true });
@@ -145,7 +174,35 @@
     if (typeof current.index !== "number") return;
     if (current.index === lastExamIndex) return;
     lastExamIndex = current.index;
-    pushGuardState(lastSignature, lastExamIndex, lastSolIndex);
+    pushGuardState(lastSignature, lastExamIndex, lastSolIndex, lastAdminTab);
+  }
+
+  // ── Admin: dashboard-home <-> Tests/Bank/OMR/... switch par bhi
+  //    history step banao (goAdmin/showAdminTab/backToAdminDashboard
+  //    sabhi isi showAdminTab() aur backToAdminDashboard() se hokar
+  //    guzarte hain, isliye sirf inhe wrap karna kaafi hai).
+  if (typeof window.showAdminTab === "function") {
+    var _origShowAdminTab = window.showAdminTab;
+    window.showAdminTab = function () {
+      var result = _origShowAdminTab.apply(this, arguments);
+      trackAdminTab();
+      return result;
+    };
+  }
+  if (typeof window.backToAdminDashboard === "function") {
+    var _origBackToAdminDashboard = window.backToAdminDashboard;
+    window.backToAdminDashboard = function () {
+      var result = _origBackToAdminDashboard.apply(this, arguments);
+      trackAdminTab();
+      return result;
+    };
+  }
+  function trackAdminTab() {
+    if (suppress) return;
+    var tab = currentAdminTab();
+    if (tab === lastAdminTab) return;
+    lastAdminTab = tab;
+    pushGuardState(lastSignature, lastExamIndex, lastSolIndex, lastAdminTab);
   }
 
   // ── Solution review: har question-change par history step ────
@@ -163,7 +220,7 @@
     if (typeof currentSolIndex !== "number") return;
     if (currentSolIndex === lastSolIndex) return;
     lastSolIndex = currentSolIndex;
-    pushGuardState(lastSignature, lastExamIndex, lastSolIndex);
+    pushGuardState(lastSignature, lastExamIndex, lastSolIndex, lastAdminTab);
   }
 
   // ── "Dobara Back dabayein exit karne ke liye" toast ───────────
@@ -195,7 +252,7 @@
     //    poora exam chhodna chahta hai -> confirm poocho.
     if (isExamActive() && (!st.sig || st.sig.indexOf("#exam-screen") === -1)) {
       suppress = true;
-      pushGuardState(lastSignature, lastExamIndex, lastSolIndex); // is back ko cancel karo
+      pushGuardState(lastSignature, lastExamIndex, lastSolIndex, lastAdminTab); // is back ko cancel karo
       suppress = false;
       var wantsExit = confirm(
         "⚠️ Test abhi chal raha hai!\n\n" +
@@ -234,14 +291,35 @@
     var modal = topVisibleModal();
     if (modal) {
       suppress = true;
-      pushGuardState(lastSignature, lastExamIndex, lastSolIndex);
+      pushGuardState(lastSignature, lastExamIndex, lastSolIndex, lastAdminTab);
       suppress = false;
       var el = $$(modal.sel);
       if (el) { try { modal.close(el); } catch (e2) { el.classList.add("hidden"); } }
       return;
     }
 
-    // 5) Baaki sab screens (admin/login-register/result/leaderboard)
+    // 5) Admin panel ke ANDAR hain (Tests/Bank/OMR/... ya dashboard-home),
+    //    aur target state bhi wahi admin-panel screen mein hai -> seedha
+    //    student/home mat phenko, sirf pichle admin section (ya dashboard-
+    //    home) par jao. Isi se woh bug fix hota hai jahan section ke andar
+    //    se back dabate hi seedha Student tab khul jaata tha.
+    if (isVisible($$("#admin-panel")) && st.sig && st.sig.indexOf("#admin-panel") !== -1 &&
+        (st.sig || "") === lastSignature) {
+      var targetAdminTab = (typeof st.adminTab !== "undefined") ? st.adminTab : null;
+      if (targetAdminTab !== lastAdminTab) {
+        suppress = true;
+        if (targetAdminTab) {
+          try { (window.showAdminTab || function () {})(targetAdminTab); } catch (e) {}
+        } else {
+          try { (window.backToAdminDashboard || function () {})(); } catch (e) {}
+        }
+        lastAdminTab = targetAdminTab;
+        suppress = false;
+        return;
+      }
+    }
+
+    // 6) Baaki sab screens (admin/login-register/result/leaderboard)
     //    -> ek step peechli screen par jao (seedha home mat phenko)
     if ((st.sig || "") !== lastSignature) {
       suppress = true;
@@ -250,17 +328,18 @@
       lastSignature = st.sig || "";
       lastExamIndex = null;
       lastSolIndex  = null;
+      lastAdminTab  = currentAdminTab();
       return;
     }
 
-    // 6) Ab bilkul home/root par hain -> dobara back = exit
+    // 7) Ab bilkul home/root par hain -> dobara back = exit
     var now = Date.now();
     if (now - lastHomeBackAt < 2000) {
       return; // asli exit hone do
     }
     lastHomeBackAt = now;
     suppress = true;
-    pushGuardState("", null, null);
+    pushGuardState("", null, null, null);
     suppress = false;
     showExitToast();
   });
