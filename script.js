@@ -616,6 +616,13 @@ function showMode(mode) {
     $("#admin-login-form").classList.add("hidden");
     $("#admin-panel").classList.remove("hidden");
     startAdminSyncs();
+    // Agar koi section pehle se khula tha to wahi khula rahega (uske
+    // andar sab kuch dikhta rahega), warna dashboard cards dikhao —
+    // seedha Tests form force nahi karna.
+    const anySectionOpen = Object.values(ADMIN_TAB_BOX_IDS).some(
+      id => !document.getElementById(id)?.classList.contains("hidden")
+    );
+    if (!anySectionOpen) backToAdminDashboard();
   } else {
     const adminLoginShown = !$("#admin-panel").classList.contains("hidden");
     $("#admin-login-form").classList.toggle("hidden", mode !== "admin" || adminLoginShown);
