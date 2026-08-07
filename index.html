@@ -347,14 +347,15 @@
       </div>
 
       <div class="card" id="my-result-detail-card">
-        <h3 class="section-title">🧾 Mera Result — Sahi/Galat Dekhein</h3>
-        <p class="muted-text">Apna WhatsApp number daalein — jo bhi test aapne diya hai (online ho, OMR ho, ya offline sheet check karke chadhaya gaya ho), sabme aapne kaun sa sawaal sahi kiya aur kaun sa galat, wo yahan dikhega.</p>
-        <div class="field-row">
-          <label>WhatsApp Number</label>
-          <input id="my-result-mobile-input" type="tel" placeholder="10-digit number" maxlength="10" />
+        <div class="my-result-header">
+          <div>
+            <h3 class="section-title" style="margin-bottom:2px;">🧾 Mera Result</h3>
+            <p class="muted-text" style="margin:0;">Aapke saare test attempts — online ho, OMR ho ya offline sheet check karke chadhaya gaya ho — sabka sahi/galat detail apne aap yahan dikhega.</p>
+          </div>
+          <button type="button" id="my-result-refresh-btn" class="my-result-refresh-btn" title="Refresh karein">🔄</button>
         </div>
-        <button type="button" id="my-result-lookup-btn" class="btn-primary">🔍 Mera Result Dekhein</button>
-        <div id="my-result-list" style="margin-top:12px;"></div>
+        <div id="my-result-summary"></div>
+        <div id="my-result-list" style="margin-top:14px;"></div>
       </div>
 
       <!-- ── PRACTICE MODE (unlimited, no timer pressure, no leaderboard) ── -->

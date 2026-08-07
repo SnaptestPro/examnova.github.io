@@ -294,3 +294,132 @@
    and there's no duplicate nav. The buttons stay in the DOM (display:none)
    so existing JS (showAdminTab etc.) keeps working unchanged. */
 #admin-panel > .admin-tabs { display: none !important; }
+
+/* ═══════════════════════════════════════════════════════════════
+   "Mera Result" — auto (session-based, no manual number entry),
+   styled to match the creative dashboard cards above.
+   ═══════════════════════════════════════════════════════════════ */
+
+.my-result-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+.my-result-refresh-btn {
+  flex-shrink: 0;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 1.5px solid #e0e4fd;
+  background: #eef1ff;
+  color: #4338ca;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: transform .15s ease, background .15s ease;
+}
+.my-result-refresh-btn:hover { background: #e0e4fd; }
+.my-result-refresh-btn.is-spinning { animation: my-result-spin .7s linear; }
+@keyframes my-result-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+/* Stat pills */
+.my-result-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin: 14px 0 4px;
+}
+.my-result-stat {
+  background: linear-gradient(135deg, #eef1ff 0%, #e3e8ff 100%);
+  border-radius: 16px;
+  padding: 14px 10px;
+  text-align: center;
+  box-shadow: 0 6px 18px rgba(79,70,229,.08);
+}
+.my-result-stat-num {
+  font-size: 1.35rem;
+  font-weight: 800;
+  color: #1e1b4b;
+  line-height: 1.2;
+}
+.my-result-stat-label {
+  font-size: .72rem;
+  font-weight: 600;
+  color: #4338ca;
+  margin-top: 2px;
+}
+
+/* Result rows */
+.my-result-row {
+  background: #fff;
+  border: 1px solid rgba(30,27,75,.08);
+  border-radius: 16px;
+  padding: 14px 16px;
+  margin-bottom: 10px;
+  box-shadow: 0 6px 18px rgba(30,27,75,.06);
+}
+.my-result-row-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.my-result-row-title {
+  font-weight: 800;
+  font-size: .95rem;
+  color: #1e1b4b;
+}
+.my-result-pct-badge {
+  font-weight: 800;
+  font-size: .82rem;
+  padding: 3px 12px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+.my-result-row-bar {
+  height: 7px;
+  border-radius: 999px;
+  background: #eef0f5;
+  margin: 10px 0 10px;
+  overflow: hidden;
+}
+.my-result-row-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width .4s ease;
+}
+.my-result-row-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.my-result-row-meta {
+  font-size: .78rem;
+  color: #6b7280;
+}
+.my-result-view-btn {
+  background: linear-gradient(135deg,#4f46e5,#3730a3);
+  color: #fff;
+  border: none;
+  border-radius: 999px;
+  padding: 7px 16px;
+  font-weight: 700;
+  font-size: .8rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.my-result-view-btn:disabled {
+  background: #e5e7eb;
+  color: #9ca3af;
+  cursor: not-allowed;
+}
+
+@media (max-width: 480px) {
+  .my-result-stats { grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .my-result-stat { padding: 10px 6px; }
+  .my-result-stat-num { font-size: 1.1rem; }
+  .my-result-row-top { flex-wrap: wrap; }
+}

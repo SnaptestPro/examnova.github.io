@@ -30,10 +30,10 @@
      mobile-number se linked hai, isliye agar dusra student login kare
      to purana data kabhi nahi dikhta.
   ──────────────────────────────────────────────────────────────── */
-  let extrasCache = { mobile: null, mistakes: null, progressRecs: null, doubts: null, streak: null };
+  let extrasCache = { mobile: null, mistakes: null, progressRecs: null, doubts: null, streak: null, myResults: null };
   function cacheFor(mobile) {
     if (extrasCache.mobile !== mobile) {
-      extrasCache = { mobile, mistakes: null, progressRecs: null, doubts: null, streak: null };
+      extrasCache = { mobile, mistakes: null, progressRecs: null, doubts: null, streak: null, myResults: null };
     }
     return extrasCache;
   }
@@ -545,20 +545,36 @@
 
   /* ── 6) MY RESULT — SAHI/GALAT DETAIL (works for ANY record: online
      quiz, OMR-scan, or Manual Entry, since all three save the same
-     `details` array via saveRecordOnline()). Student types their mobile
-     number (no login required — matches how OMR/Manual Entry records
-     are saved with just name+mobile), sees every past attempt, and can
-     open a question-by-question sahi/galat breakdown reusing the exact
-     same solution-review screen normal online test-takers see. ────── */
+     `details` array via saveRecordOnline()). Student login karte hi
+     apna number de chuka hota hai (session mein already save hai), isliye
+     dobara number maangne ki zaroorat nahi — session ke mobile se hi
+     apne-aap sab attempts dhoondh kar, ek nice summary + list ke sath
+     dikha diya jaata hai. Question-by-question sahi/galat breakdown
+     wahi solution-review screen reuse karta hai jo normal online
+     test-takers dekhte hain. ─────────────────────────────────────── */
 
-  async function lookupMyResults() {
-    const input = document.getElementById("my-result-mobile-input");
+  function pctBand(pct) {
+    if (pct >= 75) return { color: "#16a34a", bg: "#dcfce7" };
+    if (pct >= 50) return { color: "#d97706", bg: "#fef3c7" };
+    return { color: "#dc2626", bg: "#fee2e2" };
+  }
+
+  async function loadMyResults() {
+    const session = (typeof getStudentSession === "function") ? getStudentSession() : null;
     const listEl = document.getElementById("my-result-list");
-    if (!input || !listEl) return;
-    const mobile = normalizeMobile(input.value);
-    if (mobile.length !== 10) { alert("Sahi 10-digit WhatsApp number daalein."); return; }
+    const summaryEl = document.getElementById("my-result-summary");
+    if (!session || !listEl) return;
+    const mobile = normalizeMobile(session.mobile);
+    const cache = cacheFor(mobile);
 
-    listEl.innerHTML = '<p class="muted-text">Dhoondh rahe hain...</p>';
+    // Cache mein pehle se data hai to turant dikha do (khaali "Loading"
+    // flash na ho), fir background mein fresh data laa kar update karein.
+    if (cache.myResults) renderMyResultsList(cache.myResults);
+    else listEl.innerHTML = '<p class="muted-text">Aapka result load ho raha hai...</p>';
+
+    const refreshBtn = document.getElementById("my-result-refresh-btn");
+    if (refreshBtn) refreshBtn.classList.add("is-spinning");
+
     const db = getDB();
     let myRecs = [];
     try {
@@ -569,33 +585,58 @@
         myRecs = (records || []).filter(r => normalizeMobile(r.mobile) === mobile);
       }
     } catch (err) {
-      console.warn("Firestore query fail hui, local records se try kar rahe hain:", err);
+      console.warn("[MyResult] Firestore query fail hui, local records se try kar rahe hain:", err);
+      if (cache.myResults) { if (refreshBtn) refreshBtn.classList.remove("is-spinning"); return; }
       myRecs = (records || []).filter(r => normalizeMobile(r.mobile) === mobile);
     }
     myRecs.sort((a, b) => (b.submittedIso || "").localeCompare(a.submittedIso || ""));
+    cache.myResults = myRecs;
     renderMyResultsList(myRecs);
+    if (refreshBtn) setTimeout(() => refreshBtn.classList.remove("is-spinning"), 400);
   }
 
   function renderMyResultsList(myRecs) {
     const listEl = document.getElementById("my-result-list");
+    const summaryEl = document.getElementById("my-result-summary");
     if (!listEl) return;
+
     if (!myRecs.length) {
-      listEl.innerHTML = '<p class="muted-text">Is number se abhi tak koi result nahi mila.</p>';
+      if (summaryEl) summaryEl.innerHTML = "";
+      listEl.innerHTML = '<p class="muted-text">Abhi tak koi test attempt nahi mila. Test dene ke baad aapka result yahan apne aap dikhega.</p>';
       return;
     }
+
+    const pcts = myRecs.map(r => r.maxScore > 0 ? Math.round((r.score / r.maxScore) * 100) : 0);
+    const avgPct = Math.round(pcts.reduce((a, b) => a + b, 0) / pcts.length);
+    const bestPct = Math.max(...pcts);
+
+    if (summaryEl) {
+      summaryEl.innerHTML = `
+        <div class="my-result-stats">
+          <div class="my-result-stat"><div class="my-result-stat-num">${myRecs.length}</div><div class="my-result-stat-label">Total Tests</div></div>
+          <div class="my-result-stat"><div class="my-result-stat-num">${avgPct}%</div><div class="my-result-stat-label">Average Score</div></div>
+          <div class="my-result-stat"><div class="my-result-stat-num">${bestPct}%</div><div class="my-result-stat-label">Best Score</div></div>
+        </div>`;
+    }
+
     listEl.innerHTML = myRecs.map((r, idx) => {
-      const pct = r.maxScore > 0 ? Math.round((r.score / r.maxScore) * 100) : 0;
+      const pct = pcts[idx];
+      const band = pctBand(pct);
       const dateTxt = (typeof formatResultDate === "function") ? formatResultDate(r.submittedIso) : "";
       const hasDetails = Array.isArray(r.details) && r.details.length > 0;
       return `
-        <div class="card" style="margin-bottom:8px;padding:10px 12px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
-          <div>
-            <div style="font-weight:700;">${escHtml(r.testTitle || r.testId || "Test")}</div>
-            <div style="font-size:.78rem;color:#64748b;">${dateTxt ? dateTxt + " · " : ""}${escHtml(r.testMode || "Online")} · Score: ${r.score}/${r.maxScore} (${pct}%)</div>
+        <div class="my-result-row">
+          <div class="my-result-row-top">
+            <div class="my-result-row-title">${escHtml(r.testTitle || r.testId || "Test")}</div>
+            <div class="my-result-pct-badge" style="color:${band.color};background:${band.bg};">${pct}%</div>
           </div>
-          <button type="button" class="btn-primary my-result-view-btn" data-idx="${idx}" style="font-size:.82rem;padding:6px 12px;" ${hasDetails ? "" : "disabled title=\"Purane record mein sawaal-wise detail save nahi hai\""}>
-            ${hasDetails ? "📖 Sahi/Galat Dekhein" : "Detail Unavailable"}
-          </button>
+          <div class="my-result-row-bar"><div class="my-result-row-bar-fill" style="width:${pct}%;background:${band.color};"></div></div>
+          <div class="my-result-row-bottom">
+            <span class="my-result-row-meta">${dateTxt ? dateTxt + " · " : ""}${escHtml(r.testMode || "Online")} · Score: ${r.score}/${r.maxScore}</span>
+            <button type="button" class="my-result-view-btn" data-idx="${idx}" ${hasDetails ? "" : "disabled title=\"Purane record mein sawaal-wise detail save nahi hai\""}>
+              ${hasDetails ? "📖 Sahi/Galat Dekhein" : "Detail Unavailable"}
+            </button>
+          </div>
         </div>`;
     }).join("");
 
@@ -653,6 +694,7 @@
     renderMyMistakes();
     renderMyProgress();
     renderMyDoubts();
+    loadMyResults();
   }
 
   function init() {
@@ -674,8 +716,8 @@
     const doubtSubmitBtn = document.getElementById("doubt-submit-btn");
     if (doubtSubmitBtn) doubtSubmitBtn.onclick = submitDoubt;
 
-    const myResultBtn = document.getElementById("my-result-lookup-btn");
-    if (myResultBtn) myResultBtn.onclick = lookupMyResults;
+    const myResultRefreshBtn = document.getElementById("my-result-refresh-btn");
+    if (myResultRefreshBtn) myResultRefreshBtn.onclick = loadMyResults;
 
     const subjSel = document.getElementById("practice-subject-filter");
     if (subjSel) subjSel.onchange = syncPracticeFilters;
