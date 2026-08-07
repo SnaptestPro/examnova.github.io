@@ -944,7 +944,7 @@ function logoutStudent() {
 const ADMIN_TAB_BOX_IDS = {
   tests: "tests-area", bank: "bank-box", "bulk-upload": "bulk-upload-box",
   records: "records-box", generator: "generator-box", trash: "trash-box",
-  doubts: "doubts-box", omr: "omr-box", grade: "grade-box"
+  doubts: "doubts-box", omr: "omr-box", grade: "grade-box", settings: "settings-box"
 };
 function goAdmin(tab) {
   showAdminTab(tab);
@@ -988,6 +988,7 @@ function showAdminTab(tab) {
   $("#doubts-box")?.classList.toggle("hidden", tab !== "doubts");
   $("#omr-box")?.classList.toggle("hidden", tab !== "omr");
   $("#grade-box")?.classList.toggle("hidden", tab !== "grade");
+  $("#settings-box")?.classList.toggle("hidden", tab !== "settings");
   document.querySelector(".main-wrap")?.classList.toggle("wide-mode", tab === "generator");
   if (tab === "bank") renderBank();
   if (tab === "doubts" && window.SavyaExtras) window.SavyaExtras.renderAdminDoubts();

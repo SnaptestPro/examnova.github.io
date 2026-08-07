@@ -464,32 +464,6 @@
           <div class="cd-hero-emoji">🛡️</div>
         </div>
 
-        <div class="cd-util-grid">
-          <div class="cd-util-card">
-            <div class="cd-util-top">
-              <div class="cd-icon-circle" style="background:#dbe7fe;color:#2563eb;">📥</div>
-              <div class="cd-util-title">Firebase Question Bank Seed</div>
-            </div>
-            <div class="cd-util-sub">Pehli baar click karo — sare subjects (Math &amp; History) ke questions Firebase mein save/update ho jayenge.</div>
-            <div class="cd-util-actions">
-              <button id="seed-questions-btn" class="cd-pill-btn" style="background:linear-gradient(135deg,#2563eb,#1d4ed8);">🌱 Seed All Questions</button>
-            </div>
-          </div>
-
-          <div class="cd-util-card">
-            <div class="cd-util-top">
-              <div class="cd-icon-circle" style="background:#ffe9d4;color:#ea580c;">🔐</div>
-              <div class="cd-util-title">Admin Password</div>
-            </div>
-            <div class="cd-util-sub">Password ab Firebase mein save hoga, isliye har device par same rahega.</div>
-            <div class="cd-util-actions">
-              <button id="change-admin-password-btn" class="cd-pill-btn" style="background:linear-gradient(135deg,#ea580c,#c2410c);">🔁 Change Password</button>
-              <button id="set-recovery-btn" class="cd-pill-btn" style="background:linear-gradient(135deg,#0891b2,#0e7490);">ℹ️ Recovery Info</button>
-              <button id="admin-logout-btn" type="button" class="cd-pill-btn" style="background:linear-gradient(135deg,#64748b,#334155);">🚪 Admin Logout</button>
-            </div>
-          </div>
-        </div>
-
         <div class="cd-section-title">Manage</div>
         <div class="cd-grid">
           <button type="button" class="cd-card cd-blue" onclick="goAdmin('tests')">
@@ -554,15 +528,13 @@
             <div class="cd-card-sub">Delete kiye gaye items recover karein</div>
             <div class="cd-card-bottom"><span class="cd-arrow-btn">→</span></div>
           </button>
-        </div>
 
-        <div class="cd-promo">
-          <div class="cd-promo-text">
-            <h3>Firebase Seed &amp; Security</h3>
-            <p>Questions ko Firebase mein seed karein ya admin password/recovery update karein.</p>
-            <button type="button" class="cd-promo-btn" onclick="document.getElementById('seed-questions-btn')?.scrollIntoView({behavior:'smooth',block:'center'})">Explore →</button>
-          </div>
-          <div class="cd-promo-icon">🔐</div>
+          <button type="button" class="cd-card cd-gold" onclick="goAdmin('settings')">
+            <div class="cd-card-top"><div class="cd-icon-circle">🔐</div><span class="cd-badge">Setup</span></div>
+            <div class="cd-card-title">Settings</div>
+            <div class="cd-card-sub">Firebase seed, password &amp; logout</div>
+            <div class="cd-card-bottom"><span class="cd-arrow-btn">→</span></div>
+          </button>
         </div>
       </div>
 
@@ -1102,6 +1074,28 @@ B"></textarea>
 
       <!-- RECYCLE BIN -->
       <div id="trash-box" class="hidden"></div>
+
+      <!-- SETTINGS (Firebase Seed + Admin Password) -->
+      <div id="settings-box" class="hidden">
+        <div class="card" style="background:linear-gradient(135deg,#eff6ff,#dbeafe);border:1.5px solid #93c5fd;margin-bottom:12px;padding:14px 18px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+          <div>
+            <strong style="color:#1e40af;">📥 Firebase Question Bank Seed</strong>
+            <p style="font-size:.82rem;color:#3730a3;margin-top:3px;">Pehli baar click karo — sare subjects (Math &amp; History) ke questions Firebase mein save/update ho jayenge.</p>
+          </div>
+          <button id="seed-questions-btn" class="btn-primary" style="background:linear-gradient(135deg,#2563eb,#1d4ed8);">🌱 Seed All Questions to Firebase</button>
+        </div>
+        <div class="card" style="background:linear-gradient(135deg,#fff7ed,#ffedd5);border:1.5px solid #fdba74;margin-bottom:12px;padding:12px 18px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+          <div>
+            <strong style="color:#9a3412;">🔐 Admin Password</strong>
+            <p style="font-size:.82rem;color:#7c2d12;margin-top:3px;">Password ab Firebase mein save hoga, isliye har device par same rahega.</p>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button id="change-admin-password-btn" class="btn-primary" style="background:linear-gradient(135deg,#ea580c,#c2410c);">🔁 Change Password</button>
+            <button id="set-recovery-btn" class="btn-primary" style="background:linear-gradient(135deg,#0891b2,#0e7490);">ℹ️ Recovery Info</button>
+            <button id="admin-logout-btn" type="button" class="btn-primary" style="background:linear-gradient(135deg,#64748b,#334155);">🚪 Admin Logout</button>
+          </div>
+        </div>
+      </div>
 
       <!-- DOUBTS -->
       <div id="doubts-box" class="hidden">
