@@ -409,7 +409,7 @@ function init() {
   bindEvent("#save-draft-btn", 'onclick', saveAsDraft);
   const params = new URLSearchParams(window.location.search);
   let adminAutoShown = false;
-  if (params.get("admin") === "1" && sessionStorage.getItem("admin_logged_in") === "true") {
+  if (params.get("admin") === "1" && isAdminLoggedIn()) {
     adminAutoShown = true;
     showMode("admin");
     $("#admin-login-form").classList.add("hidden");
@@ -600,16 +600,16 @@ function showMode(mode) {
   const studentIsLoggedIn = !!getStudentSession();
   const adminTabBtn = $("#admin-tab");
   if (adminTabBtn) {
-    adminTabBtn.classList.toggle("hidden", studentIsLoggedIn && sessionStorage.getItem("admin_logged_in") !== "true");
+    adminTabBtn.classList.toggle("hidden", studentIsLoggedIn && !isAdminLoggedIn());
   }
-  if (studentIsLoggedIn && mode === "admin" && sessionStorage.getItem("admin_logged_in") !== "true") {
+  if (studentIsLoggedIn && mode === "admin" && !isAdminLoggedIn()) {
     // Safety net: koi student seedhe URL/state se admin mode force kare
     // to bhi student hi wapas dikhega, admin login form nahi.
     showMode("student");
     return;
   }
 
-  if (mode === "admin" && sessionStorage.getItem("admin_logged_in") === "true") {
+  if (mode === "admin" && isAdminLoggedIn()) {
     // Admin pehle se is session mein login hai (Student/Leaderboard tab
     // dekhne ke baad wapas Admin par aaya hai) — dobara password mat
     // maango, seedha panel dikha do taaki admin apna kaam turant dekh sake.
@@ -868,7 +868,7 @@ async function resetStudentPassword(e) {
 // Sirf admin (isAdmin() rule ke bharose) ye kar sakta hai — student
 // ki identity WhatsApp/class mein confirm karke hi use karein.
 async function adminResetStudentPassword() {
-  if (sessionStorage.getItem("admin_logged_in") !== "true") {
+  if (!isAdminLoggedIn()) {
     alert("Pehle admin login karein.");
     return;
   }
@@ -984,6 +984,30 @@ function getRememberedAdminEmail() {
   try { return localStorage.getItem(ADMIN_EMAIL_LOCAL_KEY) || ""; } catch (e) { return ""; }
 }
 
+// ── "Stay logged in" fix (admin) ──────────────────────────────────
+// PEHLE ye flag sessionStorage mein rakha jaata tha, jo sirf ek hi
+// browser tab/window ke "session" tak zinda rehta hai — tab/browser
+// band karte hi (chahe admin ne khud logout na kiya ho) ye apne aap
+// mit jaata tha, aur agli baar site kholte hi wapas password maangta
+// tha. Student session already localStorage mein hai (jo browser band
+// karke dobara kholne par bhi wahan rehti hai) — ab admin bhi usi
+// tarah localStorage use karta hai, taaki ek baar login karne ke baad
+// browser dobara khole to seedha panel mile, dobara password na maangna
+// pade. Asli security yahan se nahi aati (wo Firebase Auth + Firestore
+// isAdmin() rule se aati hai) — ye sirf UI "remembered" state hai, aur
+// logoutAdmin() explicit click par isse (aur asli Firebase session ko)
+// clear kar deta hai.
+const ADMIN_LOGIN_KEY = "savya_admin_logged_in";
+function isAdminLoggedIn() {
+  try { return localStorage.getItem(ADMIN_LOGIN_KEY) === "true"; } catch (e) { return false; }
+}
+function setAdminLoggedIn() {
+  try { localStorage.setItem(ADMIN_LOGIN_KEY, "true"); } catch (e) {}
+}
+function clearAdminLoggedIn() {
+  try { localStorage.removeItem(ADMIN_LOGIN_KEY); } catch (e) {}
+}
+
 let _adminSyncsStarted = false;
 function startAdminSyncs() {
   if (_adminSyncsStarted) return; // dobara panel kholne par dobara subscribe na ho
@@ -997,25 +1021,29 @@ function startAdminSyncs() {
 function enterAdminPanel() {
   $("#admin-login-form").classList.add("hidden");
   $("#admin-panel").classList.remove("hidden");
-  sessionStorage.setItem("admin_logged_in", "true");
+  setAdminLoggedIn();
   startAdminSyncs();
   showAdminTab("tests");
 }
 
 // ── Admin logout ────────────────────────────────────────────────
 // PEHLE koi admin-logout button hi nahi tha — admin_logged_in flag
-// sirf tab band karne (ya sessionStorage khud clear karne) par hi
-// jaata tha. Shared/kiosk device par (ya installed APK/TWA jo
-// background mein khula reh sakta hai) agar admin bhool jaaye to
-// agla student usi tab mein Admin panel dekh sakta tha. Ab admin
-// khud ek click se safely session end kar sakta hai.
+// pehle sessionStorage mein tha to tab band karne par apne aap chala
+// jaata tha. Ab ye flag localStorage mein hai (taaki login persist
+// ho — upar "Stay logged in fix" comment dekhein), isliye browser band
+// karne se apne aap clear NAHI hoga. Shared/kiosk device par (ya
+// installed APK/TWA jo background mein khula reh sakta hai) agar admin
+// bhool jaaye to agla student usi tab mein Admin panel dekh sakta tha
+// — isiliye ye explicit logout button zaroori hai. Ek click se admin
+// safely apna session (localStorage flag + asli Firebase Auth session
+// dono) end kar sakta hai.
 function logoutAdmin() {
   if (!confirm("Admin session se logout karein?")) return;
   try {
     const auth = getAuth();
     if (auth && auth.currentUser) auth.signOut().catch(() => {});
   } catch (e) {}
-  sessionStorage.removeItem("admin_logged_in");
+  clearAdminLoggedIn();
   // Poora page reload (query params ke bina, taaki ?admin=1 se dobara
   // auto-login na ho jaaye) — isse admin ka in-memory data (bank/trash/
   // drafts) aur live Firestore listeners bhi poori tarah clear ho
@@ -1079,7 +1107,7 @@ async function loginAdmin(e) {
 async function changeAdminPassword() {
   const auth = getAuth();
   const user = auth && auth.currentUser;
-  if (sessionStorage.getItem("admin_logged_in") !== "true" || !user) {
+  if (!isAdminLoggedIn() || !user) {
     alert("Pehle admin login karein.");
     return;
   }
@@ -1107,7 +1135,7 @@ async function changeAdminPassword() {
 function setRecoveryQuestion() {
   const auth = getAuth();
   const user = auth && auth.currentUser;
-  if (sessionStorage.getItem("admin_logged_in") !== "true" || !user) {
+  if (!isAdminLoggedIn() || !user) {
     alert("Pehle admin login karein.");
     return;
   }
