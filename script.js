@@ -931,8 +931,9 @@ function logoutStudent() {
   showMode("student");
 }
 
-// Creative admin dashboard card -> jumps to the matching tab + scrolls
-// straight to that section only (old tab bar is hidden, cards are the nav)
+// Creative admin dashboard card -> jumps to the matching tab, and shows
+// ONLY that section (hides the dashboard cards) so everything belonging
+// to that function is visible together, without other clutter around it.
 const ADMIN_TAB_BOX_IDS = {
   tests: "tests-area", bank: "bank-box", "bulk-upload": "bulk-upload-box",
   records: "records-box", generator: "generator-box", trash: "trash-box",
@@ -946,7 +947,22 @@ function goAdmin(tab) {
 }
 window.goAdmin = goAdmin;
 
+function backToAdminDashboard() {
+  Object.values(ADMIN_TAB_BOX_IDS).forEach(id => document.getElementById(id)?.classList.add("hidden"));
+  document.getElementById("admin-dashboard-home")?.classList.remove("hidden");
+  document.getElementById("admin-back-btn")?.classList.add("hidden");
+  document.getElementById("admin-dashboard-home")?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+window.backToAdminDashboard = backToAdminDashboard;
+
 function showAdminTab(tab) {
+  // Whenever any tab/section is shown (via card click, direct button,
+  // or after actions like saving a test), keep the dashboard cards
+  // hidden and show the "Back to dashboard" button — so only ONE
+  // section is ever visible at a time, no duplication.
+  document.getElementById("admin-dashboard-home")?.classList.add("hidden");
+  document.getElementById("admin-back-btn")?.classList.remove("hidden");
+
   // Auto-save draft when navigating away from tests tab
   const wasOnTests = !$("#tests-area").classList.contains("hidden");
   if (wasOnTests && tab !== "tests") {
@@ -1057,7 +1073,7 @@ function enterAdminPanel() {
   $("#admin-panel").classList.remove("hidden");
   setAdminLoggedIn();
   startAdminSyncs();
-  showAdminTab("tests");
+  backToAdminDashboard();
 }
 
 // ── Admin logout ────────────────────────────────────────────────
