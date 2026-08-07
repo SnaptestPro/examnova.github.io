@@ -655,7 +655,26 @@ function populateStudentFormFromSession(session) {
   if (mobileEl) mobileEl.value = session.mobile;
   const welcomeName = $("#student-welcome-name");
   if (welcomeName) welcomeName.textContent = session.name;
+  const cdName = $("#cd-student-name");
+  if (cdName && session.name) cdName.textContent = session.name;
 }
+
+// Creative student dashboard cards -> scroll to the matching section
+function goStudentSection(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.classList.remove("hidden");
+  el.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+window.goStudentSection = goStudentSection;
+
+function goStudentLeaderboard() {
+  document.getElementById("leaderboard-tab")?.click();
+  setTimeout(() => {
+    document.getElementById("leaderboard-section")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, 60);
+}
+window.goStudentLeaderboard = goStudentLeaderboard;
 
 function showStudentAuthPanel(which) {
   $("#student-login-form")?.classList.toggle("hidden", which !== "login");
@@ -911,6 +930,13 @@ function logoutStudent() {
   clearStudentSession();
   showMode("student");
 }
+
+// Creative admin dashboard card -> jumps to the matching tab + scrolls down
+function goAdmin(tab) {
+  showAdminTab(tab);
+  document.querySelector(".admin-tabs")?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+window.goAdmin = goAdmin;
 
 function showAdminTab(tab) {
   // Auto-save draft when navigating away from tests tab

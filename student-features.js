@@ -458,6 +458,8 @@
         badge.style.display = openCount > 0 ? "inline-block" : "none";
         badge.textContent = String(openCount);
       }
+      const cdBadge = document.getElementById("cd-doubts-badge");
+      if (cdBadge) cdBadge.textContent = openCount > 0 ? `${openCount} New` : "Chat";
       if (!docs.length) { list.innerHTML = '<p class="muted-text">Koi doubt nahi aaya abhi tak.</p>'; return; }
       list.innerHTML = docs.map(d => `
         <div class="card" style="margin-bottom:10px;padding:12px;border-left:4px solid ${d.status === "answered" ? "#22c55e" : "#f59e0b"};">

@@ -1,0 +1,236 @@
+/* ═══════════════════════════════════════════════════════════════
+   creative-dashboard.css
+   "Test Ranking" style creative dashboard cards for Admin & Student
+   Purple/blue gradient hero + rounded icon cards + arrow buttons
+   ═══════════════════════════════════════════════════════════════ */
+
+.cd-wrap { margin-bottom: 22px; }
+
+/* Hero welcome banner */
+.cd-hero {
+  background: linear-gradient(135deg, #eef1ff 0%, #e3e8ff 100%);
+  border-radius: 22px;
+  padding: 22px 22px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+  box-shadow: 0 10px 30px rgba(79,70,229,.08);
+}
+.cd-hero-text h2 {
+  margin: 0 0 6px;
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: #1e1b4b;
+}
+.cd-hero-text p {
+  margin: 0;
+  font-size: .85rem;
+  color: #4338ca;
+  max-width: 320px;
+  line-height: 1.4;
+}
+.cd-hero-emoji {
+  font-size: 2.6rem;
+  flex-shrink: 0;
+  filter: drop-shadow(0 6px 10px rgba(79,70,229,.25));
+}
+
+/* Section title */
+.cd-section-title {
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: #1e1b4b;
+  margin: 4px 0 12px;
+}
+
+/* Card grid */
+.cd-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+  gap: 14px;
+  margin-bottom: 20px;
+}
+
+/* Individual creative card */
+.cd-card {
+  background: #fff;
+  border-radius: 20px;
+  padding: 16px 14px 14px;
+  box-shadow: 0 8px 24px rgba(30,27,75,.08);
+  border: 1px solid rgba(79,70,229,.06);
+  cursor: pointer;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: transform .15s ease, box-shadow .15s ease;
+  position: relative;
+}
+.cd-card:hover,
+.cd-card:focus-visible {
+  transform: translateY(-3px);
+  box-shadow: 0 14px 30px rgba(30,27,75,.14);
+  outline: none;
+}
+.cd-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+.cd-icon-circle {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.3rem;
+  flex-shrink: 0;
+}
+.cd-badge {
+  font-size: .68rem;
+  font-weight: 700;
+  padding: 3px 9px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.cd-card-title {
+  font-size: .95rem;
+  font-weight: 800;
+  color: #1e1b4b;
+  margin-top: 4px;
+}
+.cd-card-sub {
+  font-size: .76rem;
+  color: #6b7280;
+  flex-grow: 1;
+}
+.cd-card-bottom {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 4px;
+}
+.cd-arrow-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  color: #fff;
+  flex-shrink: 0;
+  pointer-events: none;
+}
+
+/* Colour variants (icon bg / badge / arrow bg reuse the same hue) */
+.cd-pink   .cd-icon-circle { background: #fde2e7; color: #e11d48; }
+.cd-pink   .cd-badge       { background: #fde2e7; color: #e11d48; }
+.cd-pink   .cd-arrow-btn   { background: #f9a8bb; }
+
+.cd-green  .cd-icon-circle { background: #dcf5e3; color: #16a34a; }
+.cd-green  .cd-badge       { background: #dcf5e3; color: #16a34a; }
+.cd-green  .cd-arrow-btn   { background: #86e0a3; }
+
+.cd-blue   .cd-icon-circle { background: #dbe7fe; color: #2563eb; }
+.cd-blue   .cd-badge       { background: #dbe7fe; color: #2563eb; }
+.cd-blue   .cd-arrow-btn   { background: #93b8fb; }
+
+.cd-purple .cd-icon-circle { background: #e7e0fd; color: #7c3aed; }
+.cd-purple .cd-badge       { background: #e7e0fd; color: #7c3aed; }
+.cd-purple .cd-arrow-btn   { background: #c4aefb; }
+
+.cd-orange .cd-icon-circle { background: #ffe9d4; color: #ea580c; }
+.cd-orange .cd-badge       { background: #ffe9d4; color: #ea580c; }
+.cd-orange .cd-arrow-btn   { background: #ffc389; }
+
+.cd-teal   .cd-icon-circle { background: #d3f3f1; color: #0891b2; }
+.cd-teal   .cd-badge       { background: #d3f3f1; color: #0891b2; }
+.cd-teal   .cd-arrow-btn   { background: #7fdcd6; }
+
+.cd-red    .cd-icon-circle { background: #fde0e0; color: #dc2626; }
+.cd-red    .cd-badge       { background: #fde0e0; color: #dc2626; }
+.cd-red    .cd-arrow-btn   { background: #f4a3a3; }
+
+.cd-gold   .cd-icon-circle { background: #fef3c7; color: #b45309; }
+.cd-gold   .cd-badge       { background: #fef3c7; color: #b45309; }
+.cd-gold   .cd-arrow-btn   { background: #fcd34d; }
+
+.cd-indigo .cd-icon-circle { background: #e0e4fd; color: #4338ca; }
+.cd-indigo .cd-badge       { background: #e0e4fd; color: #4338ca; }
+.cd-indigo .cd-arrow-btn   { background: #a9b3fb; }
+
+/* Promo banner (blue gradient, e.g. Toppers' Guidance style) */
+.cd-promo {
+  background: linear-gradient(135deg, #4f46e5 0%, #1e1b8f 100%);
+  border-radius: 22px;
+  padding: 24px 22px;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+  box-shadow: 0 14px 34px rgba(30,27,75,.25);
+}
+.cd-promo-text h3 {
+  margin: 0 0 6px;
+  font-size: 1.2rem;
+  font-weight: 800;
+}
+.cd-promo-text p {
+  margin: 0 0 14px;
+  font-size: .82rem;
+  color: #dbe1ff;
+  max-width: 260px;
+}
+.cd-promo-icon { font-size: 3rem; flex-shrink: 0; opacity: .9; }
+.cd-promo-btn {
+  background: #fff;
+  color: #312e81;
+  border: none;
+  border-radius: 999px;
+  padding: 10px 20px;
+  font-weight: 700;
+  font-size: .85rem;
+  cursor: pointer;
+}
+
+/* Pill switch (mirrors screenshot's rounded double-pill nav) */
+.cd-pill-switch {
+  display: flex;
+  gap: 6px;
+  background: #fff;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 999px;
+  padding: 5px;
+  margin-bottom: 18px;
+}
+.cd-pill-switch button {
+  flex: 1;
+  border: none;
+  background: transparent;
+  border-radius: 999px;
+  padding: 9px 14px;
+  font-weight: 700;
+  font-size: .85rem;
+  color: #4338ca;
+  cursor: pointer;
+}
+.cd-pill-switch button.active {
+  background: linear-gradient(135deg,#4f46e5,#3730a3);
+  color: #fff;
+}
+
+@media (max-width: 480px) {
+  .cd-hero { padding: 18px; }
+  .cd-hero-text h2 { font-size: 1.1rem; }
+  .cd-grid { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; }
+  .cd-promo { flex-direction: column; align-items: flex-start; }
+  .cd-promo-icon { align-self: flex-end; }
+}
+
+.cd-hidden-when-active .cd-toggle-note { display: none; }

@@ -91,6 +91,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css?v=8">
   <link rel="stylesheet" href="theme-picker.css">
+  <link rel="stylesheet" href="creative-dashboard.css?v=1">
   
   <!-- CDNs for Mega Update Features -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -226,7 +227,86 @@
 
     <!-- ── STUDENT FORM ── -->
     <form id="student-form" class="hidden" autocomplete="off">
-      <div class="card hero-card">
+      <!-- ── CREATIVE STUDENT DASHBOARD HOME ── -->
+      <div class="cd-wrap" id="student-dashboard-home">
+        <div class="cd-hero">
+          <div class="cd-hero-text">
+            <h2>Hi <span id="cd-student-name">Student</span> 👋</h2>
+            <p>Exam-level mock tests attempt karein aur apni preparation ko boost karein. 🏆</p>
+          </div>
+          <div class="cd-hero-emoji">🎯</div>
+        </div>
+
+        <div class="cd-section-title">Practice</div>
+        <div class="cd-grid">
+          <button type="button" class="cd-card cd-blue" onclick="goStudentSection('student-form-fields-anchor')">
+            <div class="cd-card-top"><div class="cd-icon-circle">🚀</div><span class="cd-badge">Start</span></div>
+            <div class="cd-card-title">Start Test</div>
+            <div class="cd-card-sub">Naya test attempt karein</div>
+            <div class="cd-card-bottom"><span class="cd-arrow-btn">→</span></div>
+          </button>
+
+          <button type="button" class="cd-card cd-green" onclick="goStudentSection('practice-mode-card')">
+            <div class="cd-card-top"><div class="cd-icon-circle">🎯</div><span class="cd-badge">No Timer</span></div>
+            <div class="cd-card-title">Practice Mode</div>
+            <div class="cd-card-sub">Bina pressure ke practice karein</div>
+            <div class="cd-card-bottom"><span class="cd-arrow-btn">→</span></div>
+          </button>
+
+          <button type="button" class="cd-card cd-purple" onclick="goStudentSection('student-results-card')">
+            <div class="cd-card-top"><div class="cd-icon-circle">📊</div><span class="cd-badge">Rank</span></div>
+            <div class="cd-card-title">Result Sheet</div>
+            <div class="cd-card-sub">Sabhi students ka result</div>
+            <div class="cd-card-bottom"><span class="cd-arrow-btn">→</span></div>
+          </button>
+
+          <button type="button" class="cd-card cd-indigo" onclick="goStudentSection('my-result-detail-card')">
+            <div class="cd-card-top"><div class="cd-icon-circle">🧾</div><span class="cd-badge">Sahi/Galat</span></div>
+            <div class="cd-card-title">Mera Result</div>
+            <div class="cd-card-sub">Apna detailed result dekhein</div>
+            <div class="cd-card-bottom"><span class="cd-arrow-btn">→</span></div>
+          </button>
+
+          <button type="button" class="cd-card cd-teal" onclick="goStudentSection('my-progress-card')">
+            <div class="cd-card-top"><div class="cd-icon-circle">📈</div><span class="cd-badge">Trend</span></div>
+            <div class="cd-card-title">My Progress</div>
+            <div class="cd-card-sub">Score trend dekhein</div>
+            <div class="cd-card-bottom"><span class="cd-arrow-btn">→</span></div>
+          </button>
+
+          <button type="button" class="cd-card cd-orange" onclick="goStudentSection('my-mistakes-card')">
+            <div class="cd-card-top"><div class="cd-icon-circle">❌</div><span class="cd-badge">Revise</span></div>
+            <div class="cd-card-title">My Mistakes</div>
+            <div class="cd-card-sub">Galat sawaal dobara practice karein</div>
+            <div class="cd-card-bottom"><span class="cd-arrow-btn">→</span></div>
+          </button>
+
+          <button type="button" class="cd-card cd-pink" onclick="goStudentSection('doubt-box-card')">
+            <div class="cd-card-top"><div class="cd-icon-circle">❓</div><span class="cd-badge">Ask</span></div>
+            <div class="cd-card-title">Doubt Box</div>
+            <div class="cd-card-sub">Apna doubt admin se puchein</div>
+            <div class="cd-card-bottom"><span class="cd-arrow-btn">→</span></div>
+          </button>
+
+          <button type="button" class="cd-card cd-gold" onclick="goStudentLeaderboard()">
+            <div class="cd-card-top"><div class="cd-icon-circle">🏆</div><span class="cd-badge">Top</span></div>
+            <div class="cd-card-title">Leaderboard</div>
+            <div class="cd-card-sub">Top students dekhein</div>
+            <div class="cd-card-bottom"><span class="cd-arrow-btn">→</span></div>
+          </button>
+        </div>
+
+        <div class="cd-promo">
+          <div class="cd-promo-text">
+            <h3>Daily Practice</h3>
+            <p>Curated daily practice se apna score boost karein.</p>
+            <button type="button" class="cd-promo-btn" onclick="goStudentSection('practice-mode-card')">Explore →</button>
+          </div>
+          <div class="cd-promo-icon">📅</div>
+        </div>
+      </div>
+
+      <div class="card hero-card" id="student-form-fields-anchor">
         <h2 class="section-title">🎯 Start Your Test</h2>
 
         <div id="student-welcome-bar" style="display:flex;align-items:center;justify-content:space-between;background:#f0fdf4;border:1px solid #86efac;border-radius:10px;padding:10px 14px;margin-bottom:14px;">
@@ -389,6 +469,92 @@
           <button id="change-admin-password-btn" class="btn-primary" style="background:linear-gradient(135deg,#ea580c,#c2410c);">🔁 Change Password</button>
           <button id="set-recovery-btn" class="btn-primary" style="background:linear-gradient(135deg,#0891b2,#0e7490);">ℹ️ Recovery Info</button>
           <button id="admin-logout-btn" type="button" class="btn-primary" style="background:linear-gradient(135deg,#64748b,#334155);">🚪 Admin Logout</button>
+        </div>
+      </div>
+
+      <!-- ── CREATIVE ADMIN DASHBOARD HOME ── -->
+      <div class="cd-wrap" id="admin-dashboard-home">
+        <div class="cd-hero">
+          <div class="cd-hero-text">
+            <h2>Welcome, Admin 👋</h2>
+            <p>Tests banayein, question bank manage karein aur students ka progress ek jagah se track karein.</p>
+          </div>
+          <div class="cd-hero-emoji">🛡️</div>
+        </div>
+
+        <div class="cd-section-title">Manage</div>
+        <div class="cd-grid">
+          <button type="button" class="cd-card cd-blue" onclick="goAdmin('tests')">
+            <div class="cd-card-top"><div class="cd-icon-circle">📋</div><span class="cd-badge">Create</span></div>
+            <div class="cd-card-title">Tests</div>
+            <div class="cd-card-sub">Naya test banayein ya edit karein</div>
+            <div class="cd-card-bottom"><span class="cd-arrow-btn">→</span></div>
+          </button>
+
+          <button type="button" class="cd-card cd-purple" onclick="goAdmin('bank')">
+            <div class="cd-card-top"><div class="cd-icon-circle">🏦</div><span class="cd-badge">Bank</span></div>
+            <div class="cd-card-title">Question Bank</div>
+            <div class="cd-card-sub">Saare questions ek jagah</div>
+            <div class="cd-card-bottom"><span class="cd-arrow-btn">→</span></div>
+          </button>
+
+          <button type="button" class="cd-card cd-teal" onclick="goAdmin('bulk-upload')">
+            <div class="cd-card-top"><div class="cd-icon-circle">📦</div><span class="cd-badge">Fast</span></div>
+            <div class="cd-card-title">Bulk Upload</div>
+            <div class="cd-card-sub">Ek saath kai questions daalein</div>
+            <div class="cd-card-bottom"><span class="cd-arrow-btn">→</span></div>
+          </button>
+
+          <button type="button" class="cd-card cd-indigo" onclick="goAdmin('records')">
+            <div class="cd-card-top"><div class="cd-icon-circle">📁</div><span class="cd-badge">Students</span></div>
+            <div class="cd-card-title">Records</div>
+            <div class="cd-card-sub">Students directory &amp; results</div>
+            <div class="cd-card-bottom"><span class="cd-arrow-btn">→</span></div>
+          </button>
+
+          <button type="button" class="cd-card cd-pink" onclick="goAdmin('generator')">
+            <div class="cd-card-top"><div class="cd-icon-circle">📄</div><span class="cd-badge">New</span></div>
+            <div class="cd-card-title">Paper Generator</div>
+            <div class="cd-card-sub">Question paper turant banayein</div>
+            <div class="cd-card-bottom"><span class="cd-arrow-btn">→</span></div>
+          </button>
+
+          <button type="button" class="cd-card cd-teal" onclick="goAdmin('doubts')">
+            <div class="cd-card-top"><div class="cd-icon-circle">💬</div><span class="cd-badge" id="cd-doubts-badge">Chat</span></div>
+            <div class="cd-card-title">Doubts</div>
+            <div class="cd-card-sub">Students ke doubts ka reply</div>
+            <div class="cd-card-bottom"><span class="cd-arrow-btn">→</span></div>
+          </button>
+
+          <button type="button" class="cd-card cd-green" onclick="goAdmin('omr')">
+            <div class="cd-card-top"><div class="cd-icon-circle">🔲</div><span class="cd-badge">Scan</span></div>
+            <div class="cd-card-title">OMR</div>
+            <div class="cd-card-sub">OMR sheets scan &amp; check karein</div>
+            <div class="cd-card-bottom"><span class="cd-arrow-btn">→</span></div>
+          </button>
+
+          <button type="button" class="cd-card cd-orange" onclick="goAdmin('grade')">
+            <div class="cd-card-top"><div class="cd-icon-circle">📝</div><span class="cd-badge">Manual</span></div>
+            <div class="cd-card-title">Grade Subjective</div>
+            <div class="cd-card-sub">Subjective answers grade karein</div>
+            <div class="cd-card-bottom"><span class="cd-arrow-btn">→</span></div>
+          </button>
+
+          <button type="button" class="cd-card cd-red" onclick="goAdmin('trash')">
+            <div class="cd-card-top"><div class="cd-icon-circle">🗑️</div><span class="cd-badge">Bin</span></div>
+            <div class="cd-card-title">Recycle Bin</div>
+            <div class="cd-card-sub">Delete kiye gaye items recover karein</div>
+            <div class="cd-card-bottom"><span class="cd-arrow-btn">→</span></div>
+          </button>
+        </div>
+
+        <div class="cd-promo">
+          <div class="cd-promo-text">
+            <h3>Firebase Seed &amp; Security</h3>
+            <p>Questions ko Firebase mein seed karein ya admin password/recovery update karein.</p>
+            <button type="button" class="cd-promo-btn" onclick="document.getElementById('seed-questions-btn')?.scrollIntoView({behavior:'smooth',block:'center'})">Explore →</button>
+          </div>
+          <div class="cd-promo-icon">🔐</div>
         </div>
       </div>
 
