@@ -306,7 +306,9 @@
         </div>
       </div>
 
-      <div class="card hero-card" id="student-form-fields-anchor">
+      <button type="button" id="student-back-btn" class="hidden" onclick="backToStudentDashboard()" style="display:flex;align-items:center;gap:8px;background:#fff;border:1.5px solid #c7d2fe;color:#4338ca;font-weight:700;border-radius:999px;padding:9px 18px;margin-bottom:14px;cursor:pointer;font-size:.85rem;">← Dashboard par wapas</button>
+
+      <div class="card hero-card hidden" id="student-form-fields-anchor">
         <h2 class="section-title">🎯 Start Your Test</h2>
 
         <div id="student-welcome-bar" style="display:flex;align-items:center;justify-content:space-between;background:#f0fdf4;border:1px solid #86efac;border-radius:10px;padding:10px 14px;margin-bottom:14px;">
@@ -334,7 +336,7 @@
         <button id="student-submit" type="submit" class="btn-primary big-btn">Start Test →</button>
       </div>
 
-      <div class="card" id="student-results-card">
+      <div class="card hidden" id="student-results-card">
         <h3 class="section-title">📊 Result Sheet</h3>
         <p class="muted-text">Apne test ka rank aur marks dekhein — sabhi students ka result ek hi sheet mein.</p>
         <div class="field-row">
@@ -346,7 +348,7 @@
         <div id="student-result-sheet" class="board-result-sheet-wrap"></div>
       </div>
 
-      <div class="card" id="my-result-detail-card">
+      <div class="card hidden" id="my-result-detail-card">
         <div class="my-result-header">
           <div>
             <h3 class="section-title" style="margin-bottom:2px;">🧾 Mera Result</h3>
@@ -359,7 +361,7 @@
       </div>
 
       <!-- ── PRACTICE MODE (unlimited, no timer pressure, no leaderboard) ── -->
-      <div class="card" id="practice-mode-card">
+      <div class="card hidden" id="practice-mode-card">
         <h3 class="section-title">🎯 Practice Mode</h3>
         <p class="muted-text">Bina time-pressure ke practice karo — turant sahi/galat pata chalega, koi leaderboard rank nahi banti.</p>
         <div class="field-row">
@@ -382,7 +384,7 @@
       </div>
 
       <!-- ── MY PROGRESS (score trend across all tests) ── -->
-      <div class="card" id="my-progress-card">
+      <div class="card hidden" id="my-progress-card">
         <h3 class="section-title">📈 My Progress</h3>
         <p class="muted-text">Aapke saare tests ka score trend — dekhein aap time ke saath improve kar rahe hain ya nahi.</p>
         <div id="my-progress-empty" class="muted-text">Abhi tak koi test attempt nahi hua.</div>
@@ -390,7 +392,7 @@
       </div>
 
       <!-- ── MY MISTAKES (auto-collected wrong answers, revise anytime) ── -->
-      <div class="card" id="my-mistakes-card">
+      <div class="card hidden" id="my-mistakes-card">
         <h3 class="section-title">❌ My Mistakes</h3>
         <p class="muted-text">Jo bhi question kisi test mein galat hua, wo yahan automatically save ho jata hai — revise karke "Maine sikh liya" dabayein.</p>
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
@@ -401,7 +403,7 @@
       </div>
 
       <!-- ── DOUBT BOX (student asks, admin replies) ── -->
-      <div class="card" id="doubt-box-card">
+      <div class="card hidden" id="doubt-box-card">
         <h3 class="section-title">❓ Doubt Box</h3>
         <p class="muted-text">Kisi bhi question par doubt ho to yahan pucho — Admin seedha yahin reply karega.</p>
         <div id="doubt-submit-form">

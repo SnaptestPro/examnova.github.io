@@ -666,14 +666,33 @@ function populateStudentFormFromSession(session) {
   if (cdName && session.name) cdName.textContent = session.name;
 }
 
-// Creative student dashboard cards -> scroll to the matching section
+// Creative student dashboard cards -> jump to the matching section, and
+// show ONLY that section (hide the dashboard cards + every other section)
+// so it behaves exactly like the Admin "Manage" cards: one focused screen
+// per function, with a "Back to dashboard" button to return.
+const STUDENT_SECTION_IDS = [
+  "student-form-fields-anchor", "student-results-card", "my-result-detail-card",
+  "practice-mode-card", "my-progress-card", "my-mistakes-card", "doubt-box-card"
+];
 function goStudentSection(id) {
   const el = document.getElementById(id);
   if (!el) return;
-  el.classList.remove("hidden");
+  document.getElementById("student-dashboard-home")?.classList.add("hidden");
+  document.getElementById("student-back-btn")?.classList.remove("hidden");
+  STUDENT_SECTION_IDS.forEach(sid => {
+    document.getElementById(sid)?.classList.toggle("hidden", sid !== id);
+  });
   el.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 window.goStudentSection = goStudentSection;
+
+function backToStudentDashboard() {
+  STUDENT_SECTION_IDS.forEach(sid => document.getElementById(sid)?.classList.add("hidden"));
+  document.getElementById("student-back-btn")?.classList.add("hidden");
+  document.getElementById("student-dashboard-home")?.classList.remove("hidden");
+  document.getElementById("student-dashboard-home")?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+window.backToStudentDashboard = backToStudentDashboard;
 
 function goStudentLeaderboard() {
   document.getElementById("leaderboard-tab")?.click();
