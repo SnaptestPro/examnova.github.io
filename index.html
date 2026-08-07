@@ -452,25 +452,7 @@
 
     <!-- ── ADMIN PANEL ── -->
     <div id="admin-panel" class="hidden">
-      <!-- Seed Button -->
-      <div class="card" style="background:linear-gradient(135deg,#eff6ff,#dbeafe);border:1.5px solid #93c5fd;margin-bottom:12px;padding:14px 18px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
-        <div>
-          <strong style="color:#1e40af;">📥 Firebase Question Bank Seed</strong>
-          <p style="font-size:.82rem;color:#3730a3;margin-top:3px;">Pehli baar click karo — sare subjects (Math &amp; History) ke questions Firebase mein save/update ho jayenge.</p>
-        </div>
-        <button id="seed-questions-btn" class="btn-primary" style="background:linear-gradient(135deg,#2563eb,#1d4ed8);">🌱 Seed All Questions to Firebase</button>
-      </div>
-      <div class="card" style="background:linear-gradient(135deg,#fff7ed,#ffedd5);border:1.5px solid #fdba74;margin-bottom:12px;padding:12px 18px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
-        <div>
-          <strong style="color:#9a3412;">🔐 Admin Password</strong>
-          <p style="font-size:.82rem;color:#7c2d12;margin-top:3px;">Password ab Firebase mein save hoga, isliye har device par same rahega.</p>
-        </div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          <button id="change-admin-password-btn" class="btn-primary" style="background:linear-gradient(135deg,#ea580c,#c2410c);">🔁 Change Password</button>
-          <button id="set-recovery-btn" class="btn-primary" style="background:linear-gradient(135deg,#0891b2,#0e7490);">ℹ️ Recovery Info</button>
-          <button id="admin-logout-btn" type="button" class="btn-primary" style="background:linear-gradient(135deg,#64748b,#334155);">🚪 Admin Logout</button>
-        </div>
-      </div>
+      <button type="button" id="admin-back-btn" class="hidden" onclick="backToAdminDashboard()" style="display:flex;align-items:center;gap:8px;background:#fff;border:1.5px solid #c7d2fe;color:#4338ca;font-weight:700;border-radius:999px;padding:9px 18px;margin-bottom:14px;cursor:pointer;font-size:.85rem;">← Dashboard par wapas</button>
 
       <!-- ── CREATIVE ADMIN DASHBOARD HOME ── -->
       <div class="cd-wrap" id="admin-dashboard-home">
@@ -480,6 +462,32 @@
             <p>Tests banayein, question bank manage karein aur students ka progress ek jagah se track karein.</p>
           </div>
           <div class="cd-hero-emoji">🛡️</div>
+        </div>
+
+        <div class="cd-util-grid">
+          <div class="cd-util-card">
+            <div class="cd-util-top">
+              <div class="cd-icon-circle" style="background:#dbe7fe;color:#2563eb;">📥</div>
+              <div class="cd-util-title">Firebase Question Bank Seed</div>
+            </div>
+            <div class="cd-util-sub">Pehli baar click karo — sare subjects (Math &amp; History) ke questions Firebase mein save/update ho jayenge.</div>
+            <div class="cd-util-actions">
+              <button id="seed-questions-btn" class="cd-pill-btn" style="background:linear-gradient(135deg,#2563eb,#1d4ed8);">🌱 Seed All Questions</button>
+            </div>
+          </div>
+
+          <div class="cd-util-card">
+            <div class="cd-util-top">
+              <div class="cd-icon-circle" style="background:#ffe9d4;color:#ea580c;">🔐</div>
+              <div class="cd-util-title">Admin Password</div>
+            </div>
+            <div class="cd-util-sub">Password ab Firebase mein save hoga, isliye har device par same rahega.</div>
+            <div class="cd-util-actions">
+              <button id="change-admin-password-btn" class="cd-pill-btn" style="background:linear-gradient(135deg,#ea580c,#c2410c);">🔁 Change Password</button>
+              <button id="set-recovery-btn" class="cd-pill-btn" style="background:linear-gradient(135deg,#0891b2,#0e7490);">ℹ️ Recovery Info</button>
+              <button id="admin-logout-btn" type="button" class="cd-pill-btn" style="background:linear-gradient(135deg,#64748b,#334155);">🚪 Admin Logout</button>
+            </div>
+          </div>
         </div>
 
         <div class="cd-section-title">Manage</div>
@@ -557,8 +565,6 @@
           <div class="cd-promo-icon">🔐</div>
         </div>
       </div>
-
-      <button type="button" id="admin-back-btn" class="hidden" onclick="backToAdminDashboard()" style="display:flex;align-items:center;gap:8px;background:#fff;border:1.5px solid #c7d2fe;color:#4338ca;font-weight:700;border-radius:999px;padding:9px 18px;margin-bottom:14px;cursor:pointer;font-size:.85rem;">← Dashboard par wapas</button>
 
       <div class="admin-tabs">
         <button id="tests-tab" class="tab active" style="background: linear-gradient(135deg,#2563eb,#1d4ed8); color: white;">📋 Tests</button>

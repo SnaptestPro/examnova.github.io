@@ -225,6 +225,60 @@
   color: #fff;
 }
 
+/* Utility cards (Seed / Password) — same rounded language as cd-card,
+   but wider with pill action buttons instead of an arrow */
+.cd-util-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin-bottom: 20px;
+}
+.cd-util-card {
+  background: #fff;
+  border-radius: 20px;
+  padding: 18px 18px 16px;
+  box-shadow: 0 8px 24px rgba(30,27,75,.08);
+  border: 1px solid rgba(79,70,229,.06);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.cd-util-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.cd-util-title {
+  font-size: .92rem;
+  font-weight: 800;
+  color: #1e1b4b;
+}
+.cd-util-sub {
+  font-size: .78rem;
+  color: #6b7280;
+  line-height: 1.4;
+}
+.cd-util-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+.cd-pill-btn {
+  border: none;
+  border-radius: 999px;
+  padding: 9px 16px;
+  font-weight: 700;
+  font-size: .8rem;
+  cursor: pointer;
+  color: #fff;
+  white-space: nowrap;
+}
+
+@media (max-width: 560px) {
+  .cd-util-grid { grid-template-columns: 1fr; }
+}
+
 @media (max-width: 480px) {
   .cd-hero { padding: 18px; }
   .cd-hero-text h2 { font-size: 1.1rem; }
