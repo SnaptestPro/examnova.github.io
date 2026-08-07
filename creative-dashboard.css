@@ -234,3 +234,9 @@
 }
 
 .cd-hidden-when-active .cd-toggle-note { display: none; }
+
+/* The cards above already act as navigation for Admin/Student —
+   hide the old row of tab buttons so only ONE section shows at a time
+   and there's no duplicate nav. The buttons stay in the DOM (display:none)
+   so existing JS (showAdminTab etc.) keeps working unchanged. */
+#admin-panel > .admin-tabs { display: none !important; }

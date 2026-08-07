@@ -931,10 +931,18 @@ function logoutStudent() {
   showMode("student");
 }
 
-// Creative admin dashboard card -> jumps to the matching tab + scrolls down
+// Creative admin dashboard card -> jumps to the matching tab + scrolls
+// straight to that section only (old tab bar is hidden, cards are the nav)
+const ADMIN_TAB_BOX_IDS = {
+  tests: "tests-area", bank: "bank-box", "bulk-upload": "bulk-upload-box",
+  records: "records-box", generator: "generator-box", trash: "trash-box",
+  doubts: "doubts-box", omr: "omr-box", grade: "grade-box"
+};
 function goAdmin(tab) {
   showAdminTab(tab);
-  document.querySelector(".admin-tabs")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  const boxId = ADMIN_TAB_BOX_IDS[tab];
+  const target = (boxId && document.getElementById(boxId)) || document.querySelector(".admin-tabs");
+  target?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 window.goAdmin = goAdmin;
 
