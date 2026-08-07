@@ -441,6 +441,7 @@ function init() {
   bindEvent("#student-forgot-link", 'onclick', () => showStudentAuthPanel("forgot"));
   bindEvent("#student-forgot-back-link", 'onclick', () => showStudentAuthPanel("login"));
   bindEvent("#student-logout-btn", 'onclick', logoutStudent);
+  bindEvent("#student-settings-logout-btn", 'onclick', logoutStudent);
   bindEvent("#test-form", 'onsubmit', saveTest);
   bindEvent("#bank-form", 'onsubmit', saveBankQuestion);
   bindEvent("#bank-modal-close-x", 'onclick', cancelBankEdit);
@@ -672,7 +673,8 @@ function populateStudentFormFromSession(session) {
 // per function, with a "Back to dashboard" button to return.
 const STUDENT_SECTION_IDS = [
   "student-form-fields-anchor", "student-results-card", "my-result-detail-card",
-  "practice-mode-card", "my-progress-card", "my-mistakes-card", "doubt-box-card"
+  "practice-mode-card", "my-progress-card", "my-mistakes-card", "doubt-box-card",
+  "student-settings-card"
 ];
 function goStudentSection(id) {
   const el = document.getElementById(id);
@@ -682,6 +684,13 @@ function goStudentSection(id) {
   STUDENT_SECTION_IDS.forEach(sid => {
     document.getElementById(sid)?.classList.toggle("hidden", sid !== id);
   });
+  if (id === "student-settings-card") {
+    const session = getStudentSession && getStudentSession();
+    const nameEl = document.getElementById("settings-student-name");
+    const mobileEl = document.getElementById("settings-student-mobile");
+    if (nameEl) nameEl.textContent = (session && session.name) || "—";
+    if (mobileEl) mobileEl.textContent = (session && session.mobile) || "—";
+  }
   el.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 window.goStudentSection = goStudentSection;
