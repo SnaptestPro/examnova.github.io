@@ -660,6 +660,21 @@ function showMode(mode, opts) {
     $("#admin-login-form").classList.toggle("hidden", mode !== "admin" || adminLoginShown);
     if (mode !== "admin") $("#admin-panel").classList.add("hidden");
   }
+
+  // Poora top header (logo + title + Student/Admin nav) sirf tab tak
+  // dikhna chahiye jab tak koi login/register screen par ho. Jaise hi
+  // koi apne dashboard mein pahunch jaata hai (student ya admin), poora
+  // header hata dete hain — dashboard ke apne "Welcome"/naam wale hero
+  // section se hi context mil jaata hai, upar wala header dobara wahi
+  // baat repeat nahi karta. Logout hone par (login screen par wapas)
+  // header khud-ba-khud dobara dikhne lagega.
+  const siteHeader = document.querySelector(".site-header");
+  if (siteHeader) {
+    const dashboardShown =
+      (mode === "student" && studentIsLoggedIn) ||
+      (mode === "admin" && isAdminLoggedIn());
+    siteHeader.classList.toggle("hidden", dashboardShown);
+  }
 }
 
 /* ══════════════════════════════════════════
