@@ -531,7 +531,12 @@ function init() {
     const studentLoggedIn = !!getStudentSession();
     if (lastView && lastView.mode === "admin" && isAdminLoggedIn()) {
       showMode("admin");
-      if (lastView.section) showAdminTab(lastView.section);
+      if (lastView.section) {
+        showAdminTab(lastView.section);
+        if (lastView.section === "tests" && lastView.sub) showTestsSubTab(lastView.sub);
+        if (lastView.section === "records" && lastView.sub) showRecordsSubTab(lastView.sub);
+        if (lastView.section === "omr" && lastView.sub) showOmrSubTab(lastView.sub);
+      }
     } else {
       showMode("student", { preserveSection: true });
       if (studentLoggedIn && lastView && lastView.mode === "student" && lastView.section) {
@@ -1043,6 +1048,77 @@ function backToAdminDashboard() {
 }
 window.backToAdminDashboard = backToAdminDashboard;
 
+// ── Tests sub-hub: "Create Test" aur "All Tests" do alag cards hain
+//    (bilkul Admin dashboard ke Manage cards jaisa) — ek waqt mein sirf
+//    ek hi dikhta hai, dono stack hokar clutter nahi karte. ──────────
+function showTestsSubTab(sub) {
+  $("#tests-hub")?.classList.add("hidden");
+  $("#test-create-box")?.classList.toggle("hidden", sub !== "create");
+  $("#test-list-box")?.classList.toggle("hidden", sub !== "list");
+  if (sub === "list") renderTestList();
+  saveLastView({ mode: "admin", section: "tests", sub });
+  const target = sub === "create" ? $("#test-create-box") : $("#test-list-box");
+  target?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+window.showTestsSubTab = showTestsSubTab;
+
+function backToTestsHub() {
+  $("#test-create-box")?.classList.add("hidden");
+  $("#test-list-box")?.classList.add("hidden");
+  $("#tests-hub")?.classList.remove("hidden");
+  saveLastView({ mode: "admin", section: "tests" });
+  $("#tests-hub")?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+window.backToTestsHub = backToTestsHub;
+
+function updateTestsHubCount() {
+  const el = $("#tests-hub-count");
+  if (el) el.textContent = Object.keys(tests || {}).length || "";
+}
+
+// ── Records sub-hub: "Password Reset / Students Directory / Result
+//    Sheets" — teen alag cards, ek waqt mein sirf ek. ────────────────
+const RECORDS_SUB_BOX_IDS = { reset: "record-reset-box", directory: "record-directory-box", results: "record-results-box" };
+function showRecordsSubTab(sub) {
+  $("#records-hub")?.classList.add("hidden");
+  Object.entries(RECORDS_SUB_BOX_IDS).forEach(([s, id]) => {
+    $(`#${id}`)?.classList.toggle("hidden", s !== sub);
+  });
+  if (sub === "directory" && typeof loadStudentsDirectory === "function") loadStudentsDirectory();
+  saveLastView({ mode: "admin", section: "records", sub });
+  $(`#${RECORDS_SUB_BOX_IDS[sub]}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+window.showRecordsSubTab = showRecordsSubTab;
+
+function backToRecordsHub() {
+  Object.values(RECORDS_SUB_BOX_IDS).forEach(id => $(`#${id}`)?.classList.add("hidden"));
+  $("#records-hub")?.classList.remove("hidden");
+  saveLastView({ mode: "admin", section: "records" });
+  $("#records-hub")?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+window.backToRecordsHub = backToRecordsHub;
+
+// ── OMR sub-hub: "Generate OMR Sheet / Manual Entry" — do alag cards,
+//    ek waqt mein sirf ek. ───────────────────────────────────────────
+const OMR_SUB_BOX_IDS = { generate: "omr-generate-box", manual: "omr-manual-box" };
+function showOmrSubTab(sub) {
+  $("#omr-hub")?.classList.add("hidden");
+  Object.entries(OMR_SUB_BOX_IDS).forEach(([s, id]) => {
+    $(`#${id}`)?.classList.toggle("hidden", s !== sub);
+  });
+  saveLastView({ mode: "admin", section: "omr", sub });
+  $(`#${OMR_SUB_BOX_IDS[sub]}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+window.showOmrSubTab = showOmrSubTab;
+
+function backToOmrHub() {
+  Object.values(OMR_SUB_BOX_IDS).forEach(id => $(`#${id}`)?.classList.add("hidden"));
+  $("#omr-hub")?.classList.remove("hidden");
+  saveLastView({ mode: "admin", section: "omr" });
+  $("#omr-hub")?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+window.backToOmrHub = backToOmrHub;
+
 function showAdminTab(tab) {
   // Whenever any tab/section is shown (via card click, direct button,
   // or after actions like saving a test), keep the dashboard cards
@@ -1062,6 +1138,25 @@ function showAdminTab(tab) {
     $(`#${t}-tab`)?.classList.toggle("active", t === tab);
   });
   $("#tests-area").classList.toggle("hidden", tab !== "tests");
+  // Jab bhi seedha "Tests" tab par aaya jaaye (card click ya kisi aur se),
+  // default Tests-hub (Create Test / All Tests dono cards) dikhao —
+  // pichhla khula hua sub-view yahan reset ho jaata hai. Reload ke baad
+  // sahi sub-view restore karne ke liye caller (restoreLastView wala
+  // code) iske turant baad showTestsSubTab() khud call kar deta hai.
+  if (tab === "tests") {
+    $("#tests-hub")?.classList.remove("hidden");
+    $("#test-create-box")?.classList.add("hidden");
+    $("#test-list-box")?.classList.add("hidden");
+    updateTestsHubCount();
+  }
+  if (tab === "records") {
+    $("#records-hub")?.classList.remove("hidden");
+    Object.values(RECORDS_SUB_BOX_IDS).forEach(id => $(`#${id}`)?.classList.add("hidden"));
+  }
+  if (tab === "omr") {
+    $("#omr-hub")?.classList.remove("hidden");
+    Object.values(OMR_SUB_BOX_IDS).forEach(id => $(`#${id}`)?.classList.add("hidden"));
+  }
   $("#bank-box").classList.toggle("hidden", tab !== "bank");
   $("#bulk-upload-box").classList.toggle("hidden", tab !== "bulk-upload");
   $("#records-box").classList.toggle("hidden", tab !== "records");
@@ -2171,6 +2266,7 @@ function renderTests(selId) {
 }
 
 function renderTestList() {
+  updateTestsHubCount();
   $("#test-list").innerHTML = "";
   Object.entries(tests).forEach(([id, t]) => {
     const item = document.createElement("div");
@@ -2227,6 +2323,7 @@ async function publishTest(id) {
 function editTest(id) {
   const t = tests[id];
   if (!t) return;
+  showTestsSubTab("create");
   editingTestId = id;
   $("#test-title").value = t.title;
   $("#test-minutes").value = t.minutes || 30;
@@ -2597,7 +2694,9 @@ async function saveTest(e) {
     renderTestSections();
     renderDrafts();
     renderTests(id);
+    updateTestsHubCount();
     alert("Test saved online! ✅");
+    showTestsSubTab("list");
   } catch(err) {
     console.warn(err);
     if (String(err.message||"").includes("longer than") || String(err.message||"").includes("exceeds")) {
@@ -5356,6 +5455,7 @@ async function saveAsDraft() {
     renderTestSections();
     renderDrafts();
     renderTests(id);
+    updateTestsHubCount();
     if (statusEl) {
       statusEl.style.display = "block";
       statusEl.style.background = "#fef9c3";
