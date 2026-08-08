@@ -907,6 +907,13 @@ h4 { color: var(--navy); font-size: .95rem; font-weight: 700; margin-bottom: 10p
   .perf-grid { grid-template-columns: 1fr 1fr; }
   .site-header { padding: 12px 14px; }
   .tab { padding: 7px 10px; font-size: .8rem; }
+
+  /* Result Sheet: table + TOP PERFORMERS ko phone par side-by-side ki
+     jagah stacked (upar-neeche) dikhao, warna dono squeeze ho kar
+     TOP PERFORMERS screen se bahar cut ho jaata tha. Pehle ye sirf
+     480px se neeche apply hota tha, jo kai phones (~480-700px CSS
+     width) ko miss kar deta tha — ab har phone-size screen par lagega. */
+  .rs-body { grid-template-columns: 1fr; }
 }
 @media (max-width: 420px) {
   .perf-grid { grid-template-columns: 1fr; }
@@ -1258,7 +1265,12 @@ h4 { color: var(--navy); font-size: .95rem; font-weight: 700; margin-bottom: 10p
   box-shadow: 0 3px 8px rgba(0,0,0,.2);
 }
 
-/* ── Body: table + top performers panel ── */
+/* ── Body: table + top performers panel ──
+   min-width:0 zaroori hai kyunki CSS Grid items by default apni
+   content (jaise table ki chaudi columns) jitna hi shrink hote hain —
+   isi wajah se chhoti (phone-size) screens par TOP PERFORMERS panel
+   table ke baraabar hi (side-by-side) rehta tha aur screen se bahar
+   cut ho jaata tha, single-column stack hone ke bajaye. */
 .rs-body {
   display: grid;
   grid-template-columns: 1.7fr 1fr;
@@ -1267,6 +1279,7 @@ h4 { color: var(--navy); font-size: .95rem; font-weight: 700; margin-bottom: 10p
   border-radius: 14px 14px 0 0;
   padding: 16px;
 }
+.rs-table-col, .rs-top3-col { min-width: 0; }
 .rs-table-col { background: #fff; border-radius: 10px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,.08); }
 
 .rs-table {

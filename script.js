@@ -2654,6 +2654,135 @@ function populateQForm(q) {
   onQuestionTypeChange();
 }
 
+// ── Recompute existing records after a test EDIT ──────────────────
+// Jab admin kisi maujooda (pehle se attempt ho chuke) test ko edit
+// karta hai — answer key thik karna, marks-per-question badalna,
+// negative marking on/off, attempt limit, ya Subjective Marks field
+// badalna — to us test ke PURANE submitted records (Result Sheet mein
+// dikhne wale score/maxScore) stale/purane format mein hi reh jaate
+// the, kyunki score/maxScore sirf ek baar, submission ke waqt
+// calculate hoke record mein save ho jaata tha; test edit karne se wo
+// apne aap update nahi hota tha (isi wajah se, jaise, MCQ:60 +
+// Subjective:40 = 100 wala test edit karne ke baad bhi, purane
+// students ka Result Sheet ab bhi purane (jaise 140) max-marks ke
+// saath dikhta tha).
+//
+// Ye function testId ke saare records ko test ke NAYE (current)
+// format ke hisaab se dobara score/maxScore/correctness calculate
+// karke Firestore mein update kar deta hai — taaki Result Sheet /
+// Top Performers hamesha test ke ABHI wale format se match karein.
+//
+// SAFETY: sirf un records ko touch karta hai jinke details[] ki
+// length test.questions[] jitni hi hai (yaani sirf answer-key/marks
+// jaisi cheezein badli hain, questions add/remove/reorder nahi hue) —
+// warna galat index-matching se data corrupt ho sakta hai, aisa
+// record jaisa tha waisa hi chhod diya jaata hai.
+// Pehle se GRADED subjective (embedded ya manual/external) marks ko
+// chheda nahi jaata (teacher ka judgement surakshit rehta hai) —
+// sirf unka "max" naye test format ke hisaab se update hota hai aur
+// zaroorat padne par awarded marks naye max ke andar cap ho jaate hain.
+async function recomputeRecordsForTest(testId, test) {
+  if (!testId || !test || !Array.isArray(test.questions) || !test.questions.length) return 0;
+
+  const attemptLimit = Number(test.attemptLimit) > 0 ? Number(test.attemptLimit) : null;
+  const neg    = getNeg(test);
+  const negEn  = neg > 0;
+  const mcqMax = getTestMaxMarks(test);
+  const subjMax = getTestSubjectiveMarks(test);
+
+  function recomputeOne(r) {
+    if (!Array.isArray(r.details) || r.details.length !== test.questions.length) return null;
+    let attemptedSoFar = 0;
+    const newDetails = r.details.map((d, i) => {
+      const q = test.questions[i];
+      const isSubjective = q.qType === "subjective";
+      const qM   = getQuestionMarks(test, q);
+      const sel  = d.studentAnswer;
+      const blank = isSubjective ? (sel === null || sel === undefined || String(sel).trim() === "") : sel === null;
+      let counted = true;
+      if (!blank) {
+        attemptedSoFar++;
+        if (attemptLimit && attemptedSoFar > attemptLimit) counted = false;
+      }
+      if (isSubjective) {
+        const marksAwarded = d.subjectiveGraded ? Math.min(Number(d.marksAwarded) || 0, qM) : 0;
+        const status = blank ? "Not answered" : !counted ? "Extra (Not Counted)" : d.subjectiveGraded ? "Graded" : "Pending Review";
+        return { ...d, marksPerQuestion: qM, marksAwarded, status, counted };
+      }
+      const right = sel === q.answer;
+      const status = blank ? "Not answered" : !counted ? "Extra (Not Counted)" : right ? "Correct" : "Wrong";
+      const marksAwarded = (blank || !counted) ? 0 : right ? qM : negEn ? -neg : 0;
+      return { ...d, correctAnswer: q.answer, marksPerQuestion: qM, status, marksAwarded, counted };
+    });
+
+    const rawScore = newDetails.reduce((s, d) => s + (Number(d.marksAwarded) || 0), 0);
+    const pendingSubjective = newDetails.filter(d => d.qType === "subjective" && d.status === "Pending Review").length;
+
+    if (r.externalSubjectiveAwarded !== undefined && r.externalSubjectiveAwarded !== null) {
+      const awarded  = Math.min(Number(r.externalSubjectiveAwarded) || 0, subjMax);
+      const score    = rawScore + awarded;
+      const maxScore = mcqMax + subjMax;
+      return {
+        details: newDetails,
+        mcqOnlyScore: rawScore, mcqOnlyMaxScore: mcqMax,
+        externalSubjectiveAwarded: awarded, externalSubjectiveMax: subjMax,
+        score, maxScore, percentage: maxScore > 0 ? (score / maxScore) * 100 : 0,
+        pendingSubjective
+      };
+    }
+    return {
+      details: newDetails,
+      score: rawScore, maxScore: mcqMax,
+      percentage: mcqMax > 0 ? (rawScore / mcqMax) * 100 : 0,
+      pendingSubjective
+    };
+  }
+
+  const db = getDB();
+  let updatedCount = 0;
+
+  if (db) {
+    // Firestore se seedha testId query karo — in-memory `records` array
+    // sirf "recent 200 site-wide" tak limited hota hai, isliye purane
+    // records isse miss ho sakte the.
+    let snap;
+    try {
+      snap = await db.collection("studentRecords").where("testId", "==", testId).get();
+    } catch (err) { console.warn("Recompute query failed", err); return 0; }
+    const batch = db.batch();
+    snap.docs.forEach(doc => {
+      const r = { id: doc.id, ...doc.data() };
+      const update = recomputeOne(r);
+      if (!update) return;
+      batch.update(doc.ref, update);
+      updatedCount++;
+      const idx = records.findIndex(rec => rec.id === r.id);
+      if (idx >= 0) Object.assign(records[idx], update);
+    });
+    if (updatedCount > 0) {
+      try { await batch.commit(); } catch (err) { console.warn("Recompute batch commit failed", err); }
+    }
+  } else {
+    // Offline/local mode
+    records.filter(r => r.testId === testId).forEach(r => {
+      const update = recomputeOne(r);
+      if (!update) return;
+      Object.assign(r, update);
+      updatedCount++;
+    });
+    if (updatedCount > 0) {
+      try { localStorage.setItem("savya_records", JSON.stringify(records)); } catch(e) {}
+    }
+  }
+
+  if (updatedCount > 0) {
+    renderRecords();
+    renderStudentResultPicker();
+    if ($("#result-test-select")?.value === testId) renderStudentResultSheet();
+  }
+  return updatedCount;
+}
+
 async function saveTest(e) {
   e.preventDefault();
   const pending = readQForm(true);
@@ -2681,6 +2810,7 @@ async function saveTest(e) {
     sections: testSections.map(s => ({ id: s.id, title: s.title, marksPerQuestion: s.marksPerQuestion ?? null })),
     questions: draftQuestions.map(cloneQ)
   };
+  const wasEdit = Boolean(editingTestId);
   try {
     remoteTests[id] = t;
     deletedTestIds.delete(id);
@@ -2695,7 +2825,20 @@ async function saveTest(e) {
     renderDrafts();
     renderTests(id);
     updateTestsHubCount();
-    alert("Test saved online! ✅");
+
+    // Edit ho raha tha (naya test nahi) — to is test ke pehle-se-submitted
+    // records ko naye format (answer key/marks/negative/attempt-limit/
+    // subjective) ke hisaab se dobara calculate kar do, taaki Result Sheet
+    // purana total na dikhaye.
+    let recomputedCount = 0;
+    if (wasEdit) {
+      try { recomputedCount = await recomputeRecordsForTest(id, t); }
+      catch (err) { console.warn("Recompute after edit failed", err); }
+    }
+
+    alert(recomputedCount > 0
+      ? `Test saved online! ✅\n\n🔄 ${recomputedCount} student record(s) ka score/marks bhi naye format ke hisaab se update ho gaya.`
+      : "Test saved online! ✅");
     showTestsSubTab("list");
   } catch(err) {
     console.warn(err);
