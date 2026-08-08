@@ -867,10 +867,52 @@
       </div>`;
   };
 
-  function paintPodium(list, wrap) {
+  // Logged-in student ka apna record poori (full) leaderboard list mein
+  // dhoondhta hai — chahe wo top-3 mein ho ya na ho — taaki "Aapki Rank"
+  // strip mein uska sahi rank/score dikhaya ja sake.
+  function findSelfInLeaderboard(fullList) {
+    const session = (typeof getStudentSession === "function") ? getStudentSession() : null;
+    if (!session || !fullList || !fullList.length) return null;
+    const myMobile = normalizeMobile(session.mobile || "");
+    if (!myMobile) return null;
+    const idx = fullList.findIndex(s => normalizeMobile(s.mobile || "") === myMobile);
+    if (idx === -1) return null;
+    return { rank: idx + 1, total: fullList.length, student: fullList[idx] };
+  }
+
+  // "Aapki Rank" strip — podium ke neeche ek chhoti si patti jo har
+  // student ko (top-3 mein ho ya na ho) uska apna rank, total students
+  // mein se, aur total marks batati hai. Tap karne par usi breakdown
+  // modal ka use karta hai jo podium items par bhi hai.
+  function renderSelfRankStrip(self) {
+    if (!self) return "";
+    const { rank, total, student } = self;
+    const isTop3 = rank <= 3;
+    return `
+      <div class="cd-self-rank" ${isTop3 ? "" : `onclick="showSelfRankBreakdown()"`} style="${isTop3 ? "" : "cursor:pointer;"}">
+        <span class="cd-self-rank-badge">#${rank}</span>
+        <span class="cd-self-rank-text">Aapki Rank — <strong>${total}</strong> students mein se</span>
+        <span class="cd-self-rank-score">${fmtNum(student.totalScore)}/${fmtNum(student.totalMaxScore)} marks</span>
+      </div>`;
+  }
+
+  window._selfRankStudent = null;
+  window.showSelfRankBreakdown = function () {
+    const self = window._selfRankStudent;
+    if (!self) return;
+    // Reuse the same breakdown modal used by podium items — bas iske liye
+    // ek temporary single-item list bana kar rank 0 par daal dete hain.
+    window._topPodiumList = [self];
+    window.showPodiumBreakdown(0);
+  };
+
+  function paintPodium(fullList, wrap) {
     if (!wrap) return;
-    window._topPodiumList = list || [];
-    if (!list || !list.length) { wrap.innerHTML = ""; return; }
+    const list = (fullList || []).slice(0, 3);
+    window._topPodiumList = list;
+    const self = findSelfInLeaderboard(fullList);
+    window._selfRankStudent = self ? self.student : null;
+    if (!list.length) { wrap.innerHTML = ""; return; }
     // Classic podium order on screen: 2nd - 1st - 3rd (1st tallest & center).
     const rankMeta = [
       { medal: "🥇", cls: "cd-rank-1", crown: true  },
@@ -884,7 +926,7 @@
       return `
         <div class="cd-podium-item ${meta.cls}" onclick="showPodiumBreakdown(${rank})" title="Kis test se kitne marks aaye, dekhne ke liye click karein" style="cursor:pointer;">
           ${meta.crown ? '<div class="cd-podium-crown">👑</div>' : ""}
-          <div class="cd-podium-avatar">${escHtml(podiumInitials(student.name))}<span class="cd-podium-medal">${meta.medal}</span></div>
+          <div class="cd-podium-avatar">${escHtml(podiumInitials(student.name))}<span class="cd-podium-rank-badge">#${rank + 1}</span><span class="cd-podium-medal">${meta.medal}</span></div>
           <div class="cd-podium-name">${escHtml(student.name || "Student")}</div>
           <div class="cd-podium-score">${fmtNum(student.totalScore)}/${fmtNum(student.totalMaxScore)} marks</div>
           <div class="cd-podium-tests">${student.testCount} test${student.testCount === 1 ? "" : "s"} · ℹ️ details</div>
@@ -894,15 +936,8 @@
       <div class="cd-podium">
         <div class="cd-podium-title">🏆 Top Performers</div>
         <div class="cd-podium-row">${itemsHtml}</div>
-      </div>`;
-  }
-
-  async function computeTopStudents() {
-    // Top 3 podium ke liye — poori leaderboard nikalo (jisme excluded
-    // test ke marks total mein pehle se hi count nahi hote — dekhein
-    // computeFullLeaderboard) aur sirf top 3 le lo.
-    const full = await computeFullLeaderboard();
-    return full.slice(0, 3);
+      </div>
+      ${renderSelfRankStrip(self)}`;
   }
 
   async function renderTopStudentsPodium() {
@@ -911,7 +946,7 @@
     const cached = loadTopStudentsCache();
     if (cached && Array.isArray(cached.list) && cached.list.length) paintPodium(cached.list, wrap);
     try {
-      const fresh = await computeTopStudents();
+      const fresh = await computeFullLeaderboard();
       if (fresh.length) {
         saveTopStudentsCache(fresh);
         paintPodium(fresh, wrap);
