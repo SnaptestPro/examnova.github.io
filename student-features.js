@@ -734,15 +734,44 @@
       all = records || [];
     }
     const excludedTestIds = getLeaderboardExcludedTestIds(typeof tests !== "undefined" ? tests : null);
-    const byMobile = {};
+
+    // STEP 1 — Agar koi student wahi test kai baar de chuka hai (retake),
+    // to Result Sheet ki tarah sirf uska SABSE ACHHA attempt rakho — baaki
+    // attempts total mein dobara nahi juden. (script.js ki getBestRecordsForTest
+    // jaisi hi logic, bas yahan sab tests ke liye ek saath.) Identity ke liye
+    // studentIdentityKey() use karte hain (script.js mein defined, globally
+    // available) — wahi function fake/placeholder mobile numbers (jaise
+    // "1111111111") ko bhi sahi tarah handle karta hai.
+    const identityOf = (typeof studentIdentityKey === "function")
+      ? studentIdentityKey
+      : (r => "m:" + normalizeMobile(r.mobile || ""));
+    const bestPerTest = new Map(); // key: identity + "||" + testId
     all.forEach(r => {
       if (r.isPractice) return;
       const mobile = normalizeMobile(r.mobile || "");
       if (!mobile) return;
-      if (!byMobile[mobile]) byMobile[mobile] = { mobile, name: r.name || "Student", totalScore: 0, totalMaxScore: 0, testCount: 0, tests: [], _latestIso: "" };
+      const key = identityOf(r) + "||" + (r.testId || "");
+      const cur = bestPerTest.get(key);
+      if (!cur) { bestPerTest.set(key, r); return; }
+      const rScore = Number(r.score) || 0, curScore = Number(cur.score) || 0;
+      if (rScore > curScore) { bestPerTest.set(key, r); return; }
+      if (rScore === curScore) {
+        const rTime = String(r.submittedIso || ""), curTime = String(cur.submittedIso || "");
+        if (rTime && curTime && rTime < curTime) bestPerTest.set(key, r);
+      }
+    });
+
+    // STEP 2 — Ab in (ek student, ek test = ek best attempt) records ko
+    // student ke hisaab se jodo, taaki total kai alag-alag tests ka sahi
+    // sahi jod bane.
+    const byIdentity = {};
+    bestPerTest.forEach(r => {
+      const identity = identityOf(r);
+      const mobile = normalizeMobile(r.mobile || "");
+      if (!byIdentity[identity]) byIdentity[identity] = { mobile, name: r.name || "Student", totalScore: 0, totalMaxScore: 0, testCount: 0, tests: [], _latestIso: "" };
       const excludedFromLb = !!(r.testId && excludedTestIds.has(r.testId));
       const testTitle = r.testTitle || (typeof tests !== "undefined" && tests[r.testId]?.title) || r.testId || "Test";
-      byMobile[mobile].tests.push({
+      byIdentity[identity].tests.push({
         testId: r.testId || "",
         title: testTitle,
         score: Number(r.score) || 0,
@@ -751,16 +780,16 @@
         excludedFromLb
       });
       if (!excludedFromLb) {
-        byMobile[mobile].totalScore += Number(r.score) || 0;
-        byMobile[mobile].totalMaxScore += Number(r.maxScore) || 0;
-        byMobile[mobile].testCount += 1;
+        byIdentity[identity].totalScore += Number(r.score) || 0;
+        byIdentity[identity].totalMaxScore += Number(r.maxScore) || 0;
+        byIdentity[identity].testCount += 1;
       }
-      if (r.submittedIso && r.submittedIso > byMobile[mobile]._latestIso) {
-        byMobile[mobile]._latestIso = r.submittedIso;
-        byMobile[mobile].name = r.name || byMobile[mobile].name;
+      if (r.submittedIso && r.submittedIso > byIdentity[identity]._latestIso) {
+        byIdentity[identity]._latestIso = r.submittedIso;
+        byIdentity[identity].name = r.name || byIdentity[identity].name;
       }
     });
-    return Object.values(byMobile)
+    return Object.values(byIdentity)
       .sort((a, b) => b.totalScore - a.totalScore)
       .map(({ _latestIso, ...rest }) => rest);
   }
