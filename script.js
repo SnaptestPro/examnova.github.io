@@ -3723,9 +3723,26 @@ function formatResultDate(dateStr) {
 // Ek student ka "pehchaan" nikaalta hai (mobile number ko priority — do students
 // ka naam same ho sakta hai, lekin mobile unique hota hai). Mobile na ho to
 // naam (lowercase/trimmed) par fallback karta hai.
+//
+// IMPORTANT FIX: OMR/Manual score-entry mein mobile field required hai (10
+// digit), lekin jab kisi student ka asli number handy nahi hota, teacher
+// aksar ek placeholder jaisa "1111111111" ya "0000000000" bhar dete hain —
+// aur agar do-teen ALAG students ke liye WAHI placeholder use ho jaaye, to
+// system unhe "same student" samajh kar sirf ek (best score wala) record
+// rakhta tha, baaki students Result Sheet/ranking se gayab ho jaate the.
+// Isliye ab aise obviously-fake numbers (saare digit same jaise 1111111111,
+// ya 0000000000/1234567890 jaisi test-pattern entries) ko "valid mobile"
+// nahi maana jaata — un records ke liye naam se hi pehchaan hoti hai,
+// taaki alag students galti se ek dusre mein merge na ho jaayein.
+function looksLikeFakeMobile(m) {
+  if (!m || m.length !== 10) return true;
+  if (/^(\d)\1{9}$/.test(m)) return true; // 1111111111, 0000000000, etc.
+  if (m === "1234567890" || m === "0123456789") return true;
+  return false;
+}
 function studentIdentityKey(r) {
   const m = normalizeMobile(r.mobile || r.parentPhone || "");
-  if (m && m.length === 10) return "m:" + m;
+  if (m && m.length === 10 && !looksLikeFakeMobile(m)) return "m:" + m;
   return "n:" + String(r.name || "").trim().toLowerCase();
 }
 
