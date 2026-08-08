@@ -716,7 +716,10 @@
     return excluded;
   }
 
-  async function computeTopStudents() {
+  async function computeFullLeaderboard() {
+    // Same aggregation as computeTopStudents() lekin poori list deta hai
+    // (top 3 tak crop nahi karta) — Admin ke "Top Performers" tab ke liye,
+    // taaki admin dekh sake ki total marks kis-kis test se ban rahe hain.
     const db = (typeof getDB === "function") ? getDB() : null;
     let all = [];
     try {
@@ -730,20 +733,28 @@
       console.warn("[TopStudents] fetch fail hui, cached records se fallback:", e);
       all = records || [];
     }
-    // Admin ki per-test "Leaderboard ON/OFF" setting — script.js ke syncTests()
-    // wale live listener se global `tests` object pehle se hi synced rehta hai,
-    // isliye yahan koi extra Firestore read nahi karni padi.
     const excludedTestIds = getLeaderboardExcludedTestIds(typeof tests !== "undefined" ? tests : null);
     const byMobile = {};
     all.forEach(r => {
       if (r.isPractice) return;
-      if (r.testId && excludedTestIds.has(r.testId)) return; // admin ne is test ko leaderboard se hataya hai
       const mobile = normalizeMobile(r.mobile || "");
       if (!mobile) return;
-      if (!byMobile[mobile]) byMobile[mobile] = { mobile, name: r.name || "Student", totalScore: 0, totalMaxScore: 0, testCount: 0, _latestIso: "" };
-      byMobile[mobile].totalScore += Number(r.score) || 0;
-      byMobile[mobile].totalMaxScore += Number(r.maxScore) || 0;
-      byMobile[mobile].testCount += 1;
+      if (!byMobile[mobile]) byMobile[mobile] = { mobile, name: r.name || "Student", totalScore: 0, totalMaxScore: 0, testCount: 0, tests: [], _latestIso: "" };
+      const excludedFromLb = !!(r.testId && excludedTestIds.has(r.testId));
+      const testTitle = r.testTitle || (typeof tests !== "undefined" && tests[r.testId]?.title) || r.testId || "Test";
+      byMobile[mobile].tests.push({
+        testId: r.testId || "",
+        title: testTitle,
+        score: Number(r.score) || 0,
+        maxScore: Number(r.maxScore) || 0,
+        submittedIso: r.submittedIso || "",
+        excludedFromLb
+      });
+      if (!excludedFromLb) {
+        byMobile[mobile].totalScore += Number(r.score) || 0;
+        byMobile[mobile].totalMaxScore += Number(r.maxScore) || 0;
+        byMobile[mobile].testCount += 1;
+      }
       if (r.submittedIso && r.submittedIso > byMobile[mobile]._latestIso) {
         byMobile[mobile]._latestIso = r.submittedIso;
         byMobile[mobile].name = r.name || byMobile[mobile].name;
@@ -751,12 +762,85 @@
     });
     return Object.values(byMobile)
       .sort((a, b) => b.totalScore - a.totalScore)
-      .slice(0, 3)
       .map(({ _latestIso, ...rest }) => rest);
   }
 
+  // ── Admin: "Top Performers" tab — poori leaderboard list, har student
+  //    ke total marks kis-kis test se bane hain wo saaf-saaf dikhata hai,
+  //    aur jo test leaderboard se OFF (excluded) hai wo bhi label ho jaata
+  //    hai — taaki admin verify kar sake ki calculation sahi ho raha hai.
+  async function renderAdminLeaderboard() {
+    const box = document.getElementById("admin-leaderboard-list");
+    if (!box) return;
+    box.innerHTML = '<p class="muted-text">Loading…</p>';
+    let list = [];
+    try {
+      list = await computeFullLeaderboard();
+    } catch (e) {
+      box.innerHTML = `<p style="color:#dc2626;">Load nahi ho paya: ${escHtml(e.message || String(e))}</p>`;
+      return;
+    }
+    window._adminLeaderboardList = list;
+    if (!list.length) {
+      box.innerHTML = '<p class="muted-text">Abhi tak koi test record nahi mila.</p>';
+      return;
+    }
+    const medalFor = i => (i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : `#${i + 1}`);
+    box.innerHTML = list.map((s, i) => {
+      const rowsHtml = (s.tests || []).slice().sort((a, b) => (b.submittedIso || "").localeCompare(a.submittedIso || "")).map(t => `
+        <div style="display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-bottom:1px dashed #e5e7eb;font-size:.82rem;">
+          <span style="color:${t.excludedFromLb ? "#9ca3af" : "#374151"};">${escHtml(t.title)}${t.excludedFromLb ? ' <em style="color:#f59e0b;">(leaderboard se OFF — count nahi hua)</em>' : ""}</span>
+          <strong style="color:${t.excludedFromLb ? "#9ca3af" : "#4338ca"};white-space:nowrap;">${fmtNum(t.score)}/${fmtNum(t.maxScore)}</strong>
+        </div>`).join("");
+      return `
+        <details class="card" style="margin-bottom:10px;padding:12px 16px;">
+          <summary style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;list-style:none;">
+            <span style="font-weight:700;color:#1e1b4b;">${medalFor(i)} ${escHtml(s.name || "Student")} <small style="color:#6b7280;font-weight:500;">(${escHtml(s.mobile)})</small></span>
+            <span style="font-weight:700;color:#4338ca;">${fmtNum(s.totalScore)}/${fmtNum(s.totalMaxScore)} marks · ${s.testCount} test${s.testCount === 1 ? "" : "s"}</span>
+          </summary>
+          <div style="margin-top:10px;">${rowsHtml || '<p class="muted-text" style="margin:0;">Koi test nahi.</p>'}</div>
+        </details>`;
+    }).join("");
+  }
+  window.renderAdminLeaderboard = renderAdminLeaderboard;
+
+  // Podium item par click karne se ye modal khulta hai — student ke total
+  // marks kis-kis test se mile hain, wo breakdown yahan dikhta hai. List
+  // window par store karte hain taaki inline onclick se index se access ho sake.
+  window._topPodiumList = [];
+  window.showPodiumBreakdown = function (rank) {
+    const student = (window._topPodiumList || [])[rank];
+    if (!student) return;
+    let overlay = document.getElementById("podium-breakdown-modal");
+    if (!overlay) {
+      overlay = document.createElement("div");
+      overlay.id = "podium-breakdown-modal";
+      overlay.style.cssText = "position:fixed;inset:0;background:rgba(15,15,30,.55);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;";
+      overlay.onclick = function (e) { if (e.target === overlay) overlay.remove(); };
+      document.body.appendChild(overlay);
+    }
+    const rows = (student.tests || [])
+      .slice()
+      .sort((a, b) => (b.submittedIso || "").localeCompare(a.submittedIso || ""))
+      .map(t => `
+        <div style="display:flex;justify-content:space-between;gap:10px;padding:9px 0;border-bottom:1px solid #e5e7eb;">
+          <span style="color:#374151;font-size:.85rem;">${escHtml(t.title)}</span>
+          <strong style="color:#4338ca;font-size:.85rem;white-space:nowrap;">${fmtNum(t.score)}/${fmtNum(t.maxScore)}</strong>
+        </div>`).join("");
+    overlay.innerHTML = `
+      <div style="background:#fff;border-radius:16px;max-width:380px;width:100%;padding:20px;box-shadow:0 12px 40px rgba(0,0,0,.3);max-height:80vh;overflow:auto;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+          <h3 style="margin:0;color:#1e1b4b;font-size:1.05rem;">🏆 ${escHtml(student.name || "Student")}</h3>
+          <button onclick="document.getElementById('podium-breakdown-modal').remove()" style="background:#f3f4f6;border:none;border-radius:8px;width:28px;height:28px;cursor:pointer;font-size:.9rem;">✕</button>
+        </div>
+        <p style="margin:0 0 12px;color:#6b7280;font-size:.82rem;">Total ${fmtNum(student.totalScore)}/${fmtNum(student.totalMaxScore)} marks — ${student.testCount} test${student.testCount === 1 ? "" : "s"} ka jod:</p>
+        ${rows || '<p style="color:#9ca3af;font-size:.85rem;">Koi test record nahi mila.</p>'}
+      </div>`;
+  };
+
   function paintPodium(list, wrap) {
     if (!wrap) return;
+    window._topPodiumList = list || [];
     if (!list || !list.length) { wrap.innerHTML = ""; return; }
     // Classic podium order on screen: 2nd - 1st - 3rd (1st tallest & center).
     const rankMeta = [
@@ -769,12 +853,12 @@
       const student = list[rank];
       const meta = rankMeta[rank];
       return `
-        <div class="cd-podium-item ${meta.cls}">
+        <div class="cd-podium-item ${meta.cls}" onclick="showPodiumBreakdown(${rank})" title="Kis test se kitne marks aaye, dekhne ke liye click karein" style="cursor:pointer;">
           ${meta.crown ? '<div class="cd-podium-crown">👑</div>' : ""}
           <div class="cd-podium-avatar">${escHtml(podiumInitials(student.name))}<span class="cd-podium-medal">${meta.medal}</span></div>
           <div class="cd-podium-name">${escHtml(student.name || "Student")}</div>
           <div class="cd-podium-score">${fmtNum(student.totalScore)}/${fmtNum(student.totalMaxScore)} marks</div>
-          <div class="cd-podium-tests">${student.testCount} test${student.testCount === 1 ? "" : "s"}</div>
+          <div class="cd-podium-tests">${student.testCount} test${student.testCount === 1 ? "" : "s"} · ℹ️ details</div>
         </div>`;
     }).join("");
     wrap.innerHTML = `
@@ -782,6 +866,14 @@
         <div class="cd-podium-title">🏆 Top Performers</div>
         <div class="cd-podium-row">${itemsHtml}</div>
       </div>`;
+  }
+
+  async function computeTopStudents() {
+    // Top 3 podium ke liye — poori leaderboard nikalo (jisme excluded
+    // test ke marks total mein pehle se hi count nahi hote — dekhein
+    // computeFullLeaderboard) aur sirf top 3 le lo.
+    const full = await computeFullLeaderboard();
+    return full.slice(0, 3);
   }
 
   async function renderTopStudentsPodium() {
@@ -903,7 +995,8 @@
     renderAdminDoubts,
     syncPracticeFilters,
     onStudentSectionShown,
-    renderTopStudentsPodium
+    renderTopStudentsPodium,
+    renderAdminLeaderboard
   };
 
 })();

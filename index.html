@@ -543,6 +543,13 @@
             <div class="cd-card-bottom"><span class="cd-arrow-btn">→</span></div>
           </button>
 
+          <button type="button" class="cd-card cd-gold" onclick="goAdmin('leaderboard')">
+            <div class="cd-card-top"><div class="cd-icon-circle">🏆</div><span class="cd-badge">Rank</span></div>
+            <div class="cd-card-title">Top Performers</div>
+            <div class="cd-card-sub">Kiske marks kis test se bane, poora dekhein</div>
+            <div class="cd-card-bottom"><span class="cd-arrow-btn">→</span></div>
+          </button>
+
           <button type="button" class="cd-card cd-gold" onclick="goAdmin('settings')">
             <div class="cd-card-top"><div class="cd-icon-circle">🔐</div><span class="cd-badge">Setup</span></div>
             <div class="cd-card-title">Settings</div>
@@ -561,6 +568,7 @@
         <button id="doubts-tab" class="tab" style="background: linear-gradient(135deg,#0891b2,#0e7490); color: white;">💬 Doubts <span id="doubts-open-count" style="display:none;background:#fff;color:#0e7490;border-radius:999px;padding:0 6px;font-size:.75rem;margin-left:2px;"></span></button>
         <button id="omr-tab" class="tab" style="background: linear-gradient(135deg,#059669,#047857); color: white;">🔲 OMR</button>
         <button id="grade-tab" class="tab" style="background: linear-gradient(135deg,#f59e0b,#b45309); color: white;">📝 Grade Subjective</button>
+        <button id="leaderboard-tab" class="tab" onclick="showAdminTab('leaderboard')" style="background: linear-gradient(135deg,#eab308,#a16207); color: white;">🏆 Top Performers</button>
         <button id="trash-tab" class="tab" onclick="showAdminTab('trash')" style="background: linear-gradient(135deg,#ef4444,#dc2626); color: white;">🗑️ Recycle Bin</button>
       </div>
 
@@ -1085,6 +1093,16 @@ B"></textarea>
       <!-- Generator Box -->
       <div id="generator-box" class="hidden">
         <iframe src="question-generator.html?v=20260708-noback" style="width: 100%; height: calc(100vh - 90px); min-height: 600px; border: 1px solid #e2e8f0; border-radius: 8px; margin-top: 10px;"></iframe>
+      </div>
+
+      <!-- TOP PERFORMERS / LEADERBOARD -->
+      <div id="leaderboard-box" class="hidden">
+        <div class="card">
+          <h3 class="section-title">🏆 Top Performers</h3>
+          <p class="muted-text">Sabhi students yahan total marks ke hisaab se rank mein dikhte hain. Kisi bhi student par click karke uske marks kis-kis test se bane, wo breakdown khul jaayega. Jis test ka Leaderboard OFF hai, uske marks yahan count nahi honge (aur breakdown mein "leaderboard se OFF" likha dikhega).</p>
+          <button type="button" class="btn-secondary" onclick="window.SavyaExtras.renderAdminLeaderboard()" style="margin-bottom:10px;">🔄 Refresh</button>
+          <div id="admin-leaderboard-list"></div>
+        </div>
       </div>
 
       <!-- RECYCLE BIN -->

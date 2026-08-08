@@ -1008,7 +1008,8 @@ function logoutStudent() {
 const ADMIN_TAB_BOX_IDS = {
   tests: "tests-area", bank: "bank-box", "bulk-upload": "bulk-upload-box",
   records: "records-box", generator: "generator-box", trash: "trash-box",
-  doubts: "doubts-box", omr: "omr-box", grade: "grade-box", settings: "settings-box"
+  doubts: "doubts-box", omr: "omr-box", grade: "grade-box", settings: "settings-box",
+  leaderboard: "leaderboard-box"
 };
 function goAdmin(tab) {
   showAdminTab(tab);
@@ -1042,7 +1043,7 @@ function showAdminTab(tab) {
     autoSaveDraftSilently();
   }
 
-  ["tests","bank","bulk-upload","records","generator","trash","doubts","omr","grade"].forEach(t => {
+  ["tests","bank","bulk-upload","records","generator","trash","doubts","omr","grade","leaderboard"].forEach(t => {
     $(`#${t}-tab`)?.classList.toggle("active", t === tab);
   });
   $("#tests-area").classList.toggle("hidden", tab !== "tests");
@@ -1055,9 +1056,11 @@ function showAdminTab(tab) {
   $("#omr-box")?.classList.toggle("hidden", tab !== "omr");
   $("#grade-box")?.classList.toggle("hidden", tab !== "grade");
   $("#settings-box")?.classList.toggle("hidden", tab !== "settings");
+  $("#leaderboard-box")?.classList.toggle("hidden", tab !== "leaderboard");
   document.querySelector(".main-wrap")?.classList.toggle("wide-mode", tab === "generator");
   if (tab === "bank") renderBank();
   if (tab === "doubts" && window.SavyaExtras) window.SavyaExtras.renderAdminDoubts();
+  if (tab === "leaderboard" && window.SavyaExtras) window.SavyaExtras.renderAdminLeaderboard();
   if (tab === "tests") renderTestSections();
   if (tab === "trash") renderTrashBin();
   if (tab === "records" && !allStudentsCache.length) loadStudentsDirectory();
