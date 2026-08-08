@@ -2169,7 +2169,16 @@ function renderTestList() {
     const copy = mkBtn("📋 Copy", "secondary", () => duplicateTest(id));
     const poll = mkBtn("📊 Poll", "secondary", () => openWhatsAppPollModal(id));
     const del  = mkBtn("Delete", "danger",   () => deleteTest(id));
-    if (!t.isDraft) { acts.append(poll); }
+    if (!t.isDraft) {
+      const lbOn = t.includeInLeaderboard !== false; // undefined/true = shaamil (default)
+      const lb = mkBtn(lbOn ? "🏆 Leaderboard: ON" : "🏆 Leaderboard: OFF", "secondary", () => toggleTestLeaderboard(id));
+      lb.title = lbOn
+        ? "Is test ke marks 'Top Performers' mein count ho rahe hain — hataane ke liye click karein"
+        : "Is test ke marks 'Top Performers' mein count NAHI ho rahe — shaamil karne ke liye click karein";
+      lb.style.borderColor = lbOn ? "#22c55e" : "#cbd5e1";
+      lb.style.color = lbOn ? "#16a34a" : "#94a3b8";
+      acts.append(poll, lb);
+    }
     acts.append(edit, copy, del);
     item.appendChild(acts);
     $("#test-list").appendChild(item);
@@ -2266,6 +2275,36 @@ async function duplicateTest(id) {
     renderTests(newId);
     alert("✅ Test copy ho gaya! Draft mein save hai. Edit karke Publish karo.");
   } catch(err) { alert("Copy failed: " + err.message); }
+}
+
+/* ── Leaderboard control: admin decide karta hai kis kis test ke marks
+     student-side "Top Performers" podium mein count honge. Field na ho
+     to default ON hi maana jaata hai (purane tests bina kisi extra step
+     ke pehle jaisa behave karte rahein). ─────────────────────────────── */
+async function toggleTestLeaderboard(id) {
+  const t = tests[id];
+  if (!t) return;
+  const wasOn = t.includeInLeaderboard !== false;
+  const newOn = !wasOn;
+  t.includeInLeaderboard = newOn;
+  if (remoteTests[id]) remoteTests[id].includeInLeaderboard = newOn;
+  renderTestList(); // click par turant dikh jaye, save ka wait na karna pade
+
+  try {
+    const db = getDB();
+    if (db) await db.collection("tests").doc(id).set({ includeInLeaderboard: newOn }, { merge: true });
+  } catch (err) {
+    t.includeInLeaderboard = wasOn; // save fail hui to UI wapas purani state par
+    if (remoteTests[id]) remoteTests[id].includeInLeaderboard = wasOn;
+    renderTestList();
+    alert("⚠️ Leaderboard setting save nahi ho payi: " + err.message);
+    return;
+  }
+
+  // Podium ko turant refresh karo taaki naya control turant asar dikhaye
+  if (window.SavyaExtras && typeof window.SavyaExtras.renderTopStudentsPodium === "function") {
+    window.SavyaExtras.renderTopStudentsPodium();
+  }
 }
 
 /* ── Draft questions ── */

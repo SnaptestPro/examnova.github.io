@@ -702,6 +702,20 @@
     return (name || "S").trim().split(/\s+/).map(w => w[0]).filter(Boolean).slice(0, 2).join("").toUpperCase();
   }
 
+  // Admin ki "Leaderboard: ON/OFF" setting (script.js -> toggleTestLeaderboard,
+  // test doc ka includeInLeaderboard field) se batata hai kaunse testId ko
+  // podium ke calculation se bahar rakhna hai. Field missing/undefined ho to
+  // us test ko included hi maana jaata hai (default ON, backward-compatible).
+  function getLeaderboardExcludedTestIds(testsMap) {
+    const excluded = new Set();
+    if (testsMap && typeof testsMap === "object") {
+      Object.entries(testsMap).forEach(([id, t]) => {
+        if (t && t.includeInLeaderboard === false) excluded.add(id);
+      });
+    }
+    return excluded;
+  }
+
   async function computeTopStudents() {
     const db = (typeof getDB === "function") ? getDB() : null;
     let all = [];
@@ -716,13 +730,19 @@
       console.warn("[TopStudents] fetch fail hui, cached records se fallback:", e);
       all = records || [];
     }
+    // Admin ki per-test "Leaderboard ON/OFF" setting — script.js ke syncTests()
+    // wale live listener se global `tests` object pehle se hi synced rehta hai,
+    // isliye yahan koi extra Firestore read nahi karni padi.
+    const excludedTestIds = getLeaderboardExcludedTestIds(typeof tests !== "undefined" ? tests : null);
     const byMobile = {};
     all.forEach(r => {
       if (r.isPractice) return;
+      if (r.testId && excludedTestIds.has(r.testId)) return; // admin ne is test ko leaderboard se hataya hai
       const mobile = normalizeMobile(r.mobile || "");
       if (!mobile) return;
-      if (!byMobile[mobile]) byMobile[mobile] = { mobile, name: r.name || "Student", totalScore: 0, testCount: 0, _latestIso: "" };
+      if (!byMobile[mobile]) byMobile[mobile] = { mobile, name: r.name || "Student", totalScore: 0, totalMaxScore: 0, testCount: 0, _latestIso: "" };
       byMobile[mobile].totalScore += Number(r.score) || 0;
+      byMobile[mobile].totalMaxScore += Number(r.maxScore) || 0;
       byMobile[mobile].testCount += 1;
       if (r.submittedIso && r.submittedIso > byMobile[mobile]._latestIso) {
         byMobile[mobile]._latestIso = r.submittedIso;
@@ -753,7 +773,7 @@
           ${meta.crown ? '<div class="cd-podium-crown">👑</div>' : ""}
           <div class="cd-podium-avatar">${escHtml(podiumInitials(student.name))}<span class="cd-podium-medal">${meta.medal}</span></div>
           <div class="cd-podium-name">${escHtml(student.name || "Student")}</div>
-          <div class="cd-podium-score">${fmtNum(student.totalScore)} marks</div>
+          <div class="cd-podium-score">${fmtNum(student.totalScore)}/${fmtNum(student.totalMaxScore)} marks</div>
           <div class="cd-podium-tests">${student.testCount} test${student.testCount === 1 ? "" : "s"}</div>
         </div>`;
     }).join("");
