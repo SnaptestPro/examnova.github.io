@@ -95,6 +95,48 @@
     return null; // dashboard-home (admin ka "root") khula hai
   }
 
+  // ── Admin tab ke ANDAR ke "hub -> sub-card" system (Tests: Create Test/
+  //    All Tests, Records: Password Reset/Directory/Result Sheets, OMR:
+  //    Generate/Manual Entry) — showTestsSubTab/showRecordsSubTab/
+  //    showOmrSubTab (aur unke backTo...Hub) se hokar switch hote hain,
+  //    lekin ye "tests"/"records"/"omr" jaisi top-level admin-tab
+  //    signature nahi badalte (tests-area hamesha visible hi rehta hai,
+  //    andar sirf hub <-> sub-card CSS-hide/show hoti hai) — isi wajah
+  //    se pehle koi history step nahi banta tha, aur sub-card (jaise
+  //    "Create Test") ke andar se back dabate hi seedha "app exit" toast
+  //    aa jaata tha, hub (pichli slide) par nahi jaata tha.
+  var ADMIN_HUB_SUBTABS = {
+    tests: [
+      { sub: "create", box: "test-create-box" },
+      { sub: "list",   box: "test-list-box" }
+    ],
+    records: [
+      { sub: "reset",     box: "record-reset-box" },
+      { sub: "directory", box: "record-directory-box" },
+      { sub: "results",   box: "record-results-box" }
+    ],
+    omr: [
+      { sub: "generate", box: "omr-generate-box" },
+      { sub: "manual",   box: "omr-manual-box" }
+    ]
+  };
+  function currentAdminSub(tab) {
+    var list = tab && ADMIN_HUB_SUBTABS[tab];
+    if (!list) return null;
+    for (var i = 0; i < list.length; i++) {
+      if (isVisible(document.getElementById(list[i].box))) return list[i].sub;
+    }
+    return null; // hub khula hai (koi sub-card nahi)
+  }
+  function goToAdminSub(tab, sub) {
+    var pair = { tests: ["showTestsSubTab", "backToTestsHub"],
+                 records: ["showRecordsSubTab", "backToRecordsHub"],
+                 omr: ["showOmrSubTab", "backToOmrHub"] }[tab];
+    if (!pair) return;
+    if (sub) { try { (window[pair[0]] || function () {})(sub); } catch (e) {} }
+    else { try { (window[pair[1]] || function () {})(); } catch (e) {} }
+  }
+
   // ── Student dashboard ke ANDAR ke cards (dashboard-home <-> Start
   //    Test/My Progress/My Mistakes/Doubt Box/...) — Admin subtabs jaisa
   //    hi isolated-card system hai (goStudentSection/backToStudentDashboard,
@@ -139,19 +181,21 @@
   var lastExamIndex = null;
   var lastSolIndex  = null;
   var lastAdminTab  = null;
+  var lastAdminSub  = null;
   var lastStudentTab = null;
   var suppress = false; // true jab hum khud UI update kar rahe hain (loop rokne ke liye)
 
-  history.replaceState({ g: true, sig: "", examIndex: null, solIndex: null, adminTab: null, studentTab: null }, "", location.href);
+  history.replaceState({ g: true, sig: "", examIndex: null, solIndex: null, adminTab: null, studentTab: null, adminSub: null }, "", location.href);
 
-  function pushGuardState(sig, examIndex, solIndex, adminTab, studentTab) {
+  function pushGuardState(sig, examIndex, solIndex, adminTab, studentTab, adminSub) {
     history.pushState({
       g: true,
       sig: sig || "",
       examIndex: (typeof examIndex === "number") ? examIndex : null,
       solIndex:  (typeof solIndex  === "number") ? solIndex  : null,
       adminTab:  (typeof adminTab  !== "undefined") ? adminTab : null,
-      studentTab: (typeof studentTab !== "undefined") ? studentTab : null
+      studentTab: (typeof studentTab !== "undefined") ? studentTab : null,
+      adminSub:  (typeof adminSub  !== "undefined") ? adminSub : null
     }, "", location.href);
   }
 
@@ -173,8 +217,9 @@
     lastExamIndex = isExamActive() ? (typeof current.index === "number" ? current.index : 0) : null;
     lastSolIndex  = isSolutionActive() ? currentSolIndex : null;
     lastAdminTab  = currentAdminTab();
+    lastAdminSub  = currentAdminSub(lastAdminTab);
     lastStudentTab = currentStudentTab();
-    pushGuardState(sig, lastExamIndex, lastSolIndex, lastAdminTab, lastStudentTab);
+    pushGuardState(sig, lastExamIndex, lastSolIndex, lastAdminTab, lastStudentTab, lastAdminSub);
   }
   var observer = new MutationObserver(scheduleCheck);
   observer.observe(document.body, { attributes: true, attributeFilter: ["class", "style"], subtree: true });
@@ -194,7 +239,7 @@
     if (typeof current.index !== "number") return;
     if (current.index === lastExamIndex) return;
     lastExamIndex = current.index;
-    pushGuardState(lastSignature, lastExamIndex, lastSolIndex, lastAdminTab, lastStudentTab);
+    pushGuardState(lastSignature, lastExamIndex, lastSolIndex, lastAdminTab, lastStudentTab, lastAdminSub);
   }
 
   // ── Admin: dashboard-home <-> Tests/Bank/OMR/... switch par bhi
@@ -220,9 +265,36 @@
   function trackAdminTab() {
     if (suppress) return;
     var tab = currentAdminTab();
-    if (tab === lastAdminTab) return;
+    var sub = currentAdminSub(tab);
+    if (tab === lastAdminTab && sub === lastAdminSub) return;
     lastAdminTab = tab;
-    pushGuardState(lastSignature, lastExamIndex, lastSolIndex, lastAdminTab, lastStudentTab);
+    lastAdminSub = sub;
+    pushGuardState(lastSignature, lastExamIndex, lastSolIndex, lastAdminTab, lastStudentTab, lastAdminSub);
+  }
+
+  // ── Admin tab ke ANDAR hub <-> sub-card (Tests: Create/All, Records:
+  //    Reset/Directory/Results, OMR: Generate/Manual) switch par bhi
+  //    history step banao — bilkul trackAdminTab() jaisa hi, bas ek
+  //    level neeche. ──────────────────────────────────────────────────
+  ["showTestsSubTab", "backToTestsHub", "showRecordsSubTab", "backToRecordsHub",
+   "showOmrSubTab", "backToOmrHub"].forEach(function (fnName) {
+    if (typeof window[fnName] === "function") {
+      var _origFn = window[fnName];
+      window[fnName] = function () {
+        var result = _origFn.apply(this, arguments);
+        trackAdminSub();
+        return result;
+      };
+    }
+  });
+  function trackAdminSub() {
+    if (suppress) return;
+    var tab = currentAdminTab();
+    var sub = currentAdminSub(tab);
+    if (tab === lastAdminTab && sub === lastAdminSub) return;
+    lastAdminTab = tab;
+    lastAdminSub = sub;
+    pushGuardState(lastSignature, lastExamIndex, lastSolIndex, lastAdminTab, lastStudentTab, lastAdminSub);
   }
 
   // ── Student: dashboard-home <-> Start Test/My Progress/Doubt Box/...
@@ -250,7 +322,7 @@
     var tab = currentStudentTab();
     if (tab === lastStudentTab) return;
     lastStudentTab = tab;
-    pushGuardState(lastSignature, lastExamIndex, lastSolIndex, lastAdminTab, lastStudentTab);
+    pushGuardState(lastSignature, lastExamIndex, lastSolIndex, lastAdminTab, lastStudentTab, lastAdminSub);
   }
 
   // ── Solution review: har question-change par history step ────
@@ -268,7 +340,7 @@
     if (typeof currentSolIndex !== "number") return;
     if (currentSolIndex === lastSolIndex) return;
     lastSolIndex = currentSolIndex;
-    pushGuardState(lastSignature, lastExamIndex, lastSolIndex, lastAdminTab, lastStudentTab);
+    pushGuardState(lastSignature, lastExamIndex, lastSolIndex, lastAdminTab, lastStudentTab, lastAdminSub);
   }
 
   // ── "Dobara Back dabayein exit karne ke liye" toast ───────────
@@ -300,7 +372,7 @@
     //    poora exam chhodna chahta hai -> confirm poocho.
     if (isExamActive() && (!st.sig || st.sig.indexOf("#exam-screen") === -1)) {
       suppress = true;
-      pushGuardState(lastSignature, lastExamIndex, lastSolIndex, lastAdminTab, lastStudentTab); // is back ko cancel karo
+      pushGuardState(lastSignature, lastExamIndex, lastSolIndex, lastAdminTab, lastStudentTab, lastAdminSub); // is back ko cancel karo
       suppress = false;
       var wantsExit = confirm(
         "⚠️ Test abhi chal raha hai!\n\n" +
@@ -339,7 +411,7 @@
     var modal = topVisibleModal();
     if (modal) {
       suppress = true;
-      pushGuardState(lastSignature, lastExamIndex, lastSolIndex, lastAdminTab, lastStudentTab);
+      pushGuardState(lastSignature, lastExamIndex, lastSolIndex, lastAdminTab, lastStudentTab, lastAdminSub);
       suppress = false;
       var el = $$(modal.sel);
       if (el) { try { modal.close(el); } catch (e2) { el.classList.add("hidden"); } }
@@ -362,6 +434,24 @@
           try { (window.backToAdminDashboard || function () {})(); } catch (e) {}
         }
         lastAdminTab = targetAdminTab;
+        lastAdminSub = currentAdminSub(targetAdminTab);
+        suppress = false;
+        return;
+      }
+    }
+
+    // 5a) Wahi admin tab (Tests/Records/OMR) ke ANDAR hain, aur sirf
+    //     hub <-> sub-card (jaise "Create Test" ya "All Tests") badla
+    //     hai -> poori tab hi mat chhodo, sirf hub (ya target sub-card)
+    //     par jao. Isi se woh bug fix hota hai jahan sub-card ke andar
+    //     se back dabate hi seedha "app exit" toast aa jaata tha.
+    if (isVisible($$("#admin-panel")) && st.sig && st.sig.indexOf("#admin-panel") !== -1 &&
+        (st.sig || "") === lastSignature && ADMIN_HUB_SUBTABS[lastAdminTab]) {
+      var targetAdminSub = (typeof st.adminSub !== "undefined") ? st.adminSub : null;
+      if (targetAdminSub !== lastAdminSub) {
+        suppress = true;
+        goToAdminSub(lastAdminTab, targetAdminSub);
+        lastAdminSub = targetAdminSub;
         suppress = false;
         return;
       }
@@ -397,6 +487,7 @@
       lastExamIndex = null;
       lastSolIndex  = null;
       lastAdminTab  = currentAdminTab();
+      lastAdminSub  = currentAdminSub(lastAdminTab);
       lastStudentTab = currentStudentTab();
       return;
     }
@@ -408,7 +499,7 @@
     }
     lastHomeBackAt = now;
     suppress = true;
-    pushGuardState("", null, null, null, null);
+    pushGuardState("", null, null, null, null, null);
     suppress = false;
     showExitToast();
   });
