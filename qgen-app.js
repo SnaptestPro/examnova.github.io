@@ -2378,10 +2378,40 @@ function updateDraftSaveButton() {
   if (btn) btn.innerHTML = editingDraftId ? "☁️ Update Draft" : "☁️ Save to Drafts";
 }
 
-function loadDraftIntoPaper(testId) {
+// Drafts saved via the main Test Creator (script.js -> saveTestOnline) keep
+// their questions in a "tests/{id}/qchunks/c0, c1, ..." subcollection rather
+// than inline on the doc (to stay under Firestore's 1MB doc limit), and the
+// main doc's "questions" field is deleted in that flow. Question Generator's
+// own draft save keeps questions inline. This helper transparently loads
+// either shape, so Draft Edit works no matter which flow created the draft.
+async function fetchDraftQuestionsPayload(t, testId) {
+  if (t.questions && t.questions.length) return t.questions;
+  const chunkCount = t.chunkCount || 0;
+  if (!chunkCount) return [];
+  const db = window.vishnuFirebase?.db;
+  if (!db) return [];
+  const snaps = await Promise.all(
+    Array.from({ length: chunkCount }, (_, i) => db.collection("tests").doc(testId).collection("qchunks").doc("c" + i).get())
+  );
+  let questions = [];
+  snaps.forEach(s => { if (s.exists) questions = questions.concat(s.data().questions || []); });
+  return questions;
+}
+
+async function loadDraftIntoPaper(testId) {
   const t = draftTestsCache.find(d => d.id === testId)?.data;
   if (!t) { toast('⚠️ Draft load nahi ho paya'); return; }
   if (paperQuestions.length && !confirm('Current paper replace ho jayega. Draft load karein?')) return;
+
+  let questionsPayload;
+  try {
+    if (!t.questions?.length && t.chunkCount) toast('⏳ Draft ke questions load ho rahe hain...');
+    questionsPayload = await fetchDraftQuestionsPayload(t, testId);
+  } catch (err) {
+    console.error(err);
+    toast('⚠️ Draft ke questions load nahi ho paye');
+    return;
+  }
 
   editingDraftId = testId;
   loadedDraftTitle = t.title || '';
@@ -2391,7 +2421,7 @@ function loadDraftIntoPaper(testId) {
   updateDraftSaveButton();
 
   // Build question map for section restoration
-  const allQMapped = (t.questions || []).map((q) => ({
+  const allQMapped = (questionsPayload || []).map((q) => ({
     id: qIdCounter++,
     firestoreId: q.id,
     text: q.textHI || q.textEN || q.text || '',
@@ -2650,7 +2680,12 @@ function renderDraftsList() {
   list.innerHTML = draftTestsCache.map(d => {
     const t = d.data;
     const active = d.id === editingDraftId ? ' active' : '';
-    const qCount = (t.questions || []).length;
+    // Drafts saved from the main Test Creator (script.js -> saveTestOnline)
+    // store questions in a "qchunks" subcollection instead of inline, and
+    // strip the "questions" field off the main doc to stay under Firestore's
+    // 1MB limit. For those, t.questions is empty but t.questionCount holds
+    // the real count -> fall back to that so the sidebar doesn't show "0 Q".
+    const qCount = (t.questions || []).length || t.questionCount || 0;
     return `
       <div class="draft-item${active}" onclick="loadDraftIntoPaper('${d.id}')">
         <div class="draft-item-title">${escHtml(t.title || 'Untitled')}</div>
