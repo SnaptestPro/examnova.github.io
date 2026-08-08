@@ -618,13 +618,21 @@ function showMode(mode, opts) {
     $("#student-form")?.classList.add("hidden");
   }
 
-  // Student login ho chuka ho to Admin tab hi hide kar do — student kabhi
-  // admin login screen tak pahunch hi na sake. (Admin khud login karke
-  // is check se bypass ho jata hai — neeche dekhein.)
+  // Student login ho chuka ho to Admin tab (aur theme button) hamesha hide
+  // rahega — chahe wahi browser mein Admin bhi login kyun na ho. Student
+  // dashboard ab bilkul clean rehta hai, koi Admin/Theme clutter nahi.
+  // Admin khud test karne ke liye "Student View" card (Admin dashboard)
+  // se yahan aata hai, aur wapas jaane ke liye neeche wala "back-to-admin"
+  // link istemal karta hai (wo link sirf usi ko dikhta hai, real student
+  // ko kabhi nahi).
   const studentIsLoggedIn = !!getStudentSession();
   const adminTabBtn = $("#admin-tab");
   if (adminTabBtn) {
-    adminTabBtn.classList.toggle("hidden", studentIsLoggedIn && !isAdminLoggedIn());
+    adminTabBtn.classList.toggle("hidden", studentIsLoggedIn);
+  }
+  const backToAdminLink = $("#back-to-admin-link");
+  if (backToAdminLink) {
+    backToAdminLink.classList.toggle("hidden", !(studentIsLoggedIn && isAdminLoggedIn()));
   }
   if (studentIsLoggedIn && mode === "admin" && !isAdminLoggedIn()) {
     // Safety net: koi student seedhe URL/state se admin mode force kare

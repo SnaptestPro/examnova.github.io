@@ -140,7 +140,6 @@
       <button id="student-tab" class="tab active">📝 Student</button>
       <button id="admin-tab" class="tab">⚙️ Admin</button>
       <button id="install-app-btn" class="tab hidden" style="background:linear-gradient(135deg,#16a34a,#15803d);color:#fff;">⬇️ App Install Karein</button>
-      <button id="theme-toggle" class="tab theme-toggle" title="Choose Theme" onclick="ThemeManager.togglePicker()">🎨</button>
     </nav>
   </header>
 
@@ -256,6 +255,14 @@
           </div>
           <div class="cd-hero-emoji">🎯</div>
         </div>
+
+        <!-- Sirf admin ko dikhta hai (jab wo isi browser mein admin bhi login hai) —
+             taaki student view check karne ke baad ek click mein wapas Admin panel
+             mein ja sake. Normal students ko ye link kabhi nahi dikhta. -->
+        <button type="button" id="back-to-admin-link" class="hidden" onclick="showMode('admin')"
+          style="display:flex;align-items:center;gap:6px;background:#fff;border:1.5px solid #fbbf24;color:#92400e;font-weight:700;border-radius:999px;padding:7px 16px;margin:-6px 0 14px;cursor:pointer;font-size:.8rem;width:fit-content;">
+          ⚙️ Admin Panel par wapas
+        </button>
 
         <div id="cd-podium-wrap"></div>
 
@@ -466,6 +473,13 @@
 
         <div class="cd-section-title">Manage</div>
         <div class="cd-grid">
+          <button type="button" class="cd-card cd-green" onclick="showMode('student')">
+            <div class="cd-card-top"><div class="cd-icon-circle">🎓</div><span class="cd-badge">Preview</span></div>
+            <div class="cd-card-title">Student View</div>
+            <div class="cd-card-sub">Student dashboard mein jaakar check karein</div>
+            <div class="cd-card-bottom"><span class="cd-arrow-btn">→</span></div>
+          </button>
+
           <button type="button" class="cd-card cd-blue" onclick="goAdmin('tests')">
             <div class="cd-card-top"><div class="cd-icon-circle">📋</div><span class="cd-badge">Create</span></div>
             <div class="cd-card-title">Tests</div>
@@ -652,6 +666,7 @@
         </form>
         <div class="card">
           <h3 class="section-title">All Tests</h3>
+          <p class="muted-text" style="margin:-4px 0 10px;font-size:.82rem;">🏆 Har test ke saamne "Leaderboard: ON/OFF" button hai — jis test ka OFF karoge, uske marks student dashboard ke "Top Performers" mein count nahi honge. Default sabhi tests ON hote hain.</p>
           <div id="test-list" class="list-box"></div>
         </div>
       </div>
@@ -1077,6 +1092,13 @@ B"></textarea>
 
       <!-- SETTINGS (Firebase Seed + Admin Password) -->
       <div id="settings-box" class="hidden">
+        <div class="card" style="background:linear-gradient(135deg,#faf5ff,#f3e8ff);border:1.5px solid #d8b4fe;margin-bottom:12px;padding:14px 18px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+          <div>
+            <strong style="color:#6b21a8;">🎨 App Theme</strong>
+            <p style="font-size:.82rem;color:#581c87;margin-top:3px;">Poore app ke liye 100+ themes mein se koi bhi chunein.</p>
+          </div>
+          <button type="button" class="btn-primary" style="background:linear-gradient(135deg,#9333ea,#7e22ce);" onclick="ThemeManager.togglePicker()">🎨 Theme Chunein</button>
+        </div>
         <div class="card" style="background:linear-gradient(135deg,#eff6ff,#dbeafe);border:1.5px solid #93c5fd;margin-bottom:12px;padding:14px 18px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
           <div>
             <strong style="color:#1e40af;">📥 Firebase Question Bank Seed</strong>
