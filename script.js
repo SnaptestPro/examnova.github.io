@@ -385,7 +385,6 @@ function init() {
   localStorage.removeItem("savya_dark_mode");
   // Tabs
   bindEvent("#student-tab", 'onclick', () => showMode("student"));
-  bindEvent("#leaderboard-tab", 'onclick', () => showMode("leaderboard"));
   bindEvent("#admin-tab", 'onclick', () => showMode("admin"));
   bindEvent("#tests-tab", 'onclick', () => showAdminTab("tests"));
   bindEvent("#bank-tab", 'onclick', () => { showAdminTab("bank"); renderBank(); });
@@ -441,7 +440,6 @@ function init() {
   bindEvent("#student-forgot-link", 'onclick', () => showStudentAuthPanel("forgot"));
   bindEvent("#student-forgot-back-link", 'onclick', () => showStudentAuthPanel("login"));
   bindEvent("#student-logout-btn", 'onclick', logoutStudent);
-  bindEvent("#student-settings-logout-btn", 'onclick', logoutStudent);
   bindEvent("#test-form", 'onsubmit', saveTest);
   bindEvent("#bank-form", 'onsubmit', saveBankQuestion);
   bindEvent("#bank-modal-close-x", 'onclick', cancelBankEdit);
@@ -515,16 +513,35 @@ function init() {
   syncRecords();
   renderTestSections();
 
-  // ── "Stay logged in" fix ────────────────────────────────────────
+  // ── "Stay logged in" + "stay on same slide" fix ─────────────────
   // Student session pehle se localStorage mein save hoti thi (browser
   // band karke dobara kholne par bhi wahan rehti hai), lekin page load
-  // hote hi app kisi bhi tab/mode ko default select hi nahi karta tha —
-  // isliye har baar khaali/login screen dikh jaata tha chahe session
-  // valid ho. Ab (jab tak admin auto-login active na ho) hum seedha
-  // "Student" mode default dikhate hain, jo khud getStudentSession()
-  // check karke — agar login already hai — seedha "Start Your Test"
-  // screen dikha deta hai, warna login form.
-  if (!adminAutoShown) showMode("student");
+  // hote hi app kisi bhi tab/mode ko default select hi nahi karta tha,
+  // aur reload hote hi hamesha seedha "Student" dashboard par phenk
+  // deta tha — chahe user Admin ke kisi section (Bank, Records...) ya
+  // Student ke kisi card (My Progress, Doubt Box...) ke andar hi kyun
+  // na ho. Ab (jab tak admin auto-login URL active na ho) hum last
+  // saved view (LAST_VIEW_KEY, har navigation par save hoti hai)
+  // restore karte hain — mode aur section dono — taaki reload par user
+  // wahi ki wahi screen par rahe. Upar syncTests/syncRecords() already
+  // chal chuke hain, isliye data hamesha fresh hi aata hai — sirf VIEW
+  // preserve hoti hai, data nahi.
+  if (!adminAutoShown) {
+    const lastView = getLastView();
+    const studentLoggedIn = !!getStudentSession();
+    if (lastView && lastView.mode === "admin" && isAdminLoggedIn()) {
+      showMode("admin");
+      if (lastView.section) showAdminTab(lastView.section);
+    } else {
+      showMode("student", { preserveSection: true });
+      if (studentLoggedIn && lastView && lastView.mode === "student" && lastView.section) {
+        // Ek chhoti si delay — DOM (student-form ka "hidden" hatna) aur
+        // session-restore poora settle ho jaaye, uske baad hi section
+        // isolate karke dikhayein.
+        setTimeout(() => goStudentSection(lastView.section), 30);
+      }
+    }
+  }
 
   // Recover any draft that was saved on page close/refresh
   recoverEmergencyDraft();
@@ -567,14 +584,15 @@ async function seedAllQuestions() {
 /* ══════════════════════════════════════════
    MODE SWITCHING
 ══════════════════════════════════════════ */
-function showMode(mode) {
+function showMode(mode, opts) {
+  opts = opts || {};
   // Auto-save draft when admin switches to student mode
   if (mode === "student") {
     const wasOnTests = !$("#tests-area")?.classList.contains("hidden");
     if (wasOnTests) autoSaveDraftSilently();
   }
 
-  ["student","admin","leaderboard"].forEach(m => {
+  ["student","admin"].forEach(m => {
     const tab = $(`#${m}-tab`);
     if (tab) tab.classList.toggle("active", m === mode);
   });
@@ -585,6 +603,11 @@ function showMode(mode) {
       $("#student-auth-screen")?.classList.add("hidden");
       $("#student-form")?.classList.remove("hidden");
       populateStudentFormFromSession(session);
+      // "Student" tab is a home shortcut — always land on the dashboard
+      // (single isolated view, matches Admin's card-based navigation)
+      // unless the caller explicitly asked to keep whatever was open
+      // (used when restoring the last-open section after a reload).
+      if (!opts.preserveSection) backToStudentDashboard();
     } else {
       $("#student-auth-screen")?.classList.remove("hidden");
       $("#student-form")?.classList.add("hidden");
@@ -611,9 +634,9 @@ function showMode(mode) {
   }
 
   if (mode === "admin" && isAdminLoggedIn()) {
-    // Admin pehle se is session mein login hai (Student/Leaderboard tab
-    // dekhne ke baad wapas Admin par aaya hai) — dobara password mat
-    // maango, seedha panel dikha do taaki admin apna kaam turant dekh sake.
+    // Admin pehle se is session mein login hai (Student tab dekhne ke
+    // baad wapas Admin par aaya hai) — dobara password mat maango,
+    // seedha panel dikha do taaki admin apna kaam turant dekh sake.
     $("#admin-login-form").classList.add("hidden");
     $("#admin-panel").classList.remove("hidden");
     startAdminSyncs();
@@ -628,11 +651,6 @@ function showMode(mode) {
     const adminLoginShown = !$("#admin-panel").classList.contains("hidden");
     $("#admin-login-form").classList.toggle("hidden", mode !== "admin" || adminLoginShown);
     if (mode !== "admin") $("#admin-panel").classList.add("hidden");
-  }
-  const lbSection = $("#leaderboard-section");
-  if (lbSection) {
-    lbSection.classList.toggle("hidden", mode !== "leaderboard");
-    if (mode === "leaderboard") initLeaderboard();
   }
 }
 
@@ -667,49 +685,59 @@ function populateStudentFormFromSession(session) {
   if (cdName && session.name) cdName.textContent = session.name;
 }
 
-// Creative student dashboard cards -> jump to the matching section, and
-// show ONLY that section (hide the dashboard cards + every other section)
-// so it behaves exactly like the Admin "Manage" cards: one focused screen
-// per function, with a "Back to dashboard" button to return.
-const STUDENT_SECTION_IDS = [
-  "student-form-fields-anchor", "student-results-card", "my-result-detail-card",
-  "practice-mode-card", "my-progress-card", "my-mistakes-card", "doubt-box-card",
-  "student-settings-card"
+/* ══════════════════════════════════════════════════════════════════
+   LAST-VIEW PERSISTENCE
+   ----------------------------------------------------------------
+   Jab bhi page reload hota hai, app hamesha "Student" dashboard par
+   wapas chala jata tha — chahe user Admin ke kisi section (Bank,
+   Records...) ya Student ke kisi card (My Progress, Doubt Box...)
+   ke andar hi kyun na ho. Ab har navigation par current mode+section
+   localStorage mein save hota hai, aur reload par wahi restore hota
+   hai — sirf data hi fresh (dobara sync) hoke aata hai, view wahi
+   ki wahi rehta hai.
+   ══════════════════════════════════════════════════════════════════ */
+const LAST_VIEW_KEY = "savya_last_view_v1";
+function saveLastView(view) {
+  try { localStorage.setItem(LAST_VIEW_KEY, JSON.stringify(view)); } catch (e) {}
+}
+function getLastView() {
+  try { return JSON.parse(localStorage.getItem(LAST_VIEW_KEY) || "null"); } catch (e) { return null; }
+}
+
+// Creative student dashboard cards -> isolated section view (jaise Admin
+// ke Tests/Bank cards karte hain: sirf ek section dikhta hai, baaki sab
+// hide ho jaate hain, ek "Dashboard par wapas" button ke saath).
+const STUDENT_TAB_BOX_IDS = [
+  "student-form-fields-anchor", "practice-mode-card", "student-results-card",
+  "my-result-detail-card", "my-progress-card", "my-mistakes-card", "doubt-box-card"
 ];
 function goStudentSection(id) {
   const el = document.getElementById(id);
   if (!el) return;
-  document.getElementById("student-dashboard-home")?.classList.add("hidden");
-  document.getElementById("student-back-btn")?.classList.remove("hidden");
-  STUDENT_SECTION_IDS.forEach(sid => {
+  STUDENT_TAB_BOX_IDS.forEach(sid => {
     document.getElementById(sid)?.classList.toggle("hidden", sid !== id);
   });
-  if (id === "student-settings-card") {
-    const session = getStudentSession && getStudentSession();
-    const nameEl = document.getElementById("settings-student-name");
-    const mobileEl = document.getElementById("settings-student-mobile");
-    if (nameEl) nameEl.textContent = (session && session.name) || "—";
-    if (mobileEl) mobileEl.textContent = (session && session.mobile) || "—";
-  }
+  document.getElementById("student-dashboard-home")?.classList.add("hidden");
+  document.getElementById("student-back-btn")?.classList.remove("hidden");
+  el.classList.remove("hidden");
   el.scrollIntoView({ behavior: "smooth", block: "start" });
+  saveLastView({ mode: "student", section: id });
+  // Refresh whatever data belongs to this section (mistakes/progress/
+  // doubts/my-result) — cheap thanks to the stale-while-revalidate cache.
+  if (window.SavyaExtras && typeof window.SavyaExtras.onStudentSectionShown === "function") {
+    window.SavyaExtras.onStudentSectionShown(id);
+  }
 }
 window.goStudentSection = goStudentSection;
 
 function backToStudentDashboard() {
-  STUDENT_SECTION_IDS.forEach(sid => document.getElementById(sid)?.classList.add("hidden"));
-  document.getElementById("student-back-btn")?.classList.add("hidden");
+  STUDENT_TAB_BOX_IDS.forEach(sid => document.getElementById(sid)?.classList.add("hidden"));
   document.getElementById("student-dashboard-home")?.classList.remove("hidden");
+  document.getElementById("student-back-btn")?.classList.add("hidden");
   document.getElementById("student-dashboard-home")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  saveLastView({ mode: "student", section: null });
 }
 window.backToStudentDashboard = backToStudentDashboard;
-
-function goStudentLeaderboard() {
-  document.getElementById("leaderboard-tab")?.click();
-  setTimeout(() => {
-    document.getElementById("leaderboard-section")?.scrollIntoView({ behavior: "smooth", block: "start" });
-  }, 60);
-}
-window.goStudentLeaderboard = goStudentLeaderboard;
 
 function showStudentAuthPanel(which) {
   $("#student-login-form")?.classList.toggle("hidden", which !== "login");
@@ -987,6 +1015,7 @@ function backToAdminDashboard() {
   document.getElementById("admin-dashboard-home")?.classList.remove("hidden");
   document.getElementById("admin-back-btn")?.classList.add("hidden");
   document.getElementById("admin-dashboard-home")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  saveLastView({ mode: "admin", section: null });
 }
 window.backToAdminDashboard = backToAdminDashboard;
 
@@ -997,6 +1026,7 @@ function showAdminTab(tab) {
   // section is ever visible at a time, no duplication.
   document.getElementById("admin-dashboard-home")?.classList.add("hidden");
   document.getElementById("admin-back-btn")?.classList.remove("hidden");
+  saveLastView({ mode: "admin", section: tab });
 
   // Auto-save draft when navigating away from tests tab
   const wasOnTests = !$("#tests-area").classList.contains("hidden");
@@ -5435,58 +5465,7 @@ function recoverEmergencyDraft() {
 }
 
 
-/* ══════════════════════════════════════════
-   LEADERBOARD
-══════════════════════════════════════════ */
-function initLeaderboard() {
-  const sel = $("#leaderboard-test-select");
-  if (!sel) return;
-  sel.innerHTML = '<option value="">— Test chunein —</option>';
-  Object.entries(tests).forEach(([id, t]) => {
-    if (t.isDraft) return;
-    const op = document.createElement("option");
-    op.value = id; op.textContent = t.title;
-    sel.appendChild(op);
-  });
-  sel.onchange = renderLeaderboard;
-}
-
-function renderLeaderboard() {
-  const sel = $("#leaderboard-test-select");
-  const list = $("#leaderboard-list");
-  if (!sel || !list) return;
-  const testId = sel.value;
-  if (!testId) { list.innerHTML = '<p class="empty-state">Test chunein leaderboard dekhne ke liye.</p>'; return; }
-  const testRecs = records.filter(r => r.testId === testId);
-  if (!testRecs.length) { list.innerHTML = '<p class="empty-state">Is test ka koi result nahi mila abhi tak.</p>'; return; }
-  const seen = {};
-  const best = testRecs.reduce((acc, r) => {
-    const name = (r.name || "").trim().toLowerCase();
-    if (!seen[name] || r.score > seen[name].score) { seen[name] = r; }
-    return seen;
-  }, {});
-  const sorted = Object.values(seen).sort((a,b) => b.score - a.score).slice(0, 20);
-  const t = tests[testId];
-  const maxScore = t ? getTestGrandTotalMarks(t) : null;
-  let html = '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.88rem;">';
-  html += '<thead><tr style="background:linear-gradient(135deg,#1e1b4b,#3730a3);color:#fff;">';
-  html += '<th style="padding:10px 12px;text-align:left;">#</th><th style="padding:10px 12px;text-align:left;">Student</th>';
-  html += '<th style="padding:10px 12px;text-align:right;">Score</th><th style="padding:10px 12px;text-align:right;">%</th>';
-  html += '<th style="padding:10px 12px;text-align:right;">Date</th></tr></thead><tbody>';
-  sorted.forEach((r, i) => {
-    const medal = i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : `${i+1}.`;
-    const pct = maxScore ? Math.round((r.score/maxScore)*100) : Math.round(r.percentage || 0);
-    const rowBg = i % 2 === 0 ? "#f8fafc" : "#fff";
-    html += `<tr style="background:${rowBg};border-bottom:1px solid #e5e7eb;">`;
-    html += `<td style="padding:10px 12px;font-weight:700;font-size:1.1rem;">${medal}</td>`;
-    html += `<td style="padding:10px 12px;font-weight:600;">${escHtml(r.name || "Anonymous")}</td>`;
-    html += `<td style="padding:10px 12px;text-align:right;font-weight:700;color:#2563eb;">${fmtNum(r.score)}${maxScore?"/"+fmtNum(maxScore):""}</td>`;
-    html += `<td style="padding:10px 12px;text-align:right;color:${pct>=70?"#16a34a":pct>=40?"#d97706":"#dc2626"};font-weight:600;">${pct}%</td>`;
-    html += `<td style="padding:10px 12px;text-align:right;color:#6b7280;font-size:.78rem;">${r.submittedAt||""}</td>`;
-    html += "</tr>";
-  });
-  html += '</tbody></table></div>';
-  list.innerHTML = html;
-}
-
 /* Dark mode removed */
+/* Leaderboard removed — Result Sheet already shows all students' rank
+   per test, and the Student dashboard now shows an overall Top-3
+   podium (see student-features.js renderTopStudentsPodium). */

@@ -53,22 +53,41 @@
     })();
   </script>
 
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no" />
   <meta name="theme-color" content="#1e1b4b" />
+  <style>
+    /* Installed-app pinch/double-tap zoom lock — works alongside the
+       viewport meta tag above (which some browsers, notably iOS Safari
+       in non-standalone mode, partially ignore for accessibility). */
+    html, body { touch-action: manipulation; }
+  </style>
+  <script>
+    // ── ZOOM LOCK (pinch-to-zoom / double-tap-zoom) ──────────────────
+    // Viewport meta's user-scalable=no + maximum-scale=1.0 already stops
+    // most zooming. This adds a JS-level safety net for browsers (mainly
+    // iOS Safari / installed PWA) that still allow a pinch gesture.
+    (function () {
+      document.addEventListener("gesturestart", function (e) { e.preventDefault(); }, { passive: false });
+      document.addEventListener("gesturechange", function (e) { e.preventDefault(); }, { passive: false });
+      document.addEventListener("touchmove", function (e) {
+        if (e.touches && e.touches.length > 1) e.preventDefault(); // multi-finger pinch
+      }, { passive: false });
+    })();
+  </script>
   <title>Savyasachi Coaching Test – Board Exam Platform</title>
   <meta name="description" content="Board Exam Practice Platform by Savyasachi Coaching. Bilingual (Hindi/English) MCQ tests with result sheet, solution review and chapter-wise analysis." />
 
   <!-- Open Graph -->
   <meta property="og:type" content="website" />
   <meta property="og:title" content="Savyasachi Coaching Test – Board Exam Platform" />
-  <meta property="og:description" content="Practice board exam questions, take tests, and track your rank on the leaderboard with Savyasachi Coaching." />
+  <meta property="og:description" content="Practice board exam questions, take tests, and track your rank and progress with Savyasachi Coaching." />
   <meta property="og:image" content="icon-512.png" />
   <meta property="og:url" content="https://magnificent-malabi-e6a752.netlify.app/" />
 
   <!-- Twitter Card -->
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:title" content="Savyasachi Coaching Test – Board Exam Platform" />
-  <meta name="twitter:description" content="Practice board exam questions, take tests, and track your rank on the leaderboard with Savyasachi Coaching." />
+  <meta name="twitter:description" content="Practice board exam questions, take tests, and track your rank and progress with Savyasachi Coaching." />
   <meta name="twitter:image" content="icon-512.png" />
 
   <link rel="manifest" href="/manifest.webmanifest" />
@@ -119,7 +138,6 @@
     </div>
     <nav class="main-tabs">
       <button id="student-tab" class="tab active">📝 Student</button>
-      <button id="leaderboard-tab" class="tab">🏆 Leaderboard</button>
       <button id="admin-tab" class="tab">⚙️ Admin</button>
       <button id="install-app-btn" class="tab hidden" style="background:linear-gradient(135deg,#16a34a,#15803d);color:#fff;">⬇️ App Install Karein</button>
       <button id="theme-toggle" class="tab theme-toggle" title="Choose Theme" onclick="ThemeManager.togglePicker()">🎨</button>
@@ -228,6 +246,8 @@
     <!-- ── STUDENT FORM ── -->
     <form id="student-form" class="hidden" autocomplete="off">
       <!-- ── CREATIVE STUDENT DASHBOARD HOME ── -->
+      <button type="button" id="student-back-btn" class="hidden" onclick="backToStudentDashboard()" style="display:flex;align-items:center;gap:8px;background:#fff;border:1.5px solid #c7d2fe;color:#4338ca;font-weight:700;border-radius:999px;padding:9px 18px;margin-bottom:14px;cursor:pointer;font-size:.85rem;">← Dashboard par wapas</button>
+
       <div class="cd-wrap" id="student-dashboard-home">
         <div class="cd-hero">
           <div class="cd-hero-text">
@@ -236,6 +256,8 @@
           </div>
           <div class="cd-hero-emoji">🎯</div>
         </div>
+
+        <div id="cd-podium-wrap"></div>
 
         <div class="cd-section-title">Practice</div>
         <div class="cd-grid">
@@ -288,24 +310,17 @@
             <div class="cd-card-bottom"><span class="cd-arrow-btn">→</span></div>
           </button>
 
-          <button type="button" class="cd-card cd-gold" onclick="goStudentLeaderboard()">
-            <div class="cd-card-top"><div class="cd-icon-circle">🏆</div><span class="cd-badge">Top</span></div>
-            <div class="cd-card-title">Leaderboard</div>
-            <div class="cd-card-sub">Top students dekhein</div>
-            <div class="cd-card-bottom"><span class="cd-arrow-btn">→</span></div>
-          </button>
-
-          <button type="button" class="cd-card cd-indigo" onclick="goStudentSection('student-settings-card')">
-            <div class="cd-card-top"><div class="cd-icon-circle">⚙️</div><span class="cd-badge">Setup</span></div>
-            <div class="cd-card-title">Settings</div>
-            <div class="cd-card-sub">Profile, theme &amp; logout</div>
-            <div class="cd-card-bottom"><span class="cd-arrow-btn">→</span></div>
-          </button>
         </div>
 
+        <div class="cd-promo">
+          <div class="cd-promo-text">
+            <h3>Daily Practice</h3>
+            <p>Curated daily practice se apna score boost karein.</p>
+            <button type="button" class="cd-promo-btn" onclick="goStudentSection('practice-mode-card')">Explore →</button>
+          </div>
+          <div class="cd-promo-icon">📅</div>
+        </div>
       </div>
-
-      <button type="button" id="student-back-btn" class="hidden" onclick="backToStudentDashboard()" style="display:flex;align-items:center;gap:8px;background:#fff;border:1.5px solid #c7d2fe;color:#4338ca;font-weight:700;border-radius:999px;padding:9px 18px;margin-bottom:14px;cursor:pointer;font-size:.85rem;">← Dashboard par wapas</button>
 
       <div class="card hero-card hidden" id="student-form-fields-anchor">
         <h2 class="section-title">🎯 Start Your Test</h2>
@@ -348,21 +363,18 @@
       </div>
 
       <div class="card hidden" id="my-result-detail-card">
-        <div class="my-result-header">
-          <div>
-            <h3 class="section-title" style="margin-bottom:2px;">🧾 Mera Result</h3>
-            <p class="muted-text" style="margin:0;">Aapke saare test attempts — online ho, OMR ho ya offline sheet check karke chadhaya gaya ho — sabka sahi/galat detail apne aap yahan dikhega.</p>
-          </div>
-          <button type="button" id="my-result-refresh-btn" class="my-result-refresh-btn" title="Refresh karein">🔄</button>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+          <h3 class="section-title" style="margin-bottom:0;">🧾 Mera Result — Sahi/Galat Dekhein</h3>
+          <button type="button" id="my-result-refresh-btn" class="btn-secondary" style="font-size:.78rem;padding:5px 12px;">🔄 Refresh</button>
         </div>
-        <div id="my-result-summary"></div>
-        <div id="my-result-list" style="margin-top:14px;"></div>
+        <p class="muted-text">Aapne jo bhi test diya hai (online ho, OMR ho, ya offline sheet check karke chadhaya gaya ho), sabme aapne kaun sa sawaal sahi kiya aur kaun sa galat, wo yahan automatically dikhega — apna number dobara dalne ki zaroorat nahi.</p>
+        <div id="my-result-list" style="margin-top:12px;"></div>
       </div>
 
-      <!-- ── PRACTICE MODE (unlimited, no timer pressure, no leaderboard) ── -->
+      <!-- ── PRACTICE MODE (unlimited, no timer pressure, doesn't count towards ranking) ── -->
       <div class="card hidden" id="practice-mode-card">
         <h3 class="section-title">🎯 Practice Mode</h3>
-        <p class="muted-text">Bina time-pressure ke practice karo — turant sahi/galat pata chalega, koi leaderboard rank nahi banti.</p>
+        <p class="muted-text">Bina time-pressure ke practice karo — turant sahi/galat pata chalega, koi rank/marks count nahi hote.</p>
         <div class="field-row">
           <label>Subject</label>
           <select id="practice-subject-filter"></select>
@@ -419,50 +431,9 @@
         <h4 style="margin-top:16px;">Mere Doubts</h4>
         <div id="my-doubts-list"></div>
       </div>
-
-      <!-- ── SETTINGS (profile, theme, logout) ── -->
-      <div class="card hidden" id="student-settings-card">
-        <h3 class="section-title">⚙️ Settings</h3>
-        <p class="muted-text">Apna profile dekhein, theme badlein ya logout karein.</p>
-
-        <div style="background:#f0fdf4;border:1px solid #86efac;border-radius:10px;padding:14px 16px;margin-bottom:14px;">
-          <div style="font-weight:700;color:#166534;margin-bottom:4px;">👤 <span id="settings-student-name"></span></div>
-          <div style="font-size:.85rem;color:#15803d;">📱 <span id="settings-student-mobile"></span></div>
-        </div>
-
-        <div class="card" style="background:linear-gradient(135deg,#eff6ff,#dbeafe);border:1.5px solid #93c5fd;margin-bottom:12px;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
-          <div>
-            <strong style="color:#1e40af;">🎨 Theme</strong>
-            <p style="font-size:.82rem;color:#3730a3;margin-top:3px;">App ka color theme apni pasand se badlein.</p>
-          </div>
-          <button type="button" class="btn-primary" style="background:linear-gradient(135deg,#2563eb,#1d4ed8);" onclick="ThemeManager.togglePicker()">🎨 Theme Badlein</button>
-        </div>
-
-        <div class="card" style="background:linear-gradient(135deg,#fef2f2,#fee2e2);border:1.5px solid #fca5a5;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
-          <div>
-            <strong style="color:#991b1b;">🚪 Logout</strong>
-            <p style="font-size:.82rem;color:#7f1d1d;margin-top:3px;">Apne account se logout karein.</p>
-          </div>
-          <button type="button" id="student-settings-logout-btn" class="btn-primary" style="background:linear-gradient(135deg,#dc2626,#b91c1c);">🚪 Logout</button>
-        </div>
-      </div>
     </form>
 
 
-
-    <!-- ── LEADERBOARD ── -->
-    <div id="leaderboard-section" class="hidden">
-      <div class="card">
-        <h3 class="section-title">🏆 Leaderboard — Top Students</h3>
-        <div class="field-row">
-          <label>Test Select karein</label>
-          <select id="leaderboard-test-select">
-            <option value="">— Test chunein —</option>
-          </select>
-        </div>
-        <div id="leaderboard-list"></div>
-      </div>
-    </div>
 
     <!-- ── ADMIN LOGIN ── -->
     <form id="admin-login-form" class="hidden card" autocomplete="off">

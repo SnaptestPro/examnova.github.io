@@ -12,9 +12,9 @@
        (Q1) tak na pahunch jaye.
      - Solution/Answer-review screen mein bhi back se ek-ek karke
        peechla question dikhe.
-     - Kisi bhi doosri screen (admin, login/register, result,
-       leaderboard) se back dabane par pichli screen par jaye —
-       ek hi jhatke mein home par nahi phekna.
+     - Kisi bhi doosri screen (admin, login/register, result) se back
+       dabane par pichli screen par jaye — ek hi jhatke mein home par
+       nahi phekna.
      - Sirf jab bilkul shuruaat (Q1, ya home screen) par pahunch
        jaye, tab hi exit/submit confirm ya "dobara back se exit"
        dikhna chahiye.
@@ -27,8 +27,7 @@
   // Poori-page screens jinhe track karna hai (modal alag se neeche hai)
   var SCREENS = [
     "#exam-screen", "#result-screen", "#solution-screen",
-    "#student-auth-screen", "#student-form", "#admin-panel",
-    "#leaderboard-section"
+    "#student-auth-screen", "#student-form", "#admin-panel"
   ];
 
   var MODALS = [
@@ -96,6 +95,24 @@
     return null; // dashboard-home (admin ka "root") khula hai
   }
 
+  // ── Student dashboard ke ANDAR ke cards (dashboard-home <-> Start
+  //    Test/My Progress/My Mistakes/Doubt Box/...) — Admin subtabs jaisa
+  //    hi isolated-card system hai (goStudentSection/backToStudentDashboard,
+  //    dekhein script.js), isliye back button bhi wahi treatment paata
+  //    hai: card ke andar se back dabane par seedha Student dashboard-home
+  //    par (aur uske baad hi peechli screen par) jao.
+  var STUDENT_SUBTABS = [
+    "student-form-fields-anchor", "practice-mode-card", "student-results-card",
+    "my-result-detail-card", "my-progress-card", "my-mistakes-card", "doubt-box-card"
+  ];
+  function currentStudentTab() {
+    if (!isVisible($$("#student-form"))) return null;
+    for (var i = 0; i < STUDENT_SUBTABS.length; i++) {
+      if (isVisible(document.getElementById(STUDENT_SUBTABS[i]))) return STUDENT_SUBTABS[i];
+    }
+    return null; // dashboard-home (student ka "root") khula hai
+  }
+
   function reconcileToSignature(targetSig) {
     var targetSet = targetSig ? targetSig.split("|") : [];
     for (var i = 0; i < SCREENS.length; i++) {
@@ -122,17 +139,19 @@
   var lastExamIndex = null;
   var lastSolIndex  = null;
   var lastAdminTab  = null;
+  var lastStudentTab = null;
   var suppress = false; // true jab hum khud UI update kar rahe hain (loop rokne ke liye)
 
-  history.replaceState({ g: true, sig: "", examIndex: null, solIndex: null, adminTab: null }, "", location.href);
+  history.replaceState({ g: true, sig: "", examIndex: null, solIndex: null, adminTab: null, studentTab: null }, "", location.href);
 
-  function pushGuardState(sig, examIndex, solIndex, adminTab) {
+  function pushGuardState(sig, examIndex, solIndex, adminTab, studentTab) {
     history.pushState({
       g: true,
       sig: sig || "",
       examIndex: (typeof examIndex === "number") ? examIndex : null,
       solIndex:  (typeof solIndex  === "number") ? solIndex  : null,
-      adminTab:  (typeof adminTab  !== "undefined") ? adminTab : null
+      adminTab:  (typeof adminTab  !== "undefined") ? adminTab : null,
+      studentTab: (typeof studentTab !== "undefined") ? studentTab : null
     }, "", location.href);
   }
 
@@ -154,7 +173,8 @@
     lastExamIndex = isExamActive() ? (typeof current.index === "number" ? current.index : 0) : null;
     lastSolIndex  = isSolutionActive() ? currentSolIndex : null;
     lastAdminTab  = currentAdminTab();
-    pushGuardState(sig, lastExamIndex, lastSolIndex, lastAdminTab);
+    lastStudentTab = currentStudentTab();
+    pushGuardState(sig, lastExamIndex, lastSolIndex, lastAdminTab, lastStudentTab);
   }
   var observer = new MutationObserver(scheduleCheck);
   observer.observe(document.body, { attributes: true, attributeFilter: ["class", "style"], subtree: true });
@@ -174,7 +194,7 @@
     if (typeof current.index !== "number") return;
     if (current.index === lastExamIndex) return;
     lastExamIndex = current.index;
-    pushGuardState(lastSignature, lastExamIndex, lastSolIndex, lastAdminTab);
+    pushGuardState(lastSignature, lastExamIndex, lastSolIndex, lastAdminTab, lastStudentTab);
   }
 
   // ── Admin: dashboard-home <-> Tests/Bank/OMR/... switch par bhi
@@ -202,7 +222,35 @@
     var tab = currentAdminTab();
     if (tab === lastAdminTab) return;
     lastAdminTab = tab;
-    pushGuardState(lastSignature, lastExamIndex, lastSolIndex, lastAdminTab);
+    pushGuardState(lastSignature, lastExamIndex, lastSolIndex, lastAdminTab, lastStudentTab);
+  }
+
+  // ── Student: dashboard-home <-> Start Test/My Progress/Doubt Box/...
+  //    switch par bhi history step banao (goStudentSection/backToStudent-
+  //    Dashboard sabhi hi card navigation ka istemal karte hain, isliye
+  //    sirf inhe wrap karna kaafi hai — bilkul Admin jaisa hi).
+  if (typeof window.goStudentSection === "function") {
+    var _origGoStudentSection = window.goStudentSection;
+    window.goStudentSection = function () {
+      var result = _origGoStudentSection.apply(this, arguments);
+      trackStudentTab();
+      return result;
+    };
+  }
+  if (typeof window.backToStudentDashboard === "function") {
+    var _origBackToStudentDashboard = window.backToStudentDashboard;
+    window.backToStudentDashboard = function () {
+      var result = _origBackToStudentDashboard.apply(this, arguments);
+      trackStudentTab();
+      return result;
+    };
+  }
+  function trackStudentTab() {
+    if (suppress) return;
+    var tab = currentStudentTab();
+    if (tab === lastStudentTab) return;
+    lastStudentTab = tab;
+    pushGuardState(lastSignature, lastExamIndex, lastSolIndex, lastAdminTab, lastStudentTab);
   }
 
   // ── Solution review: har question-change par history step ────
@@ -220,7 +268,7 @@
     if (typeof currentSolIndex !== "number") return;
     if (currentSolIndex === lastSolIndex) return;
     lastSolIndex = currentSolIndex;
-    pushGuardState(lastSignature, lastExamIndex, lastSolIndex, lastAdminTab);
+    pushGuardState(lastSignature, lastExamIndex, lastSolIndex, lastAdminTab, lastStudentTab);
   }
 
   // ── "Dobara Back dabayein exit karne ke liye" toast ───────────
@@ -252,7 +300,7 @@
     //    poora exam chhodna chahta hai -> confirm poocho.
     if (isExamActive() && (!st.sig || st.sig.indexOf("#exam-screen") === -1)) {
       suppress = true;
-      pushGuardState(lastSignature, lastExamIndex, lastSolIndex, lastAdminTab); // is back ko cancel karo
+      pushGuardState(lastSignature, lastExamIndex, lastSolIndex, lastAdminTab, lastStudentTab); // is back ko cancel karo
       suppress = false;
       var wantsExit = confirm(
         "⚠️ Test abhi chal raha hai!\n\n" +
@@ -291,7 +339,7 @@
     var modal = topVisibleModal();
     if (modal) {
       suppress = true;
-      pushGuardState(lastSignature, lastExamIndex, lastSolIndex, lastAdminTab);
+      pushGuardState(lastSignature, lastExamIndex, lastSolIndex, lastAdminTab, lastStudentTab);
       suppress = false;
       var el = $$(modal.sel);
       if (el) { try { modal.close(el); } catch (e2) { el.classList.add("hidden"); } }
@@ -319,7 +367,27 @@
       }
     }
 
-    // 6) Baaki sab screens (admin/login-register/result/leaderboard)
+    // 5b) Student dashboard ke ANDAR hain (Start Test/My Progress/Doubt
+    //     Box/... ya dashboard-home), aur target state bhi wahi student
+    //     form mein hai -> seedha peechli screen (ya app-exit) mat phenko,
+    //     sirf pichle student card (ya dashboard-home) par jao.
+    if (isVisible($$("#student-form")) && st.sig && st.sig.indexOf("#student-form") !== -1 &&
+        (st.sig || "") === lastSignature) {
+      var targetStudentTab = (typeof st.studentTab !== "undefined") ? st.studentTab : null;
+      if (targetStudentTab !== lastStudentTab) {
+        suppress = true;
+        if (targetStudentTab) {
+          try { (window.goStudentSection || function () {})(targetStudentTab); } catch (e) {}
+        } else {
+          try { (window.backToStudentDashboard || function () {})(); } catch (e) {}
+        }
+        lastStudentTab = targetStudentTab;
+        suppress = false;
+        return;
+      }
+    }
+
+    // 6) Baaki sab screens (admin/login-register/result)
     //    -> ek step peechli screen par jao (seedha home mat phenko)
     if ((st.sig || "") !== lastSignature) {
       suppress = true;
@@ -329,6 +397,7 @@
       lastExamIndex = null;
       lastSolIndex  = null;
       lastAdminTab  = currentAdminTab();
+      lastStudentTab = currentStudentTab();
       return;
     }
 
@@ -339,7 +408,7 @@
     }
     lastHomeBackAt = now;
     suppress = true;
-    pushGuardState("", null, null, null);
+    pushGuardState("", null, null, null, null);
     suppress = false;
     showExitToast();
   });

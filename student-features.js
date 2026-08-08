@@ -20,20 +20,44 @@
 
   /* ── STALE-WHILE-REVALIDATE CACHE for student widgets ────────────
      Student baar-baar "Student" tab par click karta hai (kabhi Admin
-     ya Leaderboard tab dekhne jaake wapas aata hai), aur pehle har
-     baar mistakes/progress/doubts/streak — chaaron cheezein Firestore
-     se dobara fetch hoti thi, jisse har baar kuch pal ke liye poora
-     section khaali ya "Loading..." dikhta tha — jaise section refresh
-     ho raha ho. Ab pichhli baar ka data turant (cache se) dikh jaata
-     hai, aur background mein fresh data laa kar chup-chaap update kar
-     diya jaata hai — "Loading..." sirf pehli baar hi dikhega. Cache
-     mobile-number se linked hai, isliye agar dusra student login kare
-     to purana data kabhi nahi dikhta.
+     dekhne jaake wapas aata hai), aur pehle har baar mistakes/progress/
+     doubts/streak/myResults — sab cheezein Firestore se dobara fetch
+     hoti thin, jisse har baar kuch pal ke liye poora section khaali ya
+     "Loading..." dikhta tha — jaise section refresh ho raha ho. Ab
+     pichhli baar ka data turant (localStorage cache se) dikh jaata hai
+     — chahe poora page hi kyun na reload hua ho — aur background mein
+     fresh data laa kar chup-chaap update kar diya jaata hai —
+     "Loading..." sirf bilkul pehli baar hi dikhega. Cache mobile-number
+     se linked hai, isliye agar dusra student login kare to purana data
+     kabhi nahi dikhta.
   ──────────────────────────────────────────────────────────────── */
+  const EXTRAS_CACHE_PREFIX = "savya_extras_cache_";
   let extrasCache = { mobile: null, mistakes: null, progressRecs: null, doubts: null, streak: null, myResults: null };
+
+  function loadExtrasCacheFromStorage(mobile) {
+    try {
+      const raw = localStorage.getItem(EXTRAS_CACHE_PREFIX + mobile);
+      return raw ? JSON.parse(raw) : null;
+    } catch (e) { return null; }
+  }
+  function persistExtrasCache() {
+    if (!extrasCache.mobile) return;
+    try {
+      const { mobile, ...rest } = extrasCache;
+      localStorage.setItem(EXTRAS_CACHE_PREFIX + mobile, JSON.stringify(rest));
+    } catch (e) { /* storage full/unavailable — silently skip, live data still works */ }
+  }
   function cacheFor(mobile) {
     if (extrasCache.mobile !== mobile) {
-      extrasCache = { mobile, mistakes: null, progressRecs: null, doubts: null, streak: null, myResults: null };
+      const stored = loadExtrasCacheFromStorage(mobile) || {};
+      extrasCache = {
+        mobile,
+        mistakes: stored.mistakes || null,
+        progressRecs: stored.progressRecs || null,
+        doubts: stored.doubts || null,
+        streak: (typeof stored.streak === "number" ? stored.streak : null),
+        myResults: stored.myResults || null
+      };
     }
     return extrasCache;
   }
@@ -230,6 +254,7 @@
     const fresh = await loadMyMistakes();
     currentMistakes = fresh;
     cache.mistakes = fresh;
+    persistExtrasCache();
     paintMistakesList(currentMistakes, list);
   }
 
@@ -244,6 +269,7 @@
     try {
       await db.collection("studentMistakes").doc(mobile).set({ mobile, items }, { merge: true });
       cacheFor(mobile).mistakes = items; // optimistic — list se turant hata hua dikhe
+      persistExtrasCache();
       renderMyMistakes();
     } catch (e) { console.warn("Remove mistake failed", e); alert("Remove nahi ho paya, dobara try karein."); }
   }
@@ -363,6 +389,7 @@
       .sort((a, b) => (a.submittedIso || "").localeCompare(b.submittedIso || ""));
 
     cache.progressRecs = myRecs;
+    persistExtrasCache();
     paintProgressChart(myRecs);
   }
 
@@ -433,6 +460,7 @@
       let docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       docs.sort((a, b) => (b.createdIso || "").localeCompare(a.createdIso || ""));
       cache.doubts = docs;
+      persistExtrasCache();
       paintDoubtsList(docs, list);
     } catch (err) {
       console.error(err);
@@ -539,41 +567,34 @@
       const snap = await db.collection("students").doc(mobile).get();
       const streak = snap.exists ? Number(snap.data().streakCount || 0) : 0;
       cache.streak = streak;
+      persistExtrasCache();
       paintStreakBadge(streak, badge);
     } catch (e) { if (cache.streak === null) badge.style.display = "none"; }
   }
 
   /* ── 6) MY RESULT — SAHI/GALAT DETAIL (works for ANY record: online
      quiz, OMR-scan, or Manual Entry, since all three save the same
-     `details` array via saveRecordOnline()). Student login karte hi
-     apna number de chuka hota hai (session mein already save hai), isliye
-     dobara number maangne ki zaroorat nahi — session ke mobile se hi
-     apne-aap sab attempts dhoondh kar, ek nice summary + list ke sath
-     dikha diya jaata hai. Question-by-question sahi/galat breakdown
-     wahi solution-review screen reuse karta hai jo normal online
-     test-takers dekhte hain. ─────────────────────────────────────── */
-
-  function pctBand(pct) {
-    if (pct >= 75) return { color: "#16a34a", bg: "#dcfce7" };
-    if (pct >= 50) return { color: "#d97706", bg: "#fef3c7" };
-    return { color: "#dc2626", bg: "#fee2e2" };
-  }
+     `details` array via saveRecordOnline()). Student already logged in
+     hai, isliye apna number dobara type karne ki zaroorat nahi — seedha
+     unke session ke mobile number se auto-load hota hai, sees every
+     past attempt, and can open a question-by-question sahi/galat
+     breakdown reusing the exact same solution-review screen normal
+     online test-takers see. ──────────────────────────────────────── */
 
   async function loadMyResults() {
-    const session = (typeof getStudentSession === "function") ? getStudentSession() : null;
     const listEl = document.getElementById("my-result-list");
-    const summaryEl = document.getElementById("my-result-summary");
-    if (!session || !listEl) return;
+    const session = getStudentSession();
+    if (!listEl || !session) return;
     const mobile = normalizeMobile(session.mobile);
+    if (!mobile) return;
     const cache = cacheFor(mobile);
 
-    // Cache mein pehle se data hai to turant dikha do (khaali "Loading"
-    // flash na ho), fir background mein fresh data laa kar update karein.
-    if (cache.myResults) renderMyResultsList(cache.myResults);
-    else listEl.innerHTML = '<p class="muted-text">Aapka result load ho raha hai...</p>';
-
-    const refreshBtn = document.getElementById("my-result-refresh-btn");
-    if (refreshBtn) refreshBtn.classList.add("is-spinning");
+    // Pichhli baar ka data cache mein ho to turant dikha do.
+    if (cache.myResults) {
+      renderMyResultsList(cache.myResults);
+    } else {
+      listEl.innerHTML = '<p class="muted-text">Dhoondh rahe hain...</p>';
+    }
 
     const db = getDB();
     let myRecs = [];
@@ -585,58 +606,36 @@
         myRecs = (records || []).filter(r => normalizeMobile(r.mobile) === mobile);
       }
     } catch (err) {
-      console.warn("[MyResult] Firestore query fail hui, local records se try kar rahe hain:", err);
-      if (cache.myResults) { if (refreshBtn) refreshBtn.classList.remove("is-spinning"); return; }
+      console.warn("Firestore query fail hui, local records se try kar rahe hain:", err);
+      if (cache.myResults) return; // cache pehle se dikh rahi hai, ussi ko rehne do
       myRecs = (records || []).filter(r => normalizeMobile(r.mobile) === mobile);
     }
     myRecs.sort((a, b) => (b.submittedIso || "").localeCompare(a.submittedIso || ""));
     cache.myResults = myRecs;
+    persistExtrasCache();
     renderMyResultsList(myRecs);
-    if (refreshBtn) setTimeout(() => refreshBtn.classList.remove("is-spinning"), 400);
   }
 
   function renderMyResultsList(myRecs) {
     const listEl = document.getElementById("my-result-list");
-    const summaryEl = document.getElementById("my-result-summary");
     if (!listEl) return;
-
     if (!myRecs.length) {
-      if (summaryEl) summaryEl.innerHTML = "";
-      listEl.innerHTML = '<p class="muted-text">Abhi tak koi test attempt nahi mila. Test dene ke baad aapka result yahan apne aap dikhega.</p>';
+      listEl.innerHTML = '<p class="muted-text">Is number se abhi tak koi result nahi mila.</p>';
       return;
     }
-
-    const pcts = myRecs.map(r => r.maxScore > 0 ? Math.round((r.score / r.maxScore) * 100) : 0);
-    const avgPct = Math.round(pcts.reduce((a, b) => a + b, 0) / pcts.length);
-    const bestPct = Math.max(...pcts);
-
-    if (summaryEl) {
-      summaryEl.innerHTML = `
-        <div class="my-result-stats">
-          <div class="my-result-stat"><div class="my-result-stat-num">${myRecs.length}</div><div class="my-result-stat-label">Total Tests</div></div>
-          <div class="my-result-stat"><div class="my-result-stat-num">${avgPct}%</div><div class="my-result-stat-label">Average Score</div></div>
-          <div class="my-result-stat"><div class="my-result-stat-num">${bestPct}%</div><div class="my-result-stat-label">Best Score</div></div>
-        </div>`;
-    }
-
     listEl.innerHTML = myRecs.map((r, idx) => {
-      const pct = pcts[idx];
-      const band = pctBand(pct);
+      const pct = r.maxScore > 0 ? Math.round((r.score / r.maxScore) * 100) : 0;
       const dateTxt = (typeof formatResultDate === "function") ? formatResultDate(r.submittedIso) : "";
       const hasDetails = Array.isArray(r.details) && r.details.length > 0;
       return `
-        <div class="my-result-row">
-          <div class="my-result-row-top">
-            <div class="my-result-row-title">${escHtml(r.testTitle || r.testId || "Test")}</div>
-            <div class="my-result-pct-badge" style="color:${band.color};background:${band.bg};">${pct}%</div>
+        <div class="card" style="margin-bottom:8px;padding:10px 12px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+          <div>
+            <div style="font-weight:700;">${escHtml(r.testTitle || r.testId || "Test")}</div>
+            <div style="font-size:.78rem;color:#64748b;">${dateTxt ? dateTxt + " · " : ""}${escHtml(r.testMode || "Online")} · Score: ${r.score}/${r.maxScore} (${pct}%)</div>
           </div>
-          <div class="my-result-row-bar"><div class="my-result-row-bar-fill" style="width:${pct}%;background:${band.color};"></div></div>
-          <div class="my-result-row-bottom">
-            <span class="my-result-row-meta">${dateTxt ? dateTxt + " · " : ""}${escHtml(r.testMode || "Online")} · Score: ${r.score}/${r.maxScore}</span>
-            <button type="button" class="my-result-view-btn" data-idx="${idx}" ${hasDetails ? "" : "disabled title=\"Purane record mein sawaal-wise detail save nahi hai\""}>
-              ${hasDetails ? "📖 Sahi/Galat Dekhein" : "Detail Unavailable"}
-            </button>
-          </div>
+          <button type="button" class="btn-primary my-result-view-btn" data-idx="${idx}" style="font-size:.82rem;padding:6px 12px;" ${hasDetails ? "" : "disabled title=\"Purane record mein sawaal-wise detail save nahi hai\""}>
+            ${hasDetails ? "📖 Sahi/Galat Dekhein" : "Detail Unavailable"}
+          </button>
         </div>`;
     }).join("");
 
@@ -669,12 +668,129 @@
   function closeMyResultDetail() {
     document.getElementById("solution-screen")?.classList.add("hidden");
     document.getElementById("home-screen")?.classList.remove("hidden");
-    if (typeof showMode === "function") showMode("student");
+    // Wapas dashboard reset nahi — student jahan the (My Result list),
+    // wahi par le jao, isolated-card system ke through.
+    if (typeof showMode === "function") showMode("student", { preserveSection: true });
+    if (typeof goStudentSection === "function") goStudentSection("my-result-detail-card");
     const backBtn = document.getElementById("solution-back");
     if (backBtn) {
       backBtn.textContent = "← Back to Result";
       backBtn.onclick = (typeof showResultFromSolution === "function") ? showResultFromSolution : null;
     }
+  }
+
+  /* ── 7) TOP-3 PODIUM — Student dashboard ke top par overall top
+     performers (sabhi tests ke calculated marks jodkar — Practice Mode
+     attempts count nahi hote kyunki wo studentRecords mein save hi
+     nahi hote, script.js dekhein). Ek baar ka unlimited collection
+     scan hota hai (bilkul Admin ki Students Directory jaisa — dekhein
+     script.js ki loadStudentsDirectory), result localStorage mein
+     cache hota hai taaki reload par turant dikhe, aur background mein
+     silently refresh hota rahta hai. Koi photo-upload feature nahi hai,
+     isliye naam ke initials se ek creative gradient avatar banaya jaata
+     hai. ─────────────────────────────────────────────────────────── */
+
+  const TOP_STUDENTS_CACHE_KEY = "savya_top_students_cache_v1";
+
+  function loadTopStudentsCache() {
+    try { return JSON.parse(localStorage.getItem(TOP_STUDENTS_CACHE_KEY) || "null"); } catch (e) { return null; }
+  }
+  function saveTopStudentsCache(list) {
+    try { localStorage.setItem(TOP_STUDENTS_CACHE_KEY, JSON.stringify({ ts: Date.now(), list })); } catch (e) {}
+  }
+  function podiumInitials(name) {
+    return (name || "S").trim().split(/\s+/).map(w => w[0]).filter(Boolean).slice(0, 2).join("").toUpperCase();
+  }
+
+  async function computeTopStudents() {
+    const db = (typeof getDB === "function") ? getDB() : null;
+    let all = [];
+    try {
+      if (db) {
+        const snap = await db.collection("studentRecords").get();
+        all = snap.docs.map(d => d.data());
+      } else {
+        all = records || [];
+      }
+    } catch (e) {
+      console.warn("[TopStudents] fetch fail hui, cached records se fallback:", e);
+      all = records || [];
+    }
+    const byMobile = {};
+    all.forEach(r => {
+      if (r.isPractice) return;
+      const mobile = normalizeMobile(r.mobile || "");
+      if (!mobile) return;
+      if (!byMobile[mobile]) byMobile[mobile] = { mobile, name: r.name || "Student", totalScore: 0, testCount: 0, _latestIso: "" };
+      byMobile[mobile].totalScore += Number(r.score) || 0;
+      byMobile[mobile].testCount += 1;
+      if (r.submittedIso && r.submittedIso > byMobile[mobile]._latestIso) {
+        byMobile[mobile]._latestIso = r.submittedIso;
+        byMobile[mobile].name = r.name || byMobile[mobile].name;
+      }
+    });
+    return Object.values(byMobile)
+      .sort((a, b) => b.totalScore - a.totalScore)
+      .slice(0, 3)
+      .map(({ _latestIso, ...rest }) => rest);
+  }
+
+  function paintPodium(list, wrap) {
+    if (!wrap) return;
+    if (!list || !list.length) { wrap.innerHTML = ""; return; }
+    // Classic podium order on screen: 2nd - 1st - 3rd (1st tallest & center).
+    const rankMeta = [
+      { medal: "🥇", cls: "cd-rank-1", crown: true  },
+      { medal: "🥈", cls: "cd-rank-2", crown: false },
+      { medal: "🥉", cls: "cd-rank-3", crown: false }
+    ];
+    const order = [1, 0, 2].filter(i => list[i]);
+    const itemsHtml = order.map(rank => {
+      const student = list[rank];
+      const meta = rankMeta[rank];
+      return `
+        <div class="cd-podium-item ${meta.cls}">
+          ${meta.crown ? '<div class="cd-podium-crown">👑</div>' : ""}
+          <div class="cd-podium-avatar">${escHtml(podiumInitials(student.name))}<span class="cd-podium-medal">${meta.medal}</span></div>
+          <div class="cd-podium-name">${escHtml(student.name || "Student")}</div>
+          <div class="cd-podium-score">${fmtNum(student.totalScore)} marks</div>
+          <div class="cd-podium-tests">${student.testCount} test${student.testCount === 1 ? "" : "s"}</div>
+        </div>`;
+    }).join("");
+    wrap.innerHTML = `
+      <div class="cd-podium">
+        <div class="cd-podium-title">🏆 Top Performers</div>
+        <div class="cd-podium-row">${itemsHtml}</div>
+      </div>`;
+  }
+
+  async function renderTopStudentsPodium() {
+    const wrap = document.getElementById("cd-podium-wrap");
+    if (!wrap) return;
+    const cached = loadTopStudentsCache();
+    if (cached && Array.isArray(cached.list) && cached.list.length) paintPodium(cached.list, wrap);
+    try {
+      const fresh = await computeTopStudents();
+      if (fresh.length) {
+        saveTopStudentsCache(fresh);
+        paintPodium(fresh, wrap);
+      } else if (!cached) {
+        wrap.innerHTML = "";
+      }
+    } catch (e) { console.warn("[TopStudents] render fail", e); }
+  }
+
+  /* ── HOOK: called from script.js's goStudentSection() whenever a
+     student opens a dashboard card, so that card's data is refreshed
+     right then (cheap thanks to the stale-while-revalidate cache —
+     cached data already shows instantly, this just re-validates it,
+     and for My Progress it also re-builds the Chart.js canvas at the
+     moment it becomes visible/correctly-sized). ───────────────────── */
+  function onStudentSectionShown(id) {
+    if (id === "my-progress-card") renderMyProgress();
+    else if (id === "my-mistakes-card") renderMyMistakes();
+    else if (id === "doubt-box-card") renderMyDoubts();
+    else if (id === "my-result-detail-card") loadMyResults();
   }
 
   /* ── HOOK: called from script.js showResult() after every submit ─── */
@@ -683,6 +799,14 @@
     try { await updateStreak(student); } catch (e) { console.warn(e); }
     try { if (!isPractice) await saveMistakesFromDetails(student, testTitle, details); } catch (e) { console.warn(e); }
     renderStreakBadge();
+    // Naya scored record ban gaya — My Progress / Mera Result / Top-3
+    // podium sabme purana (stale) data reh gaya hoga, turant refresh
+    // kar do taaki naya score turant sab jagah dikhe.
+    if (!isPractice) {
+      renderMyProgress();
+      loadMyResults();
+      renderTopStudentsPodium();
+    }
   }
 
   /* ── INIT / WIRING ─────────────────────────────────────────────── */
@@ -694,7 +818,7 @@
     renderMyMistakes();
     renderMyProgress();
     renderMyDoubts();
-    loadMyResults();
+    renderTopStudentsPodium();
   }
 
   function init() {
@@ -716,8 +840,8 @@
     const doubtSubmitBtn = document.getElementById("doubt-submit-btn");
     if (doubtSubmitBtn) doubtSubmitBtn.onclick = submitDoubt;
 
-    const myResultRefreshBtn = document.getElementById("my-result-refresh-btn");
-    if (myResultRefreshBtn) myResultRefreshBtn.onclick = loadMyResults;
+    const myResultBtn = document.getElementById("my-result-refresh-btn");
+    if (myResultBtn) myResultBtn.onclick = loadMyResults;
 
     const subjSel = document.getElementById("practice-subject-filter");
     if (subjSel) subjSel.onchange = syncPracticeFilters;
@@ -735,6 +859,19 @@
     // so we don't clobber script.js's own onclick handler on the same button).
     document.getElementById("student-tab")?.addEventListener("click", refreshStudentExtras);
     setTimeout(refreshStudentExtras, 900); // initial load after session restore
+    renderTopStudentsPodium(); // podium doesn't need a session — show it right away
+
+    // ── AUTO-UPDATE: puri site khud-b-khud fresh rahe ────────────────
+    // Pehle sirf tab khol-band karne par data refresh hota tha. Ab agar
+    // student page khula hi chhod de (aur admin doosri taraf se koi
+    // naya test/doubt-reply/record add kare), to bhi kuch hi second
+    // mein purana data khud update ho jaata hai — reload karne ki
+    // zaroorat nahi. Sirf tab visible hone par chalta hai (background
+    // tab mein battery/data waste nahi karta).
+    setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      refreshStudentExtras();
+    }, 25000);
   }
 
   document.addEventListener("DOMContentLoaded", init);
@@ -744,7 +881,9 @@
     removeMistake,
     replyToDoubt,
     renderAdminDoubts,
-    syncPracticeFilters
+    syncPracticeFilters,
+    onStudentSectionShown,
+    renderTopStudentsPodium
   };
 
 })();

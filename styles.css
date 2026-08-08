@@ -1409,11 +1409,6 @@ h4 { color: var(--navy); font-size: .95rem; font-weight: 700; margin-bottom: 10p
 .diff-medium { background: #fef9c3; color: #854d0e; }
 .diff-hard   { background: #fee2e2; color: #991b1b; }
 
-/* ══════════════════════════════════════════
-   LEADERBOARD
-══════════════════════════════════════════ */
-#leaderboard-section .card { margin-bottom: 16px; }
-
 /* Schedule time inputs */
 #test-start-time, #test-end-time {
   padding: 7px 10px; border: 1.5px solid #d1d5db;

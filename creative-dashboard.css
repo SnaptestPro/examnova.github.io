@@ -296,130 +296,125 @@
 #admin-panel > .admin-tabs { display: none !important; }
 
 /* ═══════════════════════════════════════════════════════════════
-   "Mera Result" — auto (session-based, no manual number entry),
-   styled to match the creative dashboard cards above.
+   TOP-3 PODIUM — overall best performers, shown at the top of the
+   Student dashboard (replaces the old standalone Leaderboard tab).
+   Classic podium layout: 2nd — 1st — 3rd, rank 1 tallest & centred.
    ═══════════════════════════════════════════════════════════════ */
-
-.my-result-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 4px;
-}
-.my-result-refresh-btn {
-  flex-shrink: 0;
-  width: 38px;
-  height: 38px;
-  border-radius: 50%;
-  border: 1.5px solid #e0e4fd;
-  background: #eef1ff;
-  color: #4338ca;
-  font-size: 1rem;
-  cursor: pointer;
-  transition: transform .15s ease, background .15s ease;
-}
-.my-result-refresh-btn:hover { background: #e0e4fd; }
-.my-result-refresh-btn.is-spinning { animation: my-result-spin .7s linear; }
-@keyframes my-result-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-
-/* Stat pills */
-.my-result-stats {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 10px;
-  margin: 14px 0 4px;
-}
-.my-result-stat {
-  background: linear-gradient(135deg, #eef1ff 0%, #e3e8ff 100%);
-  border-radius: 16px;
-  padding: 14px 10px;
-  text-align: center;
-  box-shadow: 0 6px 18px rgba(79,70,229,.08);
-}
-.my-result-stat-num {
-  font-size: 1.35rem;
-  font-weight: 800;
-  color: #1e1b4b;
-  line-height: 1.2;
-}
-.my-result-stat-label {
-  font-size: .72rem;
-  font-weight: 600;
-  color: #4338ca;
-  margin-top: 2px;
-}
-
-/* Result rows */
-.my-result-row {
-  background: #fff;
-  border: 1px solid rgba(30,27,75,.08);
-  border-radius: 16px;
-  padding: 14px 16px;
-  margin-bottom: 10px;
-  box-shadow: 0 6px 18px rgba(30,27,75,.06);
-}
-.my-result-row-top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-.my-result-row-title {
-  font-weight: 800;
-  font-size: .95rem;
-  color: #1e1b4b;
-}
-.my-result-pct-badge {
-  font-weight: 800;
-  font-size: .82rem;
-  padding: 3px 12px;
-  border-radius: 999px;
-  flex-shrink: 0;
-}
-.my-result-row-bar {
-  height: 7px;
-  border-radius: 999px;
-  background: #eef0f5;
-  margin: 10px 0 10px;
+.cd-podium {
+  background: linear-gradient(135deg, #1e1b4b 0%, #3730a3 55%, #4f46e5 100%);
+  border-radius: 22px;
+  padding: 20px 16px 14px;
+  margin-bottom: 20px;
+  box-shadow: 0 12px 32px rgba(30,27,75,.22);
+  position: relative;
   overflow: hidden;
 }
-.my-result-row-bar-fill {
-  height: 100%;
-  border-radius: 999px;
-  transition: width .4s ease;
+.cd-podium::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 85% -10%, rgba(255,255,255,.18), transparent 55%);
+  pointer-events: none;
 }
-.my-result-row-bottom {
+.cd-podium-title {
+  color: #fff;
+  font-weight: 800;
+  font-size: .95rem;
+  text-align: center;
+  margin-bottom: 14px;
+  letter-spacing: .2px;
+}
+.cd-podium-row {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 10px;
+}
+.cd-podium-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 96px;
+  position: relative;
+}
+.cd-podium-crown {
+  font-size: 1.3rem;
+  margin-bottom: 2px;
+  filter: drop-shadow(0 3px 6px rgba(0,0,0,.25));
+  animation: cd-podium-bob 2.2s ease-in-out infinite;
+}
+@keyframes cd-podium-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-3px); }
+}
+.cd-podium-avatar {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-.my-result-row-meta {
-  font-size: .78rem;
-  color: #6b7280;
-}
-.my-result-view-btn {
-  background: linear-gradient(135deg,#4f46e5,#3730a3);
+  justify-content: center;
+  font-weight: 800;
+  font-size: 1.15rem;
   color: #fff;
-  border: none;
-  border-radius: 999px;
-  padding: 7px 16px;
+  background: linear-gradient(145deg, #a5b4fc, #6366f1);
+  border: 3px solid rgba(255,255,255,.85);
+  box-shadow: 0 6px 16px rgba(0,0,0,.2);
+}
+.cd-podium-medal {
+  position: absolute;
+  bottom: -6px;
+  right: -6px;
+  font-size: 1.15rem;
+  filter: drop-shadow(0 2px 3px rgba(0,0,0,.3));
+}
+.cd-podium-name {
+  color: #fff;
   font-weight: 700;
-  font-size: .8rem;
-  cursor: pointer;
+  font-size: .82rem;
+  margin-top: 8px;
+  text-align: center;
+  max-width: 96px;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
-.my-result-view-btn:disabled {
-  background: #e5e7eb;
-  color: #9ca3af;
-  cursor: not-allowed;
+.cd-podium-score {
+  color: #fde68a;
+  font-weight: 800;
+  font-size: .78rem;
+  margin-top: 2px;
 }
-
-@media (max-width: 480px) {
-  .my-result-stats { grid-template-columns: repeat(3, 1fr); gap: 6px; }
-  .my-result-stat { padding: 10px 6px; }
-  .my-result-stat-num { font-size: 1.1rem; }
-  .my-result-row-top { flex-wrap: wrap; }
+.cd-podium-tests {
+  color: #c7d2fe;
+  font-size: .68rem;
+  margin-top: 1px;
+}
+/* Rank 1 — centre, biggest, gold */
+.cd-podium-item.cd-rank-1 { order: 2; }
+.cd-podium-item.cd-rank-1 .cd-podium-avatar {
+  width: 84px; height: 84px; font-size: 1.4rem;
+  background: linear-gradient(145deg, #fde68a, #f59e0b);
+  border-color: #fff;
+  box-shadow: 0 8px 22px rgba(245,158,11,.45);
+}
+.cd-podium-item.cd-rank-1 .cd-podium-name { font-size: .88rem; }
+/* Rank 2 — left, silver */
+.cd-podium-item.cd-rank-2 { order: 1; padding-bottom: 6px; }
+.cd-podium-item.cd-rank-2 .cd-podium-avatar {
+  background: linear-gradient(145deg, #e5e7eb, #94a3b8);
+  box-shadow: 0 6px 16px rgba(148,163,184,.4);
+}
+/* Rank 3 — right, bronze */
+.cd-podium-item.cd-rank-3 { order: 3; padding-bottom: 6px; }
+.cd-podium-item.cd-rank-3 .cd-podium-avatar {
+  background: linear-gradient(145deg, #fbceac, #c2703d);
+  box-shadow: 0 6px 16px rgba(194,112,61,.4);
+}
+@media (max-width: 420px) {
+  .cd-podium-item { width: 82px; }
+  .cd-podium-avatar { width: 56px; height: 56px; font-size: 1rem; }
+  .cd-podium-item.cd-rank-1 .cd-podium-avatar { width: 72px; height: 72px; font-size: 1.2rem; }
+  .cd-podium-name { max-width: 82px; font-size: .76rem; }
 }
