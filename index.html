@@ -614,32 +614,38 @@
             <input id="test-subjective-marks" type="number" min="0" step="0.5" placeholder="e.g. 60 (agar is test paper mein Word wale subjective questions bhi hain)" />
             <small style="color:#6b7280;font-size:.78rem;">Sirf tumhare record/total ke liye — yeh subjective questions system mein add nahi hote (wo tum MS Word mein banate ho), sirf unka total marks yahan note ho jaata hai. Student ko exam ya result mein kahin nahi dikhta, sirf admin ki Test List mein total marks ke saath jud kar dikhta hai.</small>
           </div>
-          <div class="field-row">
-            <label>Negative Marking</label>
+          <div class="hidden">
+            <div class="field-row">
+              <label>Negative Marking</label>
 
-            <select id="test-negative-enabled"><option value="no">No</option><option value="yes">Yes</option></select>
-          </div>
-          <div id="negative-marks-field" class="field-row hidden">
-            <label>Negative Marks</label>
-            <input id="test-negative" type="number" value="0.5" step="0.25" />
-          </div>
-          <div class="field-row">
-            <label>Test Schedule (optional)</label>
-            <div style="display:flex;gap:8px;flex-wrap:wrap;">
-              <input id="test-start-time" type="datetime-local" style="flex:1;" title="Test kab se available hoga" />
-              <input id="test-end-time" type="datetime-local" style="flex:1;" title="Test kab band hoga" />
+              <select id="test-negative-enabled"><option value="no">No</option><option value="yes">Yes</option></select>
             </div>
-            <small style="color:#6b7280;font-size:.78rem;">Blank chhodo = hamesha available. Start time se pehle test lock rahega.</small>
+            <div id="negative-marks-field" class="field-row hidden">
+              <label>Negative Marks</label>
+              <input id="test-negative" type="number" value="0.5" step="0.25" />
+            </div>
+          </div>
+          <div class="hidden">
+            <div class="field-row">
+              <label>Test Schedule (optional)</label>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <input id="test-start-time" type="datetime-local" style="flex:1;" title="Test kab se available hoga" />
+                <input id="test-end-time" type="datetime-local" style="flex:1;" title="Test kab band hoga" />
+              </div>
+              <small style="color:#6b7280;font-size:.78rem;">Blank chhodo = hamesha available. Start time se pehle test lock rahega.</small>
+            </div>
           </div>
 
-          <hr />
-          <h4>Test Sections (Section-wise Paper)</h4>
-          <p class="muted-text">Ek hi test mein Section A, B, C alag-alag bana sakte hain.</p>
-          <div id="test-sections-list" class="sections-list"></div>
-          <button type="button" id="add-test-section" class="btn-secondary" style="margin-bottom:12px;">➕ Add Section</button>
-          <div class="field-row">
-            <label>Active Section (questions yahan add honge)</label>
-            <select id="active-section-select"></select>
+          <div class="hidden">
+            <hr />
+            <h4>Test Sections (Section-wise Paper)</h4>
+            <p class="muted-text">Ek hi test mein Section A, B, C alag-alag bana sakte hain.</p>
+            <div id="test-sections-list" class="sections-list"></div>
+            <button type="button" id="add-test-section" class="btn-secondary" style="margin-bottom:12px;">➕ Add Section</button>
+            <div class="field-row">
+              <label>Active Section (questions yahan add honge)</label>
+              <select id="active-section-select"></select>
+            </div>
           </div>
           <hr />
           <h4>Add Questions</h4>
@@ -657,38 +663,40 @@
           </div>
           <div id="test-bank-list" class="list-box"></div>
           <hr />
-          <h4>Manual Question (HI)</h4>
-          <div class="field-row"><label>Subject</label>
-            <select id="question-subject">
-              <option>Mathematics</option><option>Reasoning</option><option>English</option>
-              <option>General Awareness</option><option>History</option><option>Geography</option>
-            </select>
-          </div>
-          <div class="field-row"><label>Question Type</label>
-            <select id="question-type" onchange="onQuestionTypeChange()">
-              <option value="mcq">Objective (MCQ)</option>
-              <option value="subjective">Subjective (Likhkar jawab)</option>
-            </select>
-          </div>
-          <div class="field-row"><label>Question (HI)</label><textarea id="question-text-hi" rows="2"></textarea></div>
-          <div id="question-mcq-fields">
-            <div class="two-col">
-              <div class="field-row"><label>Option A (HI)</label><input id="option-0-hi" type="text" /></div>
-              <div class="field-row"><label>Option B (HI)</label><input id="option-1-hi" type="text" /></div>
-              <div class="field-row"><label>Option C (HI)</label><input id="option-2-hi" type="text" /></div>
-              <div class="field-row"><label>Option D (HI)</label><input id="option-3-hi" type="text" /></div>
+          <div class="hidden">
+            <h4>Manual Question (HI)</h4>
+            <div class="field-row"><label>Subject</label>
+              <select id="question-subject">
+                <option>Mathematics</option><option>Reasoning</option><option>English</option>
+                <option>General Awareness</option><option>History</option><option>Geography</option>
+              </select>
             </div>
-            <div class="field-row"><label>Correct Answer</label>
-              <select id="answer-index"><option value="0">A</option><option value="1">B</option><option value="2">C</option><option value="3">D</option></select>
+            <div class="field-row"><label>Question Type</label>
+              <select id="question-type" onchange="onQuestionTypeChange()">
+                <option value="mcq">Objective (MCQ)</option>
+                <option value="subjective">Subjective (Likhkar jawab)</option>
+              </select>
             </div>
+            <div class="field-row"><label>Question (HI)</label><textarea id="question-text-hi" rows="2"></textarea></div>
+            <div id="question-mcq-fields">
+              <div class="two-col">
+                <div class="field-row"><label>Option A (HI)</label><input id="option-0-hi" type="text" /></div>
+                <div class="field-row"><label>Option B (HI)</label><input id="option-1-hi" type="text" /></div>
+                <div class="field-row"><label>Option C (HI)</label><input id="option-2-hi" type="text" /></div>
+                <div class="field-row"><label>Option D (HI)</label><input id="option-3-hi" type="text" /></div>
+              </div>
+              <div class="field-row"><label>Correct Answer</label>
+                <select id="answer-index"><option value="0">A</option><option value="1">B</option><option value="2">C</option><option value="3">D</option></select>
+              </div>
+            </div>
+            <div id="question-subjective-fields" class="field-row hidden">
+              <label>Max Marks (is question ke liye)</label>
+              <input id="question-marks" type="number" min="0" step="0.5" placeholder="Khaali = test ke default marks/question" />
+              <small style="color:#6b7280;font-size:.78rem;">Student text mein jawab likhega, teacher baad mein manually check karke marks denge.</small>
+            </div>
+            <div class="field-row"><label>Explanation (HI)</label><textarea id="explanation-text-hi" rows="2"></textarea></div>
+            <button type="button" id="add-question" class="btn-secondary">Add Question to Test</button>
           </div>
-          <div id="question-subjective-fields" class="field-row hidden">
-            <label>Max Marks (is question ke liye)</label>
-            <input id="question-marks" type="number" min="0" step="0.5" placeholder="Khaali = test ke default marks/question" />
-            <small style="color:#6b7280;font-size:.78rem;">Student text mein jawab likhega, teacher baad mein manually check karke marks denge.</small>
-          </div>
-          <div class="field-row"><label>Explanation (HI)</label><textarea id="explanation-text-hi" rows="2"></textarea></div>
-          <button type="button" id="add-question" class="btn-secondary">Add Question to Test</button>
           <div id="draft-count" class="badge-info">0 questions added</div>
           <div id="draft-list" class="list-box"></div>
           <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:4px;">
@@ -1320,7 +1328,7 @@ B"></textarea>
       <div class="q-meta-row">
         <span id="question-count" class="q-count"></span>
         <span class="q-meta-dot">·</span>
-        <span id="question-marks" class="q-marks"></span>
+        <span id="exam-question-marks" class="q-marks"></span>
       </div>
       <div id="exam-section-banner" class="exam-section-banner hidden"></div>
       <div id="exam-question" class="q-text"></div>

@@ -1612,7 +1612,7 @@ function renderQuestion() {
 
   $("#question-count").textContent = `Question ${current.index + 1} of ${current.test.questions.length}`;
   const qMarks = getQuestionMarks(current.test, q);
-  $("#question-marks").textContent = `Marks: +${qMarks}${getNeg(current.test) > 0 ? ` / -${getNeg(current.test)}` : ""}`;
+  $("#exam-question-marks").textContent = `Marks: +${qMarks}${getNeg(current.test) > 0 ? ` / -${getNeg(current.test)}` : ""}`;
   const progressFill = $("#exam-progress-fill");
   if (progressFill) progressFill.style.width = `${((current.index + 1) / current.test.questions.length) * 100}%`;
 
