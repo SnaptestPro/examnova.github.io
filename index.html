@@ -1077,6 +1077,12 @@ B"></textarea>
               <div class="cd-card-sub">Excel/PDF/WhatsApp export karein</div>
               <div class="cd-card-bottom"><span class="cd-arrow-btn">→</span></div>
             </button>
+            <button type="button" class="cd-card cd-orange" onclick="showRecordsSubTab('fixmobile')">
+              <div class="cd-card-top"><div class="cd-icon-circle">🔧</div><span class="cd-badge">Fix</span></div>
+              <div class="cd-card-title">Fake Mobile Number Theek Karein</div>
+              <div class="cd-card-sub">Purane fake numbers (1111111111 jaise) ko sahi number se badlein</div>
+              <div class="cd-card-bottom"><span class="cd-arrow-btn">→</span></div>
+            </button>
           </div>
         </div>
 
@@ -1133,6 +1139,18 @@ B"></textarea>
         </div>
         </div>
         <!-- /Students Directory -->
+
+        <!-- Fake Mobile Number Fix -->
+        <div id="record-fixmobile-box" class="hidden">
+          <button type="button" class="btn-secondary" onclick="backToRecordsHub()" style="margin-bottom:12px;">⬅ Records par wapas</button>
+        <div class="card" style="margin-bottom:16px;">
+          <h3 class="section-title">🔧 Fake Mobile Number Theek Karein</h3>
+          <p class="muted-text">Manual Entry/OMR mein kabhi-kabhi placeholder number (jaise <code>1111111111</code>, <code>0000000000</code>) chadh jaate hain — is wajah se wo student Students Directory mein registered account se match nahi hota aur Leaderboard mein alag-se (duplicate) entry ban jaati hai. Neeche har aise naam ke liye sahi 10-digit mobile number daalkar update karein — us naam ke SAARE fake-number records ek saath sahi ho jayenge.</p>
+          <button type="button" class="btn-secondary" onclick="loadFakeMobileGroups()" style="margin-bottom:12px;">🔄 Refresh</button>
+          <div id="fixmobile-list"><p class="muted-text">Loading...</p></div>
+        </div>
+        </div>
+        <!-- /Fake Mobile Number Fix -->
 
         <!-- Result Sheets -->
         <div id="record-results-box" class="hidden">

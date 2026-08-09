@@ -1078,13 +1078,14 @@ function updateTestsHubCount() {
 
 // ── Records sub-hub: "Password Reset / Students Directory / Result
 //    Sheets" — teen alag cards, ek waqt mein sirf ek. ────────────────
-const RECORDS_SUB_BOX_IDS = { reset: "record-reset-box", directory: "record-directory-box", results: "record-results-box" };
+const RECORDS_SUB_BOX_IDS = { reset: "record-reset-box", directory: "record-directory-box", results: "record-results-box", fixmobile: "record-fixmobile-box" };
 function showRecordsSubTab(sub) {
   $("#records-hub")?.classList.add("hidden");
   Object.entries(RECORDS_SUB_BOX_IDS).forEach(([s, id]) => {
     $(`#${id}`)?.classList.toggle("hidden", s !== sub);
   });
   if (sub === "directory" && typeof loadStudentsDirectory === "function") loadStudentsDirectory();
+  if (sub === "fixmobile" && typeof loadFakeMobileGroups === "function") loadFakeMobileGroups();
   saveLastView({ mode: "admin", section: "records", sub });
   $(`#${RECORDS_SUB_BOX_IDS[sub]}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
@@ -4861,6 +4862,100 @@ window.viewStudentAnswersByInput = viewStudentAnswersByInput;
 window.toggleStudentAnswerDetail = toggleStudentAnswerDetail;
 window.prefillAdminResetMobile = prefillAdminResetMobile;
 window.renderStudentsDirectory = renderStudentsDirectory;
+
+/* ══════════════════════════════════════════
+   ADMIN — FAKE MOBILE NUMBER FIX
+   Manual Entry / OMR mein kabhi-kabhi placeholder number ("1111111111"
+   jaisa — looksLikeFakeMobile() se pehchana jaata hai) chadh jaata hai.
+   Aise records studentIdentityKey() ke through naam se track hote hain,
+   isliye Result Sheet/Leaderboard mein galat nahi milte — lekin unka
+   Students Directory se match nahi ho pata (kyunki registered mobile ID
+   alag hai), aur Leaderboard mein wahi student do alag entries mein
+   dikhta hai (ek real mobile se, ek fake number se). Ye tool har fake-
+   number-wale NAAM ko group karke, ek hi jagah sahi mobile number set
+   karne deta hai — us naam ke SAARE fake-number records ek saath update
+   ho jaate hain.
+══════════════════════════════════════════ */
+let _fakeMobileList = [];
+
+async function loadFakeMobileGroups() {
+  const box = $("#fixmobile-list");
+  if (!box) return;
+  const db = getDB();
+  if (!db) { box.innerHTML = '<p class="empty-state">Internet/Firebase connection nahi hai.</p>'; return; }
+  box.innerHTML = '<p class="muted-text">Loading...</p>';
+  // Registered students ka naam+mobile suggestion ke liye Students
+  // Directory cache bhi taaza rakhte hain (agar abhi tak load nahi hua).
+  if (!allStudentsCache.length) { try { await loadStudentsDirectory(); } catch (e) {} }
+  try {
+    const snap = await db.collection("studentRecords").get();
+    const groups = {}; // key: naam (trim + lowercase)
+    snap.docs.forEach(d => {
+      const r = d.data();
+      const mobile = normalizeMobile(r.mobile || "");
+      if (!looksLikeFakeMobile(mobile)) return;
+      const nameKey = String(r.name || "").trim().toLowerCase();
+      if (!nameKey) return;
+      if (!groups[nameKey]) groups[nameKey] = { name: r.name || "Student", fakeMobile: mobile, docIds: [], count: 0, latestIso: "" };
+      groups[nameKey].docIds.push(d.id);
+      groups[nameKey].count++;
+      if ((r.submittedIso || "") > groups[nameKey].latestIso) groups[nameKey].latestIso = r.submittedIso || "";
+    });
+    renderFakeMobileList(Object.values(groups).sort((a, b) => (b.latestIso || "").localeCompare(a.latestIso || "")));
+  } catch (err) {
+    console.error(err);
+    box.innerHTML = '<p class="empty-state">Load nahi hua: ' + escHtml(err.message || "") + "</p>";
+  }
+}
+window.loadFakeMobileGroups = loadFakeMobileGroups;
+
+function renderFakeMobileList(groups) {
+  const box = $("#fixmobile-list");
+  if (!box) return;
+  _fakeMobileList = groups;
+  if (!groups.length) {
+    box.innerHTML = '<p class="empty-state">🎉 Koi fake/placeholder mobile number nahi mila — sab records ke mobile theek hain.</p>';
+    return;
+  }
+  const datalistOptions = allStudentsCache.map(s => `<option value="${escHtml(s.mobile)}">${escHtml(s.name || "")}</option>`).join("");
+  box.innerHTML = `
+    <datalist id="fixmobile-registered-datalist">${datalistOptions}</datalist>
+    ${groups.map((g, i) => `
+      <div class="card" id="fixmobile-card-${i}" style="margin-bottom:10px;padding:12px 16px;">
+        <strong>${escHtml(g.name)}</strong>
+        <div style="font-size:.78rem;color:#94a3b8;margin-top:2px;">Abhi mobile: <code>${escHtml(g.fakeMobile || "-")}</code> · ${g.count} record${g.count === 1 ? "" : "s"} isi fake number se</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px;">
+          <input type="tel" id="fixmobile-input-${i}" maxlength="10" placeholder="Sahi 10-digit mobile number" list="fixmobile-registered-datalist" style="max-width:220px;" />
+          <button type="button" class="btn-primary" onclick="updateFakeMobileGroup(${i})" style="padding:6px 14px;">✅ Update Karein</button>
+          <span id="fixmobile-status-${i}" style="font-size:.8rem;"></span>
+        </div>
+      </div>`).join("")}`;
+}
+
+async function updateFakeMobileGroup(idx) {
+  const g = _fakeMobileList[idx];
+  const input = $(`#fixmobile-input-${idx}`);
+  const statusEl = $(`#fixmobile-status-${idx}`);
+  if (!g || !input) return;
+  const newMobile = normalizeMobile(input.value || "");
+  if (!/^\d{10}$/.test(newMobile)) { if (statusEl) statusEl.innerHTML = '<span style="color:#dc2626;">⚠️ Sahi 10-digit number likhein.</span>'; return; }
+  const db = getDB();
+  if (!db) { if (statusEl) statusEl.innerHTML = '<span style="color:#dc2626;">Connection nahi hai.</span>'; return; }
+  if (statusEl) statusEl.textContent = "Updating...";
+  try {
+    await Promise.all(g.docIds.map(id => db.collection("studentRecords").doc(id).update({ mobile: newMobile })));
+    if (statusEl) statusEl.innerHTML = `<span style="color:#16a34a;">✅ ${g.count} record${g.count === 1 ? "" : "s"} update ho gaye!</span>`;
+    const card = $(`#fixmobile-card-${idx}`);
+    if (card) setTimeout(() => card.remove(), 900);
+    // Students Directory ka count turant refresh ho jaye taaki wahan bhi
+    // sahi dikhe (Leaderboard apne "🔄 Refresh" se agli baar sahi milega).
+    if (typeof loadStudentsDirectory === "function") loadStudentsDirectory();
+  } catch (err) {
+    console.error(err);
+    if (statusEl) statusEl.innerHTML = '<span style="color:#dc2626;">Fail: ' + escHtml(err.message || "") + "</span>";
+  }
+}
+window.updateFakeMobileGroup = updateFakeMobileGroup;
 
 async function deleteRecord(id, name, submittedIso) {
   if (!confirm(`${name || "Student"} ka result delete karein?`)) return;
