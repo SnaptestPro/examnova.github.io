@@ -4633,6 +4633,7 @@ window.renderAdminRecordsForSelectedTest = renderAdminRecordsForSelectedTest;
 let allStudentsCache = [];
 
 let studentRecordCountByMobile = {};
+let studentRecordCountIsFull = false; // true once the unlimited studentRecords count-query succeeds
 
 async function loadStudentsDirectory() {
   const db = getDB();
@@ -4663,9 +4664,13 @@ async function loadStudentsDirectory() {
         counts[m] = (counts[m] || 0) + 1;
       });
       studentRecordCountByMobile = counts;
+      studentRecordCountIsFull = true;
     } catch (e) {
       console.warn("[StudentsDirectory] Full record count failed, falling back to cached records:", e);
       studentRecordCountByMobile = {};
+      // Fallback data only covers the last 200 studentRecords site-wide,
+      // so a 0 count here isn't reliable — don't hide students on it.
+      studentRecordCountIsFull = false;
     }
 
     renderStudentsDirectory();
@@ -4679,13 +4684,36 @@ function renderStudentsDirectory() {
   const listEl = $("#students-directory-list");
   if (!listEl) return;
   const q = ($("#students-directory-search")?.value || "").trim().toLowerCase();
-  let list = allStudentsCache;
+
+  // Sirf woh students (naam + mobile) dikhaye jinke paas kam se kam 1
+  // ACTUAL saved record hai — online MCQ test ho, OMR scan ho, ya Manual
+  // Entry ho, teeno saveRecordOnline() se hi save hote hain isliye
+  // studentRecordCountByMobile sabko cover karta hai. Sirf "registered"
+  // hone se (koi record nahi) ab koi student is directory/search me
+  // kahin bhi nahi aayega.
+  let list = allStudentsCache
+    .map(s => {
+      const recCount = studentRecordCountByMobile[s.mobile] != null
+        ? studentRecordCountByMobile[s.mobile]
+        : (records || []).filter(r => normalizeMobile(r.mobile) === s.mobile).length;
+      return { ...s, _recCount: recCount };
+    })
+    .filter(s => s._recCount > 0);
+
   if (q) list = list.filter(s => (s.name || "").toLowerCase().includes(q) || (s.mobile || "").includes(q));
 
   if (!allStudentsCache.length) { listEl.innerHTML = '<p class="empty-state">Abhi tak koi student register nahi hua.</p>'; return; }
-  if (!list.length) { listEl.innerHTML = '<p class="empty-state">Koi student nahi mila.</p>'; return; }
 
-  listEl.innerHTML = `
+  const fallbackWarning = !studentRecordCountIsFull
+    ? '<p style="background:#fffbeb;color:#92400e;border:1px solid #fde68a;border-radius:6px;padding:8px 10px;font-size:12.5px;margin-bottom:10px;">⚠️ Records ka poora count load nahi ho paya (connection issue), isliye kuch students jinke OMR/Manual records hain woh abhi list se chhoot sakte hain — 🔄 Refresh dabaakar dobara try karein.</p>'
+    : "";
+
+  if (!list.length) {
+    listEl.innerHTML = fallbackWarning + '<p class="empty-state">' + (q ? "Koi student nahi mila." : "Abhi tak kisi bhi student ne koi test/entry (MCQ online, OMR, ya Manual Entry) nahi diya hai.") + '</p>';
+    return;
+  }
+
+  listEl.innerHTML = fallbackWarning + `
     <div style="overflow-x:auto">
     <table style="width:100%;border-collapse:collapse;font-size:13px">
       <thead><tr style="background:#f1f5f9">
@@ -4698,16 +4726,14 @@ function renderStudentsDirectory() {
       </tr></thead>
       <tbody>
         ${list.map(s => {
-          const recCount = studentRecordCountByMobile[s.mobile] != null
-            ? studentRecordCountByMobile[s.mobile]
-            : (records || []).filter(r => normalizeMobile(r.mobile) === s.mobile).length;
+          const recCount = s._recCount;
           const regDate = (s.createdAt && s.createdAt.toDate) ? s.createdAt.toDate().toLocaleDateString("en-IN") : "-";
           return `<tr style="border-top:1px solid #e2e8f0">
             <td style="padding:7px 10px">${escHtml(s.name || "-")}</td>
             <td style="padding:7px 10px">${escHtml(s.mobile || "-")}</td>
             <td style="padding:7px 10px">${s.hasPin ? "✅ Set" : "⚠️ Nahi"}</td>
             <td style="padding:7px 10px">${regDate}</td>
-            <td style="padding:7px 10px">${recCount}${recCount ? "" : " (ya offline OMR/Manual bhi ho sakte hain — neeche check karein)"}</td>
+            <td style="padding:7px 10px">${recCount}</td>
             <td style="padding:7px 10px;white-space:nowrap;">
               <button type="button" onclick="viewStudentAnswers('${s.mobile}')" style="background:#2563eb;color:#fff;border:none;padding:4px 10px;border-radius:6px;font-size:12px;cursor:pointer;margin-right:6px;">📄 Answers</button>
               <button type="button" onclick="prefillAdminResetMobile('${s.mobile}')" style="background:#dc2626;color:#fff;border:none;padding:4px 10px;border-radius:6px;font-size:12px;cursor:pointer;">🔑 Reset</button>
