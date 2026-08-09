@@ -4288,7 +4288,7 @@ function renderGradeStudentsList() {
         ? `Subjective diya: ${fmtNum(r.externalSubjectiveAwarded)}/${fmtNum(manualMax)}`
         : `Subjective marks abhi nahi diya (max ${fmtNum(manualMax)})`;
     }
-    item.innerHTML = `<span><strong>${escHtml(r.name || "Student")}</strong> · ${escHtml(r.mobile || "")}<small>${statusLabel} · Score so far: ${fmtNum(r.score)}/${fmtNum(r.maxScore)}</small></span>`;
+    item.innerHTML = `<span><strong>${escHtml(r.name || "Student")}</strong> · ${escHtml(r.mobile || "")}<small>${statusLabel} · Score so far: ${fmtNum(r.score)}/${fmtNum(liveMaxForRecord(r))}</small></span>`;
     const acts = document.createElement("div");
     if (mode === "embedded") {
       acts.appendChild(mkBtn("Grade Karein", "secondary", () => renderGradeDetail(r.id)));
@@ -4359,7 +4359,14 @@ async function saveManualSubjectiveMarks(recordId, totalInput, maxMarks) {
   if (awarded > maxMarks) awarded = maxMarks;
 
   const baseScore = (r.mcqOnlyScore !== undefined && r.mcqOnlyScore !== null) ? r.mcqOnlyScore : r.score;
-  const baseMax   = (r.mcqOnlyMaxScore !== undefined && r.mcqOnlyMaxScore !== null) ? r.mcqOnlyMaxScore : r.maxScore;
+  // MCQ-only base max: pehli baar grade karte waqt, test ke LIVE config
+  // (getTestMaxMarks — attemptLimit-aware, sirf MCQ portion) se leते hain,
+  // record ke apne purane/stale maxScore field se nahi — purane OMR bug ki
+  // wajah se kuch records ka maxScore galat (poore questions count karke)
+  // save ho gaya tha.
+  const testCfgForBase = (typeof tests !== "undefined") ? tests[r.testId] : null;
+  const liveMcqMax = testCfgForBase ? getTestMaxMarks(testCfgForBase) : 0;
+  const baseMax   = (r.mcqOnlyMaxScore !== undefined && r.mcqOnlyMaxScore !== null) ? r.mcqOnlyMaxScore : (liveMcqMax > 0 ? liveMcqMax : r.maxScore);
 
   const newScore = baseScore + awarded;
   const newMaxScore = baseMax + maxMarks;
@@ -4479,15 +4486,18 @@ async function saveSubjectiveGrades(recordId, idxList, totalInput, maxTotal) {
   });
 
   const newScore = details.reduce((s, d) => s + (Number(d.marksAwarded) || 0), 0);
-  const newPct = r.maxScore > 0 ? (newScore / r.maxScore) * 100 : 0;
+  // maxScore hamesha test ke LIVE config se — record ka apna purana/stale
+  // maxScore field ho to isi mauke par usko bhi sahi kar dete hain (self-heal).
+  const newMaxScore = liveMaxForRecord(r);
+  const newPct = newMaxScore > 0 ? (newScore / newMaxScore) * 100 : 0;
   try {
     const db = getDB();
     if (db) {
       await db.collection("studentRecords").doc(recordId).update({
-        details, score: newScore, percentage: newPct, pendingSubjective: 0
+        details, score: newScore, maxScore: newMaxScore, percentage: newPct, pendingSubjective: 0
       });
     }
-    r.details = details; r.score = newScore; r.percentage = newPct; r.pendingSubjective = 0;
+    r.details = details; r.score = newScore; r.maxScore = newMaxScore; r.percentage = newPct; r.pendingSubjective = 0;
     alert("Marks save ho gaye! ✅ Student ka total score update ho gaya hai.");
     renderGradeStudentsList();
   } catch (err) {
@@ -4757,7 +4767,8 @@ async function viewStudentAnswers(mobile) {
     <div class="card" style="margin-top:12px;">
       <h4 style="margin-bottom:8px;">📄 ${escHtml(displayName)} (${mobile}) — Sabhi Attempts</h4>
       ${myRecs.map((r, idx) => {
-        const pct = r.maxScore > 0 ? Math.round((r.score / r.maxScore) * 100) : 0;
+        const maxScore = liveMaxForRecord(r);
+        const pct = maxScore > 0 ? Math.round((r.score / maxScore) * 100) : 0;
         const hasDetails = Array.isArray(r.details) && r.details.length > 0;
         const dateTxt = (typeof formatResultDate === "function") ? formatResultDate(r.submittedIso) : "";
         return `
@@ -4765,7 +4776,7 @@ async function viewStudentAnswers(mobile) {
           <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:#f8fafc;flex-wrap:wrap;gap:8px;">
             <div>
               <strong>${escHtml(r.testTitle || r.testId || "Test")}</strong>
-              <div style="font-size:.78rem;color:#64748b;">${dateTxt ? dateTxt + " · " : ""}${escHtml(r.testMode || "Online")} · Score: ${r.score}/${r.maxScore} (${pct}%)</div>
+              <div style="font-size:.78rem;color:#64748b;">${dateTxt ? dateTxt + " · " : ""}${escHtml(r.testMode || "Online")} · Score: ${r.score}/${maxScore} (${pct}%)</div>
             </div>
             ${hasDetails
               ? `<button type="button" onclick="toggleStudentAnswerDetail(${idx})" style="background:#0891b2;color:#fff;border:none;padding:5px 12px;border-radius:6px;font-size:12px;cursor:pointer;">MCQ Answers Dekhein</button>`
@@ -5510,6 +5521,19 @@ function getTestSubjectiveMarks(test) {
 }
 function getTestGrandTotalMarks(test) {
   return getTestMaxMarks(test) + getTestSubjectiveMarks(test);
+}
+
+// Kisi bhi student-record ka "sahi" max marks nikaalta hai — test ke LIVE
+// config (getTestGrandTotalMarks) se, na ki record ke apne purane/stale
+// maxScore field se. Purane OMR/Manual-Entry bug ki wajah se kuch records
+// ka maxScore galat save ho gaya tha; jahan bhi record ka score/maxScore
+// display hota hai, wahan is function ka use karo taaki Result Sheet, Top
+// Performers, Mera Result, WhatsApp table, Admin Records — sabhi jagah
+// HAMESHA same, sahi number dikhe.
+function liveMaxForRecord(r) {
+  const test = (typeof tests !== "undefined") ? tests[r?.testId] : null;
+  const liveMax = test ? getTestGrandTotalMarks(test) : 0;
+  return (liveMax > 0) ? liveMax : (Number(r?.maxScore) || 0);
 }
 
 // Returns all section titles in order they appear

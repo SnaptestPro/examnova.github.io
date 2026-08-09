@@ -322,7 +322,12 @@
       const dateTxt = (typeof formatResultDate === "function") ? formatResultDate(r.submittedIso) : "";
       return (r.testTitle || "Test").slice(0, 16) + (dateTxt ? " · " + dateTxt : "");
     });
-    const dataPct = myRecs.map(r => (r.maxScore > 0) ? Math.round((r.score / r.maxScore) * 100) : 0);
+    const dataPct = myRecs.map(r => {
+      const testCfg = (typeof tests !== "undefined") ? tests[r.testId] : null;
+      const liveMax = (testCfg && typeof getTestGrandTotalMarks === "function") ? getTestGrandTotalMarks(testCfg) : 0;
+      const maxScore = liveMax > 0 ? liveMax : (r.maxScore || 0);
+      return maxScore > 0 ? Math.round((r.score / maxScore) * 100) : 0;
+    });
 
     if (progressChartInstance) { progressChartInstance.destroy(); }
     progressChartInstance = new Chart(canvas.getContext("2d"), {
@@ -624,14 +629,20 @@
       return;
     }
     listEl.innerHTML = myRecs.map((r, idx) => {
-      const pct = r.maxScore > 0 ? Math.round((r.score / r.maxScore) * 100) : 0;
+      // maxScore hamesha test ke LIVE config se — record ke apne purane/stale
+      // maxScore field se nahi (Result Sheet/Top Performers mein bhi isi
+      // wajah se fix kiya gaya tha — same reasoning yahan bhi).
+      const testCfg = (typeof tests !== "undefined") ? tests[r.testId] : null;
+      const liveMax = (testCfg && typeof getTestGrandTotalMarks === "function") ? getTestGrandTotalMarks(testCfg) : 0;
+      const maxScore = liveMax > 0 ? liveMax : (r.maxScore || 0);
+      const pct = maxScore > 0 ? Math.round((r.score / maxScore) * 100) : 0;
       const dateTxt = (typeof formatResultDate === "function") ? formatResultDate(r.submittedIso) : "";
       const hasDetails = Array.isArray(r.details) && r.details.length > 0;
       return `
         <div class="card" style="margin-bottom:8px;padding:10px 12px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
           <div>
             <div style="font-weight:700;">${escHtml(r.testTitle || r.testId || "Test")}</div>
-            <div style="font-size:.78rem;color:#64748b;">${dateTxt ? dateTxt + " · " : ""}${escHtml(r.testMode || "Online")} · Score: ${r.score}/${r.maxScore} (${pct}%)</div>
+            <div style="font-size:.78rem;color:#64748b;">${dateTxt ? dateTxt + " · " : ""}${escHtml(r.testMode || "Online")} · Score: ${r.score}/${maxScore} (${pct}%)</div>
           </div>
           <button type="button" class="btn-primary my-result-view-btn" data-idx="${idx}" style="font-size:.82rem;padding:6px 12px;" ${hasDetails ? "" : "disabled title=\"Purane record mein sawaal-wise detail save nahi hai\""}>
             ${hasDetails ? "📖 Sahi/Galat Dekhein" : "Detail Unavailable"}
