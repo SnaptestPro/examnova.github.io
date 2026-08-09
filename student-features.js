@@ -770,18 +770,25 @@
       const mobile = normalizeMobile(r.mobile || "");
       if (!byIdentity[identity]) byIdentity[identity] = { mobile, name: r.name || "Student", totalScore: 0, totalMaxScore: 0, testCount: 0, tests: [], _latestIso: "" };
       const excludedFromLb = !!(r.testId && excludedTestIds.has(r.testId));
-      const testTitle = r.testTitle || (typeof tests !== "undefined" && tests[r.testId]?.title) || r.testId || "Test";
+      const testCfg = (typeof tests !== "undefined") ? tests[r.testId] : null;
+      const testTitle = r.testTitle || testCfg?.title || r.testId || "Test";
+      // maxScore hamesha test ke LIVE config se — record ke apne purane/stale
+      // maxScore field se nahi (dekhein getRankedResultsForTest mein isi
+      // wajah se ki gayi fix — same reasoning yahan bhi lagta hai, taaki
+      // Result Sheet aur Top Performers hamesha SAME "out of X" dikhayein).
+      const liveMax = (testCfg && typeof getTestGrandTotalMarks === "function") ? getTestGrandTotalMarks(testCfg) : 0;
+      const recMaxScore = liveMax > 0 ? liveMax : (Number(r.maxScore) || 0);
       byIdentity[identity].tests.push({
         testId: r.testId || "",
         title: testTitle,
         score: Number(r.score) || 0,
-        maxScore: Number(r.maxScore) || 0,
+        maxScore: recMaxScore,
         submittedIso: r.submittedIso || "",
         excludedFromLb
       });
       if (!excludedFromLb) {
         byIdentity[identity].totalScore += Number(r.score) || 0;
-        byIdentity[identity].totalMaxScore += Number(r.maxScore) || 0;
+        byIdentity[identity].totalMaxScore += recMaxScore;
         byIdentity[identity].testCount += 1;
       }
       if (r.submittedIso && r.submittedIso > byIdentity[identity]._latestIso) {

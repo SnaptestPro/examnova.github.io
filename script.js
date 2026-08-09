@@ -1895,7 +1895,7 @@ async function showResult() {
   const rankedRows = getRankedResultsForTest(current.testId, pendingRecord);
   renderBoardResultSheet($("#board-result-sheet"), {
     testTitle: current.test.title,
-    maxScore,
+    maxScore: getTestGrandTotalMarks(current.test),
     date: submittedAt.toISOString(),
     rows: rankedRows,
     highlightName: current.student.name || ""
@@ -4026,15 +4026,27 @@ function getRankedResultsForTest(testId, extraRecord = null) {
     if (scoreDiff !== 0) return scoreDiff;
     return String(a.submittedIso || a.submittedAt || "").localeCompare(String(b.submittedIso || b.submittedAt || ""));
   });
-  return recs.map((r, i) => ({
-    rank: i + 1,
-    name: r.name || "Student",
-    score: r.score || 0,
-    maxScore: r.maxScore || 0,
-    percentage: r.percentage ?? (r.maxScore > 0 ? ((r.score || 0) / r.maxScore) * 100 : 0),
-    submittedAt: r.submittedAt,
-    submittedIso: r.submittedIso
-  }));
+  // Max marks hamesha test ke LIVE config (MCQ + Subjective) se nikaalte
+  // hain — har record ke apne purane/stale "maxScore" field se nahi.
+  // Pehle har record apna maxScore save karte waqt ka snapshot rakhta tha,
+  // aur ek OMR/Manual-Entry bug ki wajah se kuch purane records mein wo
+  // galat (jaise 100 ki jagah 130) save ho gaya tha — jisse Result Sheet
+  // aur Top Performers alag-alag "out of X" dikhate the. Ab test ke current
+  // settings se hi sabke liye SAME, sahi max nikalta hai.
+  const test = (typeof tests !== "undefined") ? tests[testId] : null;
+  const liveMax = test ? getTestGrandTotalMarks(test) : null;
+  return recs.map((r, i) => {
+    const maxScore = (liveMax !== null && liveMax > 0) ? liveMax : (r.maxScore || 0);
+    return {
+      rank: i + 1,
+      name: r.name || "Student",
+      score: r.score || 0,
+      maxScore,
+      percentage: maxScore > 0 ? ((r.score || 0) / maxScore) * 100 : 0,
+      submittedAt: r.submittedAt,
+      submittedIso: r.submittedIso
+    };
+  });
 }
 
 function buildBoardResultSheetHTML({ testTitle, maxScore, date, rows, highlightName }) {
@@ -4179,7 +4191,7 @@ function renderStudentResultSheet() {
   const studentName = $("#student-name")?.value?.trim() || "";
   renderBoardResultSheet(wrap, {
     testTitle: sample?.testTitle || testId,
-    maxScore: sample?.maxScore || rows[0]?.maxScore || 0,
+    maxScore: (tests[testId] ? getTestGrandTotalMarks(tests[testId]) : (sample?.maxScore || rows[0]?.maxScore || 0)),
     date: sample?.submittedIso || sample?.submittedAt,
     rows,
     highlightName: studentName
@@ -4516,7 +4528,7 @@ function renderRecords() {
     const rows = getRankedResultsForTest(t.testId);
     renderBoardResultSheet(wrap, {
       testTitle: t.testTitle,
-      maxScore: t.maxScore || rows[0]?.maxScore || 0,
+      maxScore: rows[0]?.maxScore || t.maxScore || 0,
       date: t.latestDate,
       rows
     });
@@ -4538,16 +4550,22 @@ function renderRecords() {
     let tableRows = testRecs.map(r => {
       const phone = (r.mobile || r.parentPhone || "").replace(/\D/g, "");
       const fullPhone = phone ? (phone.startsWith("91") ? phone : "91" + phone) : "";
-      const pct = r.percentage ? Math.round(r.percentage) : (r.maxScore > 0 ? Math.round((r.score/r.maxScore)*100) : 0);
+      // maxScore hamesha rows2 (getRankedResultsForTest — jo test ke live
+      // config se sahi max nikaalta hai) se lete hain, na ki record ke apne
+      // purane/stale maxScore field se — taaki ye WhatsApp table bhi Result
+      // Sheet/Top Performers ke saath consistent rahe.
+      const rankObj0 = rows2.find(row => row.name === (r.name||"Student"));
+      const maxScore = rankObj0 ? rankObj0.maxScore : (r.maxScore || 0);
+      const pct = maxScore > 0 ? Math.round((r.score/maxScore)*100) : 0;
       const grade = pct>=90?"A+":pct>=80?"A":pct>=70?"B+":pct>=60?"B":pct>=50?"C":"D";
       const passed = pct >= 33;
-      const rankObj = rows2.find(row => row.name === (r.name||"Student"));
+      const rankObj = rankObj0;
       const rank = rankObj ? rankObj.rank : "-";
-      const msg = `🏫 *Savyasachi Coaching*\n\nNamaste! 🙏\n\n*${escHtml(r.name||"Student")}* ka result:\n\n📝 *Test:* ${escHtml(t.testTitle)}\n🎯 *Score:* ${fmtNum(r.score)} / ${fmtNum(r.maxScore)}\n📊 *Pratishat:* ${pct}%\n🏅 *Grade:* ${grade}\n🥇 *Rank:* ${rank} / ${testRecs.length}\n\n${passed?"Bahut achcha kiya! 👏🎉":"Mehnat karte rahein! 💪"}\n\n— Savyasachi Coaching Team`;
+      const msg = `🏫 *Savyasachi Coaching*\n\nNamaste! 🙏\n\n*${escHtml(r.name||"Student")}* ka result:\n\n📝 *Test:* ${escHtml(t.testTitle)}\n🎯 *Score:* ${fmtNum(r.score)} / ${fmtNum(maxScore)}\n📊 *Pratishat:* ${pct}%\n🏅 *Grade:* ${grade}\n🥇 *Rank:* ${rank} / ${testRecs.length}\n\n${passed?"Bahut achcha kiya! 👏🎉":"Mehnat karte rahein! 💪"}\n\n— Savyasachi Coaching Team`;
       const waUrl = fullPhone ? `https://wa.me/${fullPhone}?text=${encodeURIComponent(msg.replace(/\\n/g,"\n"))}` : "";
       return `<tr>
         <td style="padding:7px 10px">${escHtml(r.name||"-")}</td>
-        <td style="padding:7px 10px">${fmtNum(r.score)}/${fmtNum(r.maxScore)} (${pct}%)</td>
+        <td style="padding:7px 10px">${fmtNum(r.score)}/${fmtNum(maxScore)} (${pct}%)</td>
         <td style="padding:7px 10px">${rank}</td>
         <td style="padding:7px 10px">${phone ? phone : '<span style="color:#ef4444">Number nahi</span>'}</td>
         <td style="padding:7px 10px">
