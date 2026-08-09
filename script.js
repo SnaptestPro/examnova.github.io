@@ -4592,6 +4592,7 @@ function renderRecords() {
           }
         </td>
         <td style="padding:7px 10px">
+          <button onclick="editRecordName('${escHtml(r.id || r._localId || '')}','${escHtml(r.name||'')}')" style="background:#2563eb;color:#fff;border:none;padding:4px 12px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;margin-right:6px;">✏️ Naam Edit</button>
           <button onclick="deleteRecord('${escHtml(r.id || r._localId || '')}','${escHtml(r.name||'')}','${escHtml(r.submittedIso||'')}')" style="background:#ef4444;color:#fff;border:none;padding:4px 12px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;">🗑️ Delete</button>
         </td>
       </tr>`;
@@ -4611,7 +4612,7 @@ function renderRecords() {
               <th style="padding:7px 10px;text-align:left;color:#166534">Rank</th>
               <th style="padding:7px 10px;text-align:left;color:#166534">Number</th>
               <th style="padding:7px 10px;text-align:left;color:#166534">WhatsApp</th>
-              <th style="padding:7px 10px;text-align:left;color:#166534">Delete</th>
+              <th style="padding:7px 10px;text-align:left;color:#166534">Actions</th>
             </tr>
           </thead>
           <tbody>${tableRows}</tbody>
@@ -5219,6 +5220,34 @@ async function updateFakeMobileGroup(idx) {
   }
 }
 window.updateFakeMobileGroup = updateFakeMobileGroup;
+
+async function editRecordName(id, oldName) {
+  const newName = prompt(`"${oldName || "Student"}" ka sahi/pura naam likhein (jaise class mein 2 same-naam students ko alag karne ke liye "Aditya Kumar" aur "Aditya Kumar 2"):`, oldName || "");
+  if (newName === null) return; // cancel
+  const trimmed = newName.trim();
+  if (!trimmed || trimmed === oldName) return;
+  const db = getDB();
+
+  // 1. Firebase
+  if (db && id && !id.startsWith("local_")) {
+    try { await db.collection("studentRecords").doc(id).update({ name: trimmed }); }
+    catch(e) { console.warn("Firebase name update failed", e); alert("Naam update nahi hua. Error: " + (e.message || e)); return; }
+  }
+
+  // 2. localStorage cache
+  try {
+    let local = JSON.parse(localStorage.getItem("savya_records") || "[]");
+    local = local.map(r => ((r._localId === id) || (r.id === id)) ? { ...r, name: trimmed } : r);
+    localStorage.setItem("savya_records", JSON.stringify(local));
+  } catch(e) {}
+
+  // 3. In-memory records + re-render
+  records = records.map(r => ((r._localId === id) || (r.id === id)) ? { ...r, name: trimmed } : r);
+  renderRecords();
+  renderStudentResultPicker();
+  alert(`✅ Naam "${trimmed}" update ho gaya.`);
+}
+window.editRecordName = editRecordName;
 
 async function deleteRecord(id, name, submittedIso) {
   if (!confirm(`${name || "Student"} ka result delete karein?`)) return;
