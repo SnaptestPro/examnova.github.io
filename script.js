@@ -4746,7 +4746,8 @@ function renderStudentsDirectory() {
             <td style="padding:7px 10px">${recCount}</td>
             <td style="padding:7px 10px;white-space:nowrap;">
               <button type="button" onclick="viewStudentAnswers('${s.mobile}')" style="background:#2563eb;color:#fff;border:none;padding:4px 10px;border-radius:6px;font-size:12px;cursor:pointer;margin-right:6px;">📄 Answers</button>
-              <button type="button" onclick="prefillAdminResetMobile('${s.mobile}')" style="background:#dc2626;color:#fff;border:none;padding:4px 10px;border-radius:6px;font-size:12px;cursor:pointer;">🔑 Reset</button>
+              <button type="button" onclick="prefillAdminResetMobile('${s.mobile}')" style="background:#dc2626;color:#fff;border:none;padding:4px 10px;border-radius:6px;font-size:12px;cursor:pointer;margin-right:6px;">🔑 Reset</button>
+              <button type="button" onclick="deleteStudentAccount('${s.mobile}')" style="background:#7f1d1d;color:#fff;border:none;padding:4px 10px;border-radius:6px;font-size:12px;cursor:pointer;">🗑️ Delete</button>
             </td>
           </tr>`;
         }).join("")}
@@ -4759,6 +4760,37 @@ function prefillAdminResetMobile(mobile) {
   const input = $("#admin-reset-student-mobile");
   if (input) { input.value = mobile; input.scrollIntoView({ behavior: "smooth", block: "center" }); input.focus(); }
 }
+
+// Student ka registered account (login + password) Firebase se PERMANENTLY
+// delete karta hai — "students" doc aur uska "studentSecrets" (password/PIN
+// hash) doc, dono. Test/OMR/Manual records (studentRecords collection)
+// isse touch nahi hote — agar unke bhi records hain to wo Result Sheets
+// mein waise hi dikhte rahenge (bas login account nahi rahega). Isse
+// gyaan/duplicate registrations (jaise "Sushil kumar" do baar) ko hataya
+// ja sakta hai bina asli test data khoye.
+async function deleteStudentAccount(mobile) {
+  const student = allStudentsCache.find(s => s.mobile === mobile);
+  const name = student?.name || "Student";
+  const recCount = studentRecordCountByMobile[mobile] != null ? studentRecordCountByMobile[mobile] : 0;
+  const warnLine = recCount > 0
+    ? `\n\n⚠️ Iske ${recCount} test record(s) bhi hain — wo DELETE NAHI honge (sirf login account hatega). Records alag se manage karne hon to Result Sheets/Firebase Console use karein.`
+    : "";
+  if (!confirm(`${name} (${mobile}) ka account PERMANENTLY delete karein?\nYe undo nahi ho sakta.${warnLine}`)) return;
+
+  const db = getDB();
+  if (!db) { alert("⚠️ Internet/Firebase connection nahi hai."); return; }
+  try {
+    await db.collection(STUDENT_SECRETS_COLLECTION).doc(mobile).delete();
+    await db.collection(STUDENTS_COLLECTION).doc(mobile).delete();
+    allStudentsCache = allStudentsCache.filter(s => s.mobile !== mobile);
+    renderStudentsDirectory();
+    alert(`✅ ${name} ka account delete ho gaya.`);
+  } catch (err) {
+    console.error(err);
+    alert("Delete karne mein error: " + (err.message || err));
+  }
+}
+window.deleteStudentAccount = deleteStudentAccount;
 
 // Also allow looking up a student who ISN'T registered (pure OMR/Manual
 // Entry records saved with just name+mobile, no login account) by typing
@@ -4864,17 +4896,29 @@ window.prefillAdminResetMobile = prefillAdminResetMobile;
 window.renderStudentsDirectory = renderStudentsDirectory;
 
 /* ══════════════════════════════════════════
-   ADMIN — FAKE MOBILE NUMBER FIX
+   ADMIN — FAKE / GALAT MOBILE NUMBER FIX
    Manual Entry / OMR mein kabhi-kabhi placeholder number ("1111111111"
    jaisa — looksLikeFakeMobile() se pehchana jaata hai) chadh jaata hai.
    Aise records studentIdentityKey() ke through naam se track hote hain,
    isliye Result Sheet/Leaderboard mein galat nahi milte — lekin unka
    Students Directory se match nahi ho pata (kyunki registered mobile ID
    alag hai), aur Leaderboard mein wahi student do alag entries mein
-   dikhta hai (ek real mobile se, ek fake number se). Ye tool har fake-
-   number-wale NAAM ko group karke, ek hi jagah sahi mobile number set
-   karne deta hai — us naam ke SAARE fake-number records ek saath update
-   ho jaate hain.
+   dikhta hai (ek real mobile se, ek fake number se).
+
+   IMPORTANT: looksLikeFakeMobile() sirf OBVIOUS placeholder patterns
+   (1111111111, 0000000000, 1234567890...) pakadta hai. Agar teacher ne
+   number type karte waqt koi RANDOM lekin bilkul valid-dikhne wala
+   10-digit number galat likh diya (jaise ek digit idhar-udhar ho gaya),
+   to wo pattern-check mein nahi fasta. Isliye ab yeh tool Students
+   Directory (registered students) se bhi cross-check karta hai: agar
+   kisi record ka NAAM kisi registered student se match karta hai lekin
+   MOBILE us student ke asli registered number se alag hai, to wo bhi
+   "galat number" maan kar pakad liya jaata hai — chahe wo number
+   "obviously fake" na lage. Registered match na mile aur ek hi naam ke
+   records 2+ ALAG number se bane hon, to bhi manual review ke liye
+   dikhaya jaata hai (do students ka naam same ho sakta hai, isliye us
+   case mein number auto-suggest nahi hota — admin khud confirm karta
+   hai).
 ══════════════════════════════════════════ */
 let _fakeMobileList = [];
 
@@ -4884,24 +4928,101 @@ async function loadFakeMobileGroups() {
   const db = getDB();
   if (!db) { box.innerHTML = '<p class="empty-state">Internet/Firebase connection nahi hai.</p>'; return; }
   box.innerHTML = '<p class="muted-text">Loading...</p>';
-  // Registered students ka naam+mobile suggestion ke liye Students
-  // Directory cache bhi taaza rakhte hain (agar abhi tak load nahi hua).
+  // Registered students ka naam+mobile — cross-check aur suggestion, dono
+  // ke liye chahiye, isliye directory cache taaza rakhte hain.
   if (!allStudentsCache.length) { try { await loadStudentsDirectory(); } catch (e) {} }
   try {
     const snap = await db.collection("studentRecords").get();
-    const groups = {}; // key: naam (trim + lowercase)
+
+    // STEP 1 — Registered students ko naam (trim+lowercase) se lookup
+    // karne layak banao. Do registered students ka naam agar SAME ho
+    // (ambiguous case), to us naam ke liye koi ek number "sahi" maan kar
+    // guess nahi karte — regMobile null rahega, aur aisa naam sirf
+    // "conflict" (manual review) list mein jaayega, auto-fix nahi hoga.
+    const regMobileByName = {};
+    const regNameCount = {};
+    allStudentsCache.forEach(s => {
+      const key = String(s.name || "").trim().toLowerCase();
+      if (!key) return;
+      regNameCount[key] = (regNameCount[key] || 0) + 1;
+      regMobileByName[key] = s.mobile;
+    });
+
+    // STEP 2 — studentRecords ko naam ke hisaab se group karo, aur har
+    // naam ke andar, kaunse-kaunse ALAG mobile number use hue hain wo
+    // bhi track karo (mobile -> uske docIds).
+    const byName = {};
     snap.docs.forEach(d => {
       const r = d.data();
       const mobile = normalizeMobile(r.mobile || "");
-      if (!looksLikeFakeMobile(mobile)) return;
       const nameKey = String(r.name || "").trim().toLowerCase();
-      if (!nameKey) return;
-      if (!groups[nameKey]) groups[nameKey] = { name: r.name || "Student", fakeMobile: mobile, docIds: [], count: 0, latestIso: "" };
-      groups[nameKey].docIds.push(d.id);
-      groups[nameKey].count++;
-      if ((r.submittedIso || "") > groups[nameKey].latestIso) groups[nameKey].latestIso = r.submittedIso || "";
+      if (!nameKey || !mobile) return;
+      if (!byName[nameKey]) byName[nameKey] = { name: r.name || "Student", byMobile: {}, latestIso: "" };
+      if (!byName[nameKey].byMobile[mobile]) byName[nameKey].byMobile[mobile] = { docIds: [], count: 0 };
+      byName[nameKey].byMobile[mobile].docIds.push(d.id);
+      byName[nameKey].byMobile[mobile].count++;
+      if ((r.submittedIso || "") > byName[nameKey].latestIso) byName[nameKey].latestIso = r.submittedIso || "";
     });
-    renderFakeMobileList(Object.values(groups).sort((a, b) => (b.latestIso || "").localeCompare(a.latestIso || "")));
+
+    // STEP 3 — Har naam-group check karo: kuch fix karne layak hai kya?
+    const groups = [];
+    Object.entries(byName).forEach(([nameKey, entry]) => {
+      const mobiles = Object.keys(entry.byMobile);
+      const fakeMobiles = mobiles.filter(m => looksLikeFakeMobile(m));
+      const nonFakeMobiles = mobiles.filter(m => !looksLikeFakeMobile(m));
+      const regMobile = regNameCount[nameKey] === 1 ? regMobileByName[nameKey] : null;
+      const regMismatch = !!regMobile && !mobiles.includes(regMobile);
+      const hasFake = fakeMobiles.length > 0;
+      const hasMultiple = mobiles.length > 1;
+
+      if (!hasFake && !hasMultiple && !regMismatch) return; // sab theek hai
+
+      let reason, suggestedMobile = null, wrongDocIds = [], wrongCount = 0, note = "";
+
+      if (regMobile) {
+        // Registered account mil gaya — wahi hamesha "sahi" maana jaata
+        // hai. Iske alawa jitne bhi mobile se is naam ke records bane
+        // hain (chahe fake-pattern ho ya sirf ek random galat number),
+        // sab "galat" maan kar flag ho jaate hain.
+        reason = "mismatch";
+        suggestedMobile = regMobile;
+        note = "Registered account ka number";
+        mobiles.forEach(m => {
+          if (m === regMobile) return;
+          wrongDocIds.push(...entry.byMobile[m].docIds);
+          wrongCount += entry.byMobile[m].count;
+        });
+      } else if (hasFake && nonFakeMobiles.length === 1) {
+        // Registered match nahi mila, lekin isi naam ka EK non-fake
+        // number bhi records mein hai — bacha hua fake-placeholder wala
+        // record usi sahi number se replace karne layak hai.
+        reason = "fake";
+        suggestedMobile = nonFakeMobiles[0];
+        note = "Isi naam ke doosre record se mila number";
+        fakeMobiles.forEach(m => { wrongDocIds.push(...entry.byMobile[m].docIds); wrongCount += entry.byMobile[m].count; });
+      } else if (hasFake && nonFakeMobiles.length === 0) {
+        // Purana classic case — sirf fake/placeholder number(s), koi
+        // registered ya doosra real number kahin nahi mila.
+        reason = "fake";
+        suggestedMobile = null;
+        fakeMobiles.forEach(m => { wrongDocIds.push(...entry.byMobile[m].docIds); wrongCount += entry.byMobile[m].count; });
+      } else {
+        // Registered match nahi, koi obvious fake pattern bhi nahi —
+        // bas isi naam ke records 2+ ALAG (dono valid-dikhne wale)
+        // number se bane hain. Ho sakta hai ek typo ho, ya ho sakta hai
+        // yeh do ALAG students hon jinka naam same hai — isliye number
+        // auto-suggest nahi karte, admin khud check karke decide kare.
+        reason = "conflict";
+        suggestedMobile = null;
+        note = `${mobiles.length} alag number mile: ${mobiles.join(", ")}`;
+        mobiles.forEach(m => { wrongDocIds.push(...entry.byMobile[m].docIds); wrongCount += entry.byMobile[m].count; });
+      }
+
+      if (!wrongDocIds.length) return;
+      groups.push({ name: entry.name, reason, suggestedMobile, note, docIds: wrongDocIds, count: wrongCount, latestIso: entry.latestIso });
+    });
+
+    renderFakeMobileList(groups.sort((a, b) => (b.latestIso || "").localeCompare(a.latestIso || "")));
   } catch (err) {
     console.error(err);
     box.innerHTML = '<p class="empty-state">Load nahi hua: ' + escHtml(err.message || "") + "</p>";
@@ -4909,27 +5030,43 @@ async function loadFakeMobileGroups() {
 }
 window.loadFakeMobileGroups = loadFakeMobileGroups;
 
+const FIXMOBILE_REASON_LABEL = {
+  mismatch: { badge: "🔀 Registered number se match nahi", color: "#dc2626" },
+  fake: { badge: "🧪 Fake/placeholder number", color: "#d97706" },
+  conflict: { badge: "❓ Alag-alag number mile", color: "#7c3aed" }
+};
+
 function renderFakeMobileList(groups) {
   const box = $("#fixmobile-list");
   if (!box) return;
   _fakeMobileList = groups;
   if (!groups.length) {
-    box.innerHTML = '<p class="empty-state">🎉 Koi fake/placeholder mobile number nahi mila — sab records ke mobile theek hain.</p>';
+    box.innerHTML = '<p class="empty-state">🎉 Koi fake ya galat-mismatched mobile number nahi mila — sab records ke mobile theek hain.</p>';
     return;
   }
   const datalistOptions = allStudentsCache.map(s => `<option value="${escHtml(s.mobile)}">${escHtml(s.name || "")}</option>`).join("");
   box.innerHTML = `
     <datalist id="fixmobile-registered-datalist">${datalistOptions}</datalist>
-    ${groups.map((g, i) => `
+    ${groups.map((g, i) => {
+      const label = FIXMOBILE_REASON_LABEL[g.reason] || FIXMOBILE_REASON_LABEL.fake;
+      const conflictWarning = g.reason === "conflict"
+        ? '<div style="font-size:.75rem;color:#7c3aed;margin-top:4px;">⚠️ Registered account nahi mila — pehle confirm karein ki yeh sach mein EK hi student hai (do students ka naam same bhi ho sakta hai), tabhi update karein.</div>'
+        : "";
+      return `
       <div class="card" id="fixmobile-card-${i}" style="margin-bottom:10px;padding:12px 16px;">
-        <strong>${escHtml(g.name)}</strong>
-        <div style="font-size:.78rem;color:#94a3b8;margin-top:2px;">Abhi mobile: <code>${escHtml(g.fakeMobile || "-")}</code> · ${g.count} record${g.count === 1 ? "" : "s"} isi fake number se</div>
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px;">
+          <strong>${escHtml(g.name)}</strong>
+          <span style="font-size:.72rem;font-weight:700;color:${label.color};">${label.badge}</span>
+        </div>
+        <div style="font-size:.78rem;color:#94a3b8;margin-top:2px;">${g.count} record${g.count === 1 ? "" : "s"} galat number se${g.note ? " · " + escHtml(g.note) : ""}</div>
+        ${conflictWarning}
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px;">
-          <input type="tel" id="fixmobile-input-${i}" maxlength="10" placeholder="Sahi 10-digit mobile number" list="fixmobile-registered-datalist" style="max-width:220px;" />
+          <input type="tel" id="fixmobile-input-${i}" maxlength="10" placeholder="Sahi 10-digit mobile number" list="fixmobile-registered-datalist" value="${escHtml(g.suggestedMobile || "")}" style="max-width:220px;" />
           <button type="button" class="btn-primary" onclick="updateFakeMobileGroup(${i})" style="padding:6px 14px;">✅ Update Karein</button>
           <span id="fixmobile-status-${i}" style="font-size:.8rem;"></span>
         </div>
-      </div>`).join("")}`;
+      </div>`;
+    }).join("")}`;
 }
 
 async function updateFakeMobileGroup(idx) {
