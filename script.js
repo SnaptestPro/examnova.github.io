@@ -4922,6 +4922,26 @@ window.renderStudentsDirectory = renderStudentsDirectory;
 ══════════════════════════════════════════ */
 let _fakeMobileList = [];
 
+// Do 10-digit mobile numbers kitne "alag" hain (Levenshtein/edit distance)
+// — TYPO detect karne ke liye. Ek genuine typo (1 digit galat, ya 2 digit
+// aapas mein swap) mein distance chhota (1-2) hota hai. Agar 2 numbers
+// isse zyada alag hain, to woh bahut hi kam chance hai ki woh "typo" ho —
+// zyada sambhaावना hai ki yeh do ALAG (real) log/students hain.
+function mobileEditDistance(a, b) {
+  a = String(a || ""); b = String(b || "");
+  const m = a.length, n = b.length;
+  const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+  for (let i = 0; i <= m; i++) dp[i][0] = i;
+  for (let j = 0; j <= n; j++) dp[0][j] = j;
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      dp[i][j] = a[i - 1] === b[j - 1] ? dp[i - 1][j - 1] : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
+    }
+  }
+  return dp[m][n];
+}
+const MOBILE_TYPO_MAX_DISTANCE = 2;
+
 async function loadFakeMobileGroups() {
   const box = $("#fixmobile-list");
   if (!box) return;
@@ -4980,18 +5000,34 @@ async function loadFakeMobileGroups() {
       let reason, suggestedMobile = null, wrongDocIds = [], wrongCount = 0, note = "";
 
       if (regMobile) {
-        // Registered account mil gaya — wahi hamesha "sahi" maana jaata
-        // hai. Iske alawa jitne bhi mobile se is naam ke records bane
-        // hain (chahe fake-pattern ho ya sirf ek random galat number),
-        // sab "galat" maan kar flag ho jaate hain.
-        reason = "mismatch";
-        suggestedMobile = regMobile;
-        note = "Registered account ka number";
+        // Registered account mil gaya — LEKIN sirf naam match hone ka
+        // matlab yeh nahi ki yeh WAHI student hai. Class mein isi naam
+        // ka ek AUR bilkul ALAG (real) student bhi ho sakta hai (jaise
+        // "Aditya Kumar" 2 baar) — us doosre Aditya ka number registered
+        // wale se koi lena-dena nahi, sirf naam ka coincidence hai.
+        // Isliye ab number-SIMILARITY bhi check karte hain: agar record
+        // ka mobile registered number se sirf 1-2 digit alag hai (jaisa
+        // ek typo mein hota hai), tabhi use "isi student ka galat-type
+        // number" maan kar auto-suggest karte hain. Number bilkul hi
+        // alag ho (bahut zyada digits alag), to woh shaayad NAAM-SAME-
+        // lekin-DIFFERENT student hai — usse "conflict" (manual review,
+        // auto-suggest nahi) mein daalte hain, taaki 2 alag students ke
+        // marks galti se ek mein merge na ho jaayein.
+        const closeDocIds = [], farDocIds = [];
+        let closeCount = 0, farCount = 0;
         mobiles.forEach(m => {
           if (m === regMobile) return;
-          wrongDocIds.push(...entry.byMobile[m].docIds);
-          wrongCount += entry.byMobile[m].count;
+          const dist = mobileEditDistance(m, regMobile);
+          if (dist <= MOBILE_TYPO_MAX_DISTANCE) { closeDocIds.push(...entry.byMobile[m].docIds); closeCount += entry.byMobile[m].count; }
+          else { farDocIds.push(...entry.byMobile[m].docIds); farCount += entry.byMobile[m].count; }
         });
+        if (closeDocIds.length) {
+          groups.push({ name: entry.name, reason: "mismatch", suggestedMobile: regMobile, note: "Registered account ka number", docIds: closeDocIds, count: closeCount, latestIso: entry.latestIso });
+        }
+        if (farDocIds.length) {
+          groups.push({ name: entry.name, reason: "conflict", suggestedMobile: null, note: `Registered number (${regMobile}) se bahut alag hai — shaayad isi naam ka DUSRA student ho`, docIds: farDocIds, count: farCount, latestIso: entry.latestIso });
+        }
+        return; // is naam ka handling ho gaya — neeche wali branches skip
       } else if (hasFake && nonFakeMobiles.length === 1) {
         // Registered match nahi mila, lekin isi naam ka EK non-fake
         // number bhi records mein hai — bacha hua fake-placeholder wala
@@ -5050,7 +5086,7 @@ function renderFakeMobileList(groups) {
     ${groups.map((g, i) => {
       const label = FIXMOBILE_REASON_LABEL[g.reason] || FIXMOBILE_REASON_LABEL.fake;
       const conflictWarning = g.reason === "conflict"
-        ? '<div style="font-size:.75rem;color:#7c3aed;margin-top:4px;">⚠️ Registered account nahi mila — pehle confirm karein ki yeh sach mein EK hi student hai (do students ka naam same bhi ho sakta hai), tabhi update karein.</div>'
+        ? '<div style="font-size:.75rem;color:#7c3aed;margin-top:4px;">⚠️ Pehle confirm karein ki yeh sach mein EK hi student hai — isi naam ke DO ALAG students hona bhi bilkul possible hai (jaise class mein 2 "Aditya Kumar"). Sirf tabhi update karein jab pakka ho ki number sirf ek typo hai.</div>'
         : "";
       return `
       <div class="card" id="fixmobile-card-${i}" style="margin-bottom:10px;padding:12px 16px;">
