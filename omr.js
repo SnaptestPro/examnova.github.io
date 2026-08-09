@@ -1072,26 +1072,22 @@
     rec.input.value = (opt && opt.value) ? opt.textContent : "";
   }
 
-  /* ── STUDENT NAME / WHATSAPP AUTOCOMPLETE (filter saved records) ─
-     Suggests previously-saved students (from the global `records`
-     array, same one used everywhere else in the app) as the admin
+  /* ── STUDENT NAME / WHATSAPP AUTOCOMPLETE (Students Directory se) ─
+     Suggests students straight from Students Directory (`allStudentsCache`,
+     script.js mein load hota hai — yahi list jo Records → Students
+     Directory mein dikhti hai, i.e. ALL registered students) as the admin
      types in the Naam / WhatsApp Number fields. Picking a suggestion
-     auto-fills BOTH fields together. Typing a name/number that isn't
-     saved yet still works exactly like a normal text box — nothing
-     is forced to match the list. ─────────────────────────────────── */
+     auto-fills BOTH fields with the EXACT registered name+mobile, so the
+     Manual Entry record hamesha sahi student ke registered account se
+     match ho (Students Directory ka record-count sahi rahe). Typing a
+     name/number that isn't registered yet still works like a normal text
+     box — nothing is forced to match the list. ───────────────────────── */
 
   function getUniqueSavedStudents() {
-    if (typeof records === "undefined" || !Array.isArray(records)) return [];
-    const seen = new Map();
-    records.forEach(r => {
-      if (!r) return;
-      const name = (r.name || "").trim();
-      const mobile = (r.mobile || "").trim();
-      if (!name && !mobile) return;
-      const key = mobile || name.toLowerCase();
-      if (!seen.has(key)) seen.set(key, { name, mobile });
-    });
-    return Array.from(seen.values());
+    if (typeof allStudentsCache === "undefined" || !Array.isArray(allStudentsCache)) return [];
+    return allStudentsCache
+      .map(s => ({ name: (s.name || "").trim(), mobile: (s.mobile || "").trim() }))
+      .filter(s => s.name || s.mobile);
   }
 
   function enhanceStudentAutocomplete(nameInput, mobileInput) {
@@ -1124,7 +1120,7 @@
         if (!students.length) {
           const empty = document.createElement("div");
           empty.className = "searchable-select-empty";
-          empty.textContent = "Koi saved student nahi mila — naya naam/number type karte rahein";
+          empty.textContent = "Koi registered student nahi mila — naya naam/number type karte rahein";
           list.appendChild(empty);
           list.classList.remove("hidden");
           return;

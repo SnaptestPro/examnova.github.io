@@ -1107,6 +1107,12 @@ function showOmrSubTab(sub) {
     $(`#${id}`)?.classList.toggle("hidden", s !== sub);
   });
   saveLastView({ mode: "admin", section: "omr", sub });
+  // Manual Entry ka Naam/WhatsApp Number autocomplete Students Directory
+  // (allStudentsCache — sabhi REGISTERED students) se data leta hai. Agar
+  // admin ne abhi tak Records tab nahi khola to woh cache khaali hoga —
+  // yahan pehli baar Manual Entry par aate hi load kar lo taaki
+  // suggestions turant sahi (aur complete) dikhein.
+  if (sub === "manual" && !allStudentsCache.length && typeof loadStudentsDirectory === "function") loadStudentsDirectory();
   $(`#${OMR_SUB_BOX_IDS[sub]}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 window.showOmrSubTab = showOmrSubTab;
