@@ -697,6 +697,12 @@
 
     let correct = 0, wrong = 0, unattempted = 0, pendingSubjective = 0;
     const marks = getMarks(test), neg = getNeg(test);
+    // Online exam ki tarah hi "attempt any N" limit yahan bhi lagti hai —
+    // agar test mein attemptLimit set hai to sirf pehle N attempted MCQs
+    // hi count honge, baaki "Extra (Not Counted)" ban jaate hain — taaki
+    // OMR/offline result online result se hamesha match kare.
+    const attemptLimit = Number(test.attemptLimit) > 0 ? Number(test.attemptLimit) : null;
+    let attemptedSoFar = 0, extraCount = 0;
     const details = test.questions.map((ques, idx) => {
       const qNo = idx + 1;
       const sel = answers[qNo];
@@ -724,19 +730,28 @@
 
       const blank = sel === null || sel === undefined;
       const right = !blank && sel === ques.answer;
-      if (blank) unattempted++; else if (right) correct++; else wrong++;
+      let counted = true;
+      if (!blank) {
+        attemptedSoFar++;
+        if (attemptLimit && attemptedSoFar > attemptLimit) { counted = false; extraCount++; }
+      }
+      if (counted) { if (blank) unattempted++; else if (right) correct++; else wrong++; }
       return {
         questionNo: qNo, subject: ques.subject || "", chapter: ques.chapter || "",
         questionEN: ques.textEN || ques.text || "", questionHI: ques.textHI || ques.text || "",
         optionsEN: ques.optionsEN || ques.options || [], optionsHI: ques.optionsHI || ques.options || [],
         correctAnswer: ques.answer, studentAnswer: blank ? null : sel,
-        qType: "mcq", status: blank ? "Not answered" : right ? "Correct" : "Wrong",
-        marksAwarded: blank ? 0 : right ? qM : (neg > 0 ? -neg : 0), marksPerQuestion: qM,
+        qType: "mcq", status: blank ? "Not answered" : !counted ? "Extra (Not Counted)" : right ? "Correct" : "Wrong",
+        marksAwarded: (blank || !counted) ? 0 : right ? qM : (neg > 0 ? -neg : 0), marksPerQuestion: qM,
         explanationEN: ques.explanationEN || ques.explanation || "",
         explanationHI: ques.explanationHI || ques.explanation || ""
       };
     });
-    const maxScore = details.reduce((s, d) => s + (Number(d.marksPerQuestion) || marks), 0);
+    // maxScore hamesha getTestMaxMarks() (shared function) se — same jo
+    // online exam aur admin test-list use karte hain, taaki attemptLimit
+    // wale tests ka result OMR/Manual Entry mein bhi sahi (70/100 ki jagah
+    // 130/100 jaisi galti nahi) dikhe.
+    const maxScore = (typeof getTestMaxMarks === "function") ? getTestMaxMarks(test) : details.reduce((s, d) => s + (Number(d.marksPerQuestion) || marks), 0);
     const score = details.reduce((s, d) => s + d.marksAwarded, 0);
     const pct = maxScore > 0 ? (score / maxScore) * 100 : 0;
     const submittedAt = new Date();
@@ -857,6 +872,9 @@
 
     let correct = 0, wrong = 0, unattempted = 0, pendingSubjective = 0;
     const marks = getMarks(test), neg = getNeg(test);
+    // Online exam ki tarah hi "attempt any N" limit yahan bhi lagti hai.
+    const attemptLimit = Number(test.attemptLimit) > 0 ? Number(test.attemptLimit) : null;
+    let attemptedSoFar = 0, extraCount = 0;
     const details = test.questions.map((ques, idx) => {
       const qNo = idx + 1;
       const sel = answers[qNo];
@@ -882,19 +900,26 @@
 
       const blank = sel === null || sel === undefined;
       const right = !blank && sel === ques.answer;
-      if (blank) unattempted++; else if (right) correct++; else wrong++;
+      let counted = true;
+      if (!blank) {
+        attemptedSoFar++;
+        if (attemptLimit && attemptedSoFar > attemptLimit) { counted = false; extraCount++; }
+      }
+      if (counted) { if (blank) unattempted++; else if (right) correct++; else wrong++; }
       return {
         questionNo: qNo, subject: ques.subject || "", chapter: ques.chapter || "",
         questionEN: ques.textEN || ques.text || "", questionHI: ques.textHI || ques.text || "",
         optionsEN: ques.optionsEN || ques.options || [], optionsHI: ques.optionsHI || ques.options || [],
         correctAnswer: ques.answer, studentAnswer: blank ? null : sel,
-        qType: "mcq", status: blank ? "Not answered" : right ? "Correct" : "Wrong",
-        marksAwarded: blank ? 0 : right ? qM : (neg > 0 ? -neg : 0), marksPerQuestion: qM,
+        qType: "mcq", status: blank ? "Not answered" : !counted ? "Extra (Not Counted)" : right ? "Correct" : "Wrong",
+        marksAwarded: (blank || !counted) ? 0 : right ? qM : (neg > 0 ? -neg : 0), marksPerQuestion: qM,
         explanationEN: ques.explanationEN || ques.explanation || "",
         explanationHI: ques.explanationHI || ques.explanation || ""
       };
     });
-    const maxScore = details.reduce((s, d) => s + (Number(d.marksPerQuestion) || marks), 0);
+    // maxScore hamesha getTestMaxMarks() (shared function) se — attemptLimit
+    // wale tests ka result yahan bhi sahi (130/100 jaisi galti nahi) dikhe.
+    const maxScore = (typeof getTestMaxMarks === "function") ? getTestMaxMarks(test) : details.reduce((s, d) => s + (Number(d.marksPerQuestion) || marks), 0);
     const score = details.reduce((s, d) => s + d.marksAwarded, 0);
     const pct = maxScore > 0 ? (score / maxScore) * 100 : 0;
     const submittedAt = new Date();

@@ -2292,14 +2292,7 @@ function renderTestList() {
     const poll = mkBtn("📊 Poll", "secondary", () => openWhatsAppPollModal(id));
     const del  = mkBtn("Delete", "danger",   () => deleteTest(id));
     if (!t.isDraft) {
-      const lbOn = t.includeInLeaderboard !== false; // undefined/true = shaamil (default)
-      const lb = mkBtn(lbOn ? "🏆 Leaderboard: ON" : "🏆 Leaderboard: OFF", "secondary", () => toggleTestLeaderboard(id));
-      lb.title = lbOn
-        ? "Is test ke marks 'Top Performers' mein count ho rahe hain — hataane ke liye click karein"
-        : "Is test ke marks 'Top Performers' mein count NAHI ho rahe — shaamil karne ke liye click karein";
-      lb.style.borderColor = lbOn ? "#22c55e" : "#cbd5e1";
-      lb.style.color = lbOn ? "#16a34a" : "#94a3b8";
-      acts.append(poll, lb);
+      acts.append(poll);
     }
     acts.append(edit, copy, del);
     item.appendChild(acts);
