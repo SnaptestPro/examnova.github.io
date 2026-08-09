@@ -1115,6 +1115,10 @@ B"></textarea>
             </div>
             <button type="button" class="btn-secondary" onclick="loadStudentsDirectory()">🔄 Refresh</button>
           </div>
+          <label style="display:flex;align-items:center;gap:6px;font-size:.82rem;margin-bottom:10px;cursor:pointer;">
+            <input type="checkbox" id="students-directory-only-with-records" onchange="renderStudentsDirectory()" />
+            Sirf test diye hue students dikhayein (abhi default: <strong>sabhi</strong> registered students dikh rahe hain)
+          </label>
           <div id="students-directory-list"><p class="muted-text">Loading...</p></div>
 
           <div style="margin-top:14px;padding-top:12px;border-top:1px solid #e2e8f0;">

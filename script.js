@@ -4685,20 +4685,22 @@ function renderStudentsDirectory() {
   if (!listEl) return;
   const q = ($("#students-directory-search")?.value || "").trim().toLowerCase();
 
-  // Sirf woh students (naam + mobile) dikhaye jinke paas kam se kam 1
-  // ACTUAL saved record hai — online MCQ test ho, OMR scan ho, ya Manual
-  // Entry ho, teeno saveRecordOnline() se hi save hote hain isliye
-  // studentRecordCountByMobile sabko cover karta hai. Sirf "registered"
-  // hone se (koi record nahi) ab koi student is directory/search me
-  // kahin bhi nahi aayega.
-  let list = allStudentsCache
-    .map(s => {
-      const recCount = studentRecordCountByMobile[s.mobile] != null
-        ? studentRecordCountByMobile[s.mobile]
-        : (records || []).filter(r => normalizeMobile(r.mobile) === s.mobile).length;
-      return { ...s, _recCount: recCount };
-    })
-    .filter(s => s._recCount > 0);
+  // "Sirf test diye hue students dikhayein" checkbox (default: ON) — jab
+  // ON ho to sirf woh students (naam + mobile) dikhaye jinke paas kam se
+  // kam 1 ACTUAL saved record hai (online MCQ test, OMR scan, ya Manual
+  // Entry — teeno saveRecordOnline() se hi save hote hain isliye
+  // studentRecordCountByMobile sabko cover karta hai). Yeh sirf DISPLAY
+  // FILTER hai — Firestore ke "students" collection se kuch bhi kabhi
+  // delete nahi hota; checkbox OFF karte hi sabhi registered students
+  // wapas dikhne lagte hain.
+  const onlyWithRecords = $("#students-directory-only-with-records")?.checked !== false;
+  let list = allStudentsCache.map(s => {
+    const recCount = studentRecordCountByMobile[s.mobile] != null
+      ? studentRecordCountByMobile[s.mobile]
+      : (records || []).filter(r => normalizeMobile(r.mobile) === s.mobile).length;
+    return { ...s, _recCount: recCount };
+  });
+  if (onlyWithRecords) list = list.filter(s => s._recCount > 0);
 
   if (q) list = list.filter(s => (s.name || "").toLowerCase().includes(q) || (s.mobile || "").includes(q));
 
@@ -4709,7 +4711,8 @@ function renderStudentsDirectory() {
     : "";
 
   if (!list.length) {
-    listEl.innerHTML = fallbackWarning + '<p class="empty-state">' + (q ? "Koi student nahi mila." : "Abhi tak kisi bhi student ne koi test/entry (MCQ online, OMR, ya Manual Entry) nahi diya hai.") + '</p>';
+    const msg = q ? "Koi student nahi mila." : (onlyWithRecords ? "Abhi tak kisi bhi student ne koi test/entry (MCQ online, OMR, ya Manual Entry) nahi diya hai." : "Koi registered student nahi mila.");
+    listEl.innerHTML = fallbackWarning + '<p class="empty-state">' + msg + '</p>';
     return;
   }
 
