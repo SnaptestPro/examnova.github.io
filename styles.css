@@ -912,8 +912,11 @@ h4 { color: var(--navy); font-size: .95rem; font-weight: 700; margin-bottom: 10p
      jagah stacked (upar-neeche) dikhao, warna dono squeeze ho kar
      TOP PERFORMERS screen se bahar cut ho jaata tha. Pehle ye sirf
      480px se neeche apply hota tha, jo kai phones (~480-700px CSS
-     width) ko miss kar deta tha — ab har phone-size screen par lagega. */
-  .rs-body { grid-template-columns: 1fr; }
+     width) ko miss kar deta tha — ab har phone-size screen par lagega.
+     NOTE: .rs-body ka base rule (non-media) file mein isse NEECHE hai,
+     isliye same-specificity tie mein wahi jeet jaata tha aur yeh
+     override kaam nahi karta tha — !important se pakka override. */
+  .rs-body { grid-template-columns: 1fr !important; }
 }
 @media (max-width: 420px) {
   .perf-grid { grid-template-columns: 1fr; }
@@ -1085,7 +1088,7 @@ h4 { color: var(--navy); font-size: .95rem; font-weight: 700; margin-bottom: 10p
   .rs-title-ribbon span { font-size: .95rem; padding: 7px 18px; }
   .rs-meta-row { padding: 0 10px 12px; }
   .rs-meta-chip { min-width: 100px; padding: 5px 10px; }
-  .rs-body { grid-template-columns: 1fr; padding: 10px; }
+  .rs-body { grid-template-columns: 1fr !important; padding: 10px; }
   .rs-footer-bar { flex-direction: column; text-align: center; padding: 10px 14px; }
   .rs-footer-item { min-width: 0; }
 
@@ -1378,6 +1381,32 @@ h4 { color: var(--navy); font-size: .95rem; font-weight: 700; margin-bottom: 10p
   font-weight: 600;
 }
 .rs-footer-item { flex: 1; min-width: 160px; text-align: center; }
+
+/* ── Result Sheet — phone-size override (MUST stay below the base .rs-*
+   rules above). CSS resolves same-specificity ties by source order, not
+   by whether a rule sits inside @media — so the phone overrides that
+   used to live only in the early "RESPONSIVE" section (near the top of
+   this file) were silently losing to these unconditional base rules
+   (which are defined further down, i.e. later), on EVERY screen size.
+   That's why the Result Sheet table + TOP PERFORMERS panel stayed
+   squeezed side-by-side (and looked cut off/overlapping) on phones even
+   though a responsive rule existed. Keeping the override here, after the
+   base rules, guarantees it actually wins on narrow screens. ── */
+@media (max-width: 700px) {
+  .rs-body { grid-template-columns: 1fr; padding: 10px; }
+  .rs-topbar { padding: 12px; gap: 8px; flex-wrap: wrap; }
+  .rs-brand-hindi { font-size: 1.05rem; }
+  .rs-logo-circle { width: 46px; height: 46px; }
+  .rs-trophy-icon { font-size: 1.8rem; }
+  .rs-title-ribbon span { font-size: .95rem; padding: 7px 18px; }
+  .rs-meta-row { padding: 0 10px 12px; flex-wrap: wrap; gap: 8px; }
+  .rs-meta-chip { min-width: 100px; padding: 5px 10px; }
+  .rs-footer-bar { flex-direction: column; text-align: center; padding: 10px 14px; }
+  .rs-footer-item { min-width: 0; }
+  .board-result-sheet-wrap table { font-size: .82rem; }
+  .board-result-sheet-wrap th,
+  .board-result-sheet-wrap td { padding: 6px 5px; }
+}
 
 @media print {
   body * { visibility: hidden; }
