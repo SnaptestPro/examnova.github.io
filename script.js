@@ -5330,6 +5330,18 @@ function syncTests() {
     Object.keys(testQuestionsCache).forEach(id => { if (!(id in newRemote)) delete testQuestionsCache[id]; });
     rebuildTests();
     renderTests($("#test-select")?.value);
+
+    // Test ke poore questions (jinse total/max marks nikalte hain) yahan
+    // tak aake ASYNC load hote hain — dheeme (mobile) network par isme
+    // waqt lag sakta hai. Agar Result Sheet ya Records screen us waqt
+    // tak PEHLE hi render ho chuki thi (jab test.questions abhi poora
+    // load nahi hua tha), to unhone galat/purana max marks (record ke
+    // apne stale maxScore field se) dikha diya hoga — jo poora load hone
+    // ke baad bhi apne aap sahi nahi hota tha. Isliye jab bhi test data
+    // (questions samet) taaza aata hai, jo bhi screen abhi khuli hai
+    // usse turant re-render karo taaki sahi, LIVE max marks turant dikhe.
+    if (typeof renderStudentResultSheet === "function" && $("#result-test-select")?.value) renderStudentResultSheet();
+    if (typeof renderRecords === "function" && typeof records !== "undefined" && records.length) renderRecords();
   }, () => renderTests());
 }
 
