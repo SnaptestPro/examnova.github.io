@@ -5038,7 +5038,7 @@ async function loadFakeMobileGroups() {
         mobiles.forEach(m => { if (m !== regMobile) { wrongDocIds.push(...entry.byMobile[m].docIds); wrongCount += entry.byMobile[m].count; } });
         if (wrongDocIds.length) {
           const nameOptions = [regDisplayName[nameKey], ...namesakeKeys.map(k => regDisplayName[k])];
-          groups.push({ name: entry.name, reason: "conflict", suggestedMobile: null, namesake: true, nameOptions, note: `Milta-julta naam bhi registered hai (${namesakeNames}) — pehle confirm karein yeh kaunsa student hai, phir sahi naam select karein`, docIds: wrongDocIds, count: wrongCount, latestIso: entry.latestIso });
+          groups.push({ name: entry.name, reason: "conflict", suggestedMobile: regMobile, namesake: true, nameOptions, note: `Milta-julta naam bhi registered hai (${namesakeNames}) — pehle confirm karein yeh kaunsa student hai, phir sahi naam select karein`, docIds: wrongDocIds, count: wrongCount, latestIso: entry.latestIso });
         }
         return;
       } else if (regMobile) {
@@ -5136,26 +5136,20 @@ function renderFakeMobileList(groups) {
     return;
   }
   const datalistOptions = allStudentsCache.map(s => `<option value="${escHtml(s.mobile)}">${escHtml(s.name || "")}</option>`).join("");
-  const nameDatalistOptions = allStudentsCache.map(s => `<option value="${escHtml(s.name || "")}"></option>`).join("");
   box.innerHTML = `
     <datalist id="fixmobile-registered-datalist">${datalistOptions}</datalist>
-    <datalist id="fixmobile-name-datalist">${nameDatalistOptions}</datalist>
     ${groups.map((g, i) => {
       const label = FIXMOBILE_REASON_LABEL[g.reason] || FIXMOBILE_REASON_LABEL.fake;
       const conflictWarning = g.reason === "conflict" && !g.namesake
         ? '<div style="font-size:.75rem;color:#7c3aed;margin-top:4px;">⚠️ Pehle confirm karein ki yeh sach mein EK hi student hai — isi naam ke DO ALAG students hona bhi bilkul possible hai (jaise class mein 2 "Aditya Kumar"). Sirf tabhi update karein jab pakka ho ki number sirf ek typo hai.</div>'
         : "";
-      const namesakeControls = g.namesake ? `
-        <div style="font-size:.75rem;color:#7c3aed;margin-top:4px;">⚠️ Yeh record shaayad galat naam se ban gaya hai (naam mein "2" jaisa suffix chhoot gaya). Sahi poora naam neeche daalein/select karein — number is naam ke SAARE ${g.count} record${g.count === 1 ? "" : "s"} par khud match ho jayega.</div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px;">
-          <input type="text" id="fixmobile-name-input-${i}" placeholder="Sahi poora naam (jaise: ${escHtml((g.nameOptions && g.nameOptions[0]) || "")})" list="fixmobile-name-datalist" value="${escHtml((g.nameOptions && g.nameOptions[0]) || "")}" style="max-width:260px;" />
-          <button type="button" class="btn-primary" onclick="updateFakeMobileGroupName(${i})" style="padding:6px 14px;">✏️ Naam Update Karein</button>
-          <span id="fixmobile-name-status-${i}" style="font-size:.8rem;"></span>
-        </div>` : "";
-      const mobileControls = g.namesake ? "" : `
+      const namesakeWarning = g.namesake
+        ? '<div style="font-size:.75rem;color:#7c3aed;margin-top:4px;">⚠️ Yeh record shaayad galat naam se ban gaya hai (naam mein "2" jaisa suffix chhoot gaya). Pehle confirm karein yeh kaunsa student hai — number update yahan se karein, naam Records tab se edit karein.</div>'
+        : "";
+      const mobileControls = `
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px;">
           <input type="tel" id="fixmobile-input-${i}" maxlength="10" placeholder="Sahi 10-digit mobile number" list="fixmobile-registered-datalist" value="${escHtml(g.suggestedMobile || "")}" style="max-width:220px;" />
-          <button type="button" class="btn-primary" onclick="updateFakeMobileGroup(${i})" style="padding:6px 14px;">✅ Update Karein</button>
+          <button type="button" class="btn-primary" onclick="updateFakeMobileGroup(${i})" style="padding:6px 14px;">✅ Number Update Karein</button>
           <span id="fixmobile-status-${i}" style="font-size:.8rem;"></span>
         </div>`;
       return `
@@ -5166,35 +5160,11 @@ function renderFakeMobileList(groups) {
         </div>
         <div style="font-size:.78rem;color:#94a3b8;margin-top:2px;">${g.count} record${g.count === 1 ? "" : "s"} galat number se${g.note ? " · " + escHtml(g.note) : ""}</div>
         ${conflictWarning}
-        ${namesakeControls}
+        ${namesakeWarning}
         ${mobileControls}
       </div>`;
     }).join("")}`;
 }
-
-async function updateFakeMobileGroupName(idx) {
-  const g = _fakeMobileList[idx];
-  const input = $(`#fixmobile-name-input-${idx}`);
-  const statusEl = $(`#fixmobile-name-status-${idx}`);
-  if (!g || !input) return;
-  const newName = String(input.value || "").trim();
-  if (!newName) { if (statusEl) statusEl.innerHTML = '<span style="color:#dc2626;">⚠️ Naam likhein.</span>'; return; }
-  const db = getDB();
-  if (!db) { if (statusEl) statusEl.innerHTML = '<span style="color:#dc2626;">Connection nahi hai.</span>'; return; }
-  if (statusEl) statusEl.textContent = "Updating...";
-  try {
-    await Promise.all(g.docIds.map(id => db.collection("studentRecords").doc(id).update({ name: newName })));
-    if (statusEl) statusEl.innerHTML = `<span style="color:#16a34a;">✅ ${g.count} record${g.count === 1 ? "" : "s"} ka naam update ho gaya! List refresh ho rahi hai...</span>`;
-    // Naam badalne ke baad group phir se sahi bant jayega (registered
-    // account se match/mismatch), isliye poori list turant reload karo
-    // taaki agla step (agar mobile bhi galat hai) turant dikh jaye.
-    setTimeout(() => { if (typeof loadFakeMobileGroups === "function") loadFakeMobileGroups(); }, 700);
-  } catch (err) {
-    console.error(err);
-    if (statusEl) statusEl.innerHTML = '<span style="color:#dc2626;">Fail: ' + escHtml(err.message || "") + "</span>";
-  }
-}
-window.updateFakeMobileGroupName = updateFakeMobileGroupName;
 
 async function updateFakeMobileGroup(idx) {
   const g = _fakeMobileList[idx];
