@@ -4961,12 +4961,36 @@ async function loadFakeMobileGroups() {
     // "conflict" (manual review) list mein jaayega, auto-fix nahi hoga.
     const regMobileByName = {};
     const regNameCount = {};
+    const regDisplayName = {};
     allStudentsCache.forEach(s => {
       const key = String(s.name || "").trim().toLowerCase();
       if (!key) return;
       regNameCount[key] = (regNameCount[key] || 0) + 1;
       regMobileByName[key] = s.mobile;
+      regDisplayName[key] = s.name || key;
     });
+    const allRegNameKeys = Object.keys(regNameCount);
+    // "Namesake" check — Ram Kumar aur Ram Kumar 2 jaise cases (ek hi class
+    // mein 2 students ka naam bilkul same/bahut milta-julta ho, to unhe
+    // register karte waqt teacher/student khud "2" jaisa suffix laga dete
+    // hain taaki alag pehchane ja sakein). Agar test lete waqt kisi student
+    // ne apna naam suffix ke BINA type kar diya (jaise "Ram Kumar" instead
+    // of "Ram Kumar 2"), to woh galti se DUSRE (original) Ram Kumar ke
+    // registered account se match ho jaata hai — aur uska number us dusre
+    // student ke number se overwrite ho sakta hai. Isse bachne ke liye,
+    // agar kisi bhi naam ke liye class mein ek aur bahut milta-julta naam
+    // registered mila, to us naam ke liye kabhi bhi auto-suggest nahi
+    // karte — hamesha manual review ("conflict") mein bhejte hain.
+    const NAME_SIMILAR_MAX_DISTANCE = 2;
+    const stripTrailingNum = s => s.replace(/\s*\d+\s*$/, "").trim();
+    function findNamesakes(nameKey) {
+      const stripped = stripTrailingNum(nameKey);
+      return allRegNameKeys.filter(k => {
+        if (k === nameKey) return false;
+        if (stripped && stripTrailingNum(k) === stripped) return true;
+        return mobileEditDistance(k, nameKey) <= NAME_SIMILAR_MAX_DISTANCE;
+      });
+    }
 
     // STEP 2 — studentRecords ko naam ke hisaab se group karo, aur har
     // naam ke andar, kaunse-kaunse ALAG mobile number use hue hain wo
@@ -4994,12 +5018,28 @@ async function loadFakeMobileGroups() {
       const regMismatch = !!regMobile && !mobiles.includes(regMobile);
       const hasFake = fakeMobiles.length > 0;
       const hasMultiple = mobiles.length > 1;
+      const namesakeKeys = findNamesakes(nameKey);
+      const hasNamesake = namesakeKeys.length > 0;
 
       if (!hasFake && !hasMultiple && !regMismatch) return; // sab theek hai
 
       let reason, suggestedMobile = null, wrongDocIds = [], wrongCount = 0, note = "";
 
-      if (regMobile) {
+      if (regMobile && hasNamesake) {
+        // Registered match to mila, LEKIN class mein isi jaisa (namesake)
+        // ek aur registered student bhi hai (jaise "Ram Kumar 2"). Number
+        // kitna bhi close kyun na ho, auto-suggest yahan risky hai — ho
+        // sakta hai yeh record asal mein us DUSRE student ka ho jisne
+        // apna naam suffix ke bina type kar diya. Isliye poora group
+        // manual-review mein bhejte hain, koi number khud-ba-khud suggest
+        // nahi karte.
+        const namesakeNames = namesakeKeys.map(k => regDisplayName[k]).join(", ");
+        mobiles.forEach(m => { if (m !== regMobile) { wrongDocIds.push(...entry.byMobile[m].docIds); wrongCount += entry.byMobile[m].count; } });
+        if (wrongDocIds.length) {
+          groups.push({ name: entry.name, reason: "conflict", suggestedMobile: null, note: `Milta-julta naam bhi registered hai (${namesakeNames}) — pehle confirm karein yeh kaunsa student hai, phir sahi number khud daalein`, docIds: wrongDocIds, count: wrongCount, latestIso: entry.latestIso });
+        }
+        return;
+      } else if (regMobile) {
         // Registered account mil gaya — LEKIN sirf naam match hone ka
         // matlab yeh nahi ki yeh WAHI student hai. Class mein isi naam
         // ka ek AUR bilkul ALAG (real) student bhi ho sakta hai (jaise
@@ -5028,14 +5068,23 @@ async function loadFakeMobileGroups() {
           groups.push({ name: entry.name, reason: "conflict", suggestedMobile: null, note: `Registered number (${regMobile}) se bahut alag hai — shaayad isi naam ka DUSRA student ho`, docIds: farDocIds, count: farCount, latestIso: entry.latestIso });
         }
         return; // is naam ka handling ho gaya — neeche wali branches skip
-      } else if (hasFake && nonFakeMobiles.length === 1) {
+      } else if (hasFake && nonFakeMobiles.length === 1 && !hasNamesake) {
         // Registered match nahi mila, lekin isi naam ka EK non-fake
         // number bhi records mein hai — bacha hua fake-placeholder wala
-        // record usi sahi number se replace karne layak hai.
+        // record usi sahi number se replace karne layak hai. (Namesake
+        // hone par yahan bhi auto-suggest nahi karte — ho sakta hai fake
+        // aur non-fake number 2 ALAG students ke ho, jo dono ka naam
+        // suffix ke bina same type hua ho.)
         reason = "fake";
         suggestedMobile = nonFakeMobiles[0];
         note = "Isi naam ke doosre record se mila number";
         fakeMobiles.forEach(m => { wrongDocIds.push(...entry.byMobile[m].docIds); wrongCount += entry.byMobile[m].count; });
+      } else if (hasFake && nonFakeMobiles.length === 1 && hasNamesake) {
+        const namesakeNames = namesakeKeys.map(k => regDisplayName[k]).join(", ");
+        reason = "conflict";
+        suggestedMobile = null;
+        note = `Milta-julta naam bhi registered hai (${namesakeNames}) — pehle confirm karein yeh kaunsa student hai, phir sahi number khud daalein`;
+        mobiles.forEach(m => { wrongDocIds.push(...entry.byMobile[m].docIds); wrongCount += entry.byMobile[m].count; });
       } else if (hasFake && nonFakeMobiles.length === 0) {
         // Purana classic case — sirf fake/placeholder number(s), koi
         // registered ya doosra real number kahin nahi mila.
