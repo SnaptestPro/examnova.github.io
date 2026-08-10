@@ -372,6 +372,114 @@ let current = {
   lang: "hi"
 };
 
+/* ══════════════════════════════════════════
+   OFFLINE EXAM-PROGRESS AUTOSAVE
+   ------------------------------------------
+   Student exam ke beech mein internet chala jaaye, tab/browser
+   accidentally band ho jaaye, phone ka battery khatam ho jaaye, ya
+   page refresh ho jaaye — in sab cases mein pehle EXAM KA POORA
+   PROGRESS (answers, kaunsa question par the, kitna time bacha tha)
+   sirf JS memory mein hota tha, isliye kuch bhi ho to woh sab kho
+   jaata. Ab har change par (aur har 5 second mein bhi, taaki subjective
+   textarea typing bhi cover ho) poora progress localStorage mein save
+   hota hai — jo device par hi rehta hai, kisi internet ki zaroorat
+   nahi. Agla baar page khulte hi (chahe internet ho ya na ho) agar koi
+   adhoora exam mile, to student ko "Resume karein?" poocha jaata hai.
+   ══════════════════════════════════════════ */
+const EXAM_PROGRESS_KEY = "savya_exam_progress_v1";
+
+function saveExamProgressLocal() {
+  if (!current.test || !current.testId || !current.startedAt) return;
+  try {
+    const payload = {
+      testId: current.testId,
+      test: current.test, // poora test snapshot (questions samet) — taaki resume ke liye Firebase se dobara load hone ka wait na karna pade
+      student: current.student,
+      index: current.index,
+      answers: current.answers,
+      marked: current.marked,
+      visited: current.visited,
+      lang: current.lang,
+      startedAt: current.startedAt.toISOString(),
+      durationSec: (current.test.minutes || 30) * 60,
+      savedAt: Date.now()
+    };
+    localStorage.setItem(EXAM_PROGRESS_KEY, JSON.stringify(payload));
+  } catch (e) { console.warn("[exam-progress] save failed", e); }
+}
+
+function clearExamProgressLocal() {
+  try { localStorage.removeItem(EXAM_PROGRESS_KEY); } catch (e) {}
+}
+
+// App khulte hi (init se) call hota hai — agar koi adhoora, submit-na-hua
+// exam mile to student ko resume karne ka mauka deta hai. Yeh bina
+// internet ke bhi kaam karta hai kyunki test ka poora snapshot bhi
+// isi payload ke andar save hota hai.
+function checkForInProgressExam() {
+  let saved = null;
+  try {
+    const raw = localStorage.getItem(EXAM_PROGRESS_KEY);
+    if (!raw) return;
+    saved = JSON.parse(raw);
+  } catch (e) { return; }
+  if (!saved || !saved.test || !Array.isArray(saved.test.questions) || !saved.test.questions.length) {
+    clearExamProgressLocal();
+    return;
+  }
+
+  const elapsedSec = Math.floor((Date.now() - new Date(saved.startedAt).getTime()) / 1000);
+  const remaining = (saved.durationSec || 0) - elapsedSec;
+
+  // Ise exam-screen ke alawa kisi aur screen (result, solution, admin)
+  // par mat poocho — sirf tab jab student home/login screen par ho.
+  const restoreCurrent = () => {
+    current.testId    = saved.testId;
+    current.test      = saved.test;
+    current.student   = saved.student || {};
+    current.index     = saved.index || 0;
+    current.answers   = saved.answers || [];
+    current.marked    = saved.marked || [];
+    current.visited   = saved.visited || [];
+    current.lang      = saved.lang || "hi";
+    current.startedAt = new Date(saved.startedAt);
+  };
+
+  if (remaining <= 0) {
+    // Time already khatam ho chuka tha jab tak student wapas aaya —
+    // fair yehi hai ki jo bhi answers the unhi se result nikal diya
+    // jaaye (jaise normal timer khatam hone par hota hai), naya time
+    // na diya jaaye.
+    restoreCurrent();
+    current.remaining = 0;
+    alert(`⏱️ "${current.test.title}" ka time khatam ho chuka tha jab tak app dobara khuli — aapke jo bhi answers save the, unhi se result taiyaar kiya jaa raha hai.`);
+    $("#home-screen").classList.add("hidden");
+    $("#exam-screen").classList.remove("hidden");
+    showResult();
+    return;
+  }
+
+  const mins = Math.floor(remaining / 60);
+  const wantsResume = confirm(`📝 Aapka pichla test "${saved.test.title}" adhoora reh gaya tha (~${mins} minute bache the).\n\nUse wahin se RESUME karna chahte hain?\n\n(OK = Resume karein, Cancel = Filhaal chhodein — baad mein dobara puchega)`);
+  if (!wantsResume) return; // progress delete nahi karte — agli baar phir poochega
+
+  restoreCurrent();
+  current.remaining = remaining;
+  $("#home-screen").classList.add("hidden");
+  $("#result-screen").classList.add("hidden");
+  $("#solution-screen").classList.add("hidden");
+  $("#exam-screen").classList.remove("hidden");
+  $("#exam-title").textContent = current.test.title;
+  const marks = getMarks(current.test);
+  const neg   = getNeg(current.test);
+  const secTitles = getTestSectionTitles(current.test);
+  const secInfo = secTitles.length > 1 ? ` · ${secTitles.length} sections` : "";
+  $("#exam-meta").textContent = `${current.test.questions.length} questions · ${current.test.minutes}min · ${marks} marks each${neg > 0 ? ` · Negative ${neg}` : ""}${secInfo}`;
+  $("#total-questions").textContent = `Total: ${current.test.questions.length} Questions`;
+  renderQuestion();
+  startTimer();
+}
+
 const $ = sel => document.querySelector(sel);
 
 /* ── DOM Ready ── */
@@ -550,6 +658,12 @@ function init() {
 
   // Recover any draft that was saved on page close/refresh
   recoverEmergencyDraft();
+
+  // Agar koi student ka exam adhoora reh gaya tha (internet gaya, tab
+  // band ho gaya, battery khatam ho gaya, waghera), use resume karne ka
+  // mauka do — bina internet ke bhi kaam karta hai. Admin ke seedhe
+  // (?admin=1) khulte waqt yeh mat poochho.
+  if (params.get("admin") !== "1") checkForInProgressExam();
 }
 
 async function seedAllQuestions() {
@@ -1697,6 +1811,7 @@ function renderQuestion() {
     window.renderMathIn($("#exam-question"));
     window.renderMathIn($("#exam-options"));
   }
+  saveExamProgressLocal();
 }
 
 function renderQuestionNav() {
@@ -1768,6 +1883,10 @@ function startTimer() {
   current.timerId = setInterval(() => {
     current.remaining -= 1;
     updateTimer();
+    // Har 5 second mein progress bhi save karo — isse subjective-answer
+    // textarea typing (jo renderQuestion() call nahi karta, taaki typing
+    // ke beech cursor/focus na tooте) bhi cover ho jaati hai.
+    if (current.remaining % 5 === 0) saveExamProgressLocal();
     if (current.remaining <= 0) showResult();
   }, 1000);
 }
@@ -1803,6 +1922,7 @@ function checkTestSchedule(test) {
 
 async function showResult() {
   clearInterval(current.timerId);
+  clearExamProgressLocal(); // exam poora ho gaya — ab "resume?" dobara mat poochho
   const total   = current.test.questions.length;
   const neg     = getNeg(current.test);
   const negEn   = neg > 0;
