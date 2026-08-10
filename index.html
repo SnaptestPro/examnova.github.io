@@ -324,6 +324,13 @@
             <div class="cd-card-bottom"><span class="cd-arrow-btn">→</span></div>
           </button>
 
+          <button type="button" class="cd-card cd-gold" onclick="goStudentSection('student-settings-card')">
+            <div class="cd-card-top"><div class="cd-icon-circle">⚙️</div><span class="cd-badge">Account</span></div>
+            <div class="cd-card-title">Settings</div>
+            <div class="cd-card-sub">Profile aur logout</div>
+            <div class="cd-card-bottom"><span class="cd-arrow-btn">→</span></div>
+          </button>
+
         </div>
 
         <div class="cd-promo">
@@ -338,11 +345,6 @@
 
       <div class="card hero-card hidden" id="student-form-fields-anchor">
         <h2 class="section-title">🎯 Start Your Test</h2>
-
-        <div id="student-welcome-bar" style="display:flex;align-items:center;justify-content:space-between;background:#f0fdf4;border:1px solid #86efac;border-radius:10px;padding:10px 14px;margin-bottom:14px;">
-          <span>👋 <strong id="student-welcome-name"></strong> <span id="student-streak-badge" style="display:none;background:#fff7ed;border:1px solid #fdba74;color:#c2410c;border-radius:999px;padding:2px 10px;font-size:.78rem;font-weight:700;margin-left:6px;"></span></span>
-          <button type="button" id="student-logout-btn" style="background:none;border:none;color:#dc2626;text-decoration:underline;cursor:pointer;font-size:.85rem;">Logout</button>
-        </div>
 
         <div class="field-row" style="display:none">
           <label>Name</label>
@@ -362,6 +364,16 @@
         </div>
 
         <button id="student-submit" type="submit" class="btn-primary big-btn">Start Test →</button>
+      </div>
+
+      <div class="card hidden" id="student-settings-card">
+        <h3 class="section-title">⚙️ Settings</h3>
+
+        <div id="student-welcome-bar" style="display:flex;align-items:center;justify-content:space-between;background:#f0fdf4;border:1px solid #86efac;border-radius:10px;padding:10px 14px;margin-bottom:14px;">
+          <span>👋 <strong id="student-welcome-name"></strong> <span id="student-streak-badge" style="display:none;background:#fff7ed;border:1px solid #fdba74;color:#c2410c;border-radius:999px;padding:2px 10px;font-size:.78rem;font-weight:700;margin-left:6px;"></span></span>
+        </div>
+
+        <button type="button" id="student-logout-btn" class="btn-secondary" style="color:#dc2626;border-color:#fecaca;">🚪 Logout</button>
       </div>
 
       <div class="card hidden" id="student-results-card">

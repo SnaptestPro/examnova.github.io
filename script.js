@@ -851,7 +851,8 @@ function getLastView() {
 // hide ho jaate hain, ek "Dashboard par wapas" button ke saath).
 const STUDENT_TAB_BOX_IDS = [
   "student-form-fields-anchor", "practice-mode-card", "student-results-card",
-  "my-result-detail-card", "my-progress-card", "my-mistakes-card", "doubt-box-card"
+  "my-result-detail-card", "my-progress-card", "my-mistakes-card", "doubt-box-card",
+  "student-settings-card"
 ];
 function goStudentSection(id) {
   const el = document.getElementById(id);
