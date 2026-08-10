@@ -1,4 +1,4 @@
-const CACHE_NAME = 'savyasachi-v69-instantload-20260810';
+const CACHE_NAME = 'savyasachi-v71-favicon-20260810';
 
 // App-shell files — sab kuch jo student ko app chalane ke liye chahiye
 // (code + question-bank data + icons). Pehli visit par yeh sab download
@@ -6,6 +6,8 @@ const CACHE_NAME = 'savyasachi-v69-instantload-20260810';
 const urlsToCache = [
   '/',
   '/index.html',
+  '/offline.html',
+  '/favicon.ico',
   '/styles.css',
   '/theme-picker.css',
   '/creative-dashboard.css',
@@ -100,7 +102,16 @@ self.addEventListener('fetch', (event) => {
             }
             return networkResponse;
           })
-          .catch(() => cachedResponse); // offline/network-fail -> jo cache mein hai wahi de do
+          .catch(() => {
+            // Offline aur cache mein bhi kuch nahi mila — agar yeh ek
+            // PAGE-navigation request thi (student ne pehli baar, bina
+            // internet ke, app kholne ki koshish ki), to browser ka
+            // default "can't connect" error dikhne ki jagah apna
+            // friendly offline.html dikhao.
+            if (cachedResponse) return cachedResponse;
+            if (event.request.mode === 'navigate') return cache.match('/offline.html');
+            return undefined;
+          });
 
         // Cache mein already kuch mila -> USE IT INSTANTLY (turant
         // response), background update apni jagah chalta rahega.
