@@ -193,17 +193,6 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
-    // ── Doubt Box (student asks, admin replies) ─────────────────────
-    // Students create their own doubts and can list/read all (needed
-    // for the "My Doubts" filter-by-mobile query on the client) —
-    // same list-access pattern already used for studentRecords.
-    // Only admin can update (write a reply / mark answered) or delete.
-    match /doubts/{docId} {
-      allow get, list, create: if isSignedIn();
-      allow update: if isAdmin();
-      allow delete: if isAdmin();
-    }
-
     // ── Default deny ──────────────────────────────────────────────
     // Koi bhi collection jo upar explicitly list nahi hui, uska
     // access poori tarah band. Ye "test mode" jaisi open-access

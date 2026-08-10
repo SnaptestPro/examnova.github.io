@@ -12,8 +12,7 @@
    1) Practice Mode      — unlimited, no timer-pressure, no leaderboard
    2) My Mistakes         — auto-collected wrong answers (revise anytime)
    3) My Progress         — score trend chart across all tests
-   4) Doubt Box           — student asks, admin replies (2-way)
-   5) Study Streak        — daily streak badge
+   4) Study Streak        — daily streak badge
    ══════════════════════════════════════════════════════════════════ */
 
 (function () {
@@ -21,7 +20,7 @@
   /* ── STALE-WHILE-REVALIDATE CACHE for student widgets ────────────
      Student baar-baar "Student" tab par click karta hai (kabhi Admin
      dekhne jaake wapas aata hai), aur pehle har baar mistakes/progress/
-     doubts/streak/myResults — sab cheezein Firestore se dobara fetch
+     streak/myResults — sab cheezein Firestore se dobara fetch
      hoti thin, jisse har baar kuch pal ke liye poora section khaali ya
      "Loading..." dikhta tha — jaise section refresh ho raha ho. Ab
      pichhli baar ka data turant (localStorage cache se) dikh jaata hai
@@ -32,7 +31,7 @@
      kabhi nahi dikhta.
   ──────────────────────────────────────────────────────────────── */
   const EXTRAS_CACHE_PREFIX = "savya_extras_cache_";
-  let extrasCache = { mobile: null, mistakes: null, progressRecs: null, doubts: null, streak: null, myResults: null };
+  let extrasCache = { mobile: null, mistakes: null, progressRecs: null, streak: null, myResults: null };
 
   function loadExtrasCacheFromStorage(mobile) {
     try {
@@ -54,7 +53,6 @@
         mobile,
         mistakes: stored.mistakes || null,
         progressRecs: stored.progressRecs || null,
-        doubts: stored.doubts || null,
         streak: (typeof stored.streak === "number" ? stored.streak : null),
         myResults: stored.myResults || null
       };
@@ -396,133 +394,6 @@
     cache.progressRecs = myRecs;
     persistExtrasCache();
     paintProgressChart(myRecs);
-  }
-
-  /* ── 4) DOUBT BOX ─────────────────────────────────────────────────── */
-
-  async function submitDoubt() {
-    const session = getStudentSession();
-    if (!session) { alert("Doubt bhejne ke liye pehle login karein."); return; }
-    const db = getDB();
-    if (!db) { alert("Internet connection check karein."); return; }
-
-    const contextInput = document.getElementById("doubt-context-input");
-    const textInput = document.getElementById("doubt-text-input");
-    const contextText = (contextInput?.value || "").trim();
-    const doubtText = (textInput?.value || "").trim();
-    if (!doubtText) { alert("Kripya apna doubt likhein."); return; }
-
-    try {
-      await db.collection("doubts").add({
-        mobile: normalizeMobile(session.mobile),
-        name: session.name || "",
-        context: contextText,
-        doubtText,
-        status: "open",
-        adminReply: "",
-        createdAt: (typeof firebase !== "undefined") ? firebase.firestore.FieldValue.serverTimestamp() : null,
-        createdIso: new Date().toISOString()
-      });
-      if (contextInput) contextInput.value = "";
-      if (textInput) textInput.value = "";
-      alert("✅ Aapka doubt bhej diya gaya! Admin jald reply karega.");
-      renderMyDoubts();
-    } catch (err) {
-      console.error(err);
-      alert("Doubt bhejne mein error: " + (err.message || err));
-    }
-  }
-
-  function paintDoubtsList(docs, list) {
-    if (!list) return;
-    if (!docs.length) { list.innerHTML = '<p class="muted-text">Koi doubt nahi bheja abhi tak.</p>'; return; }
-    list.innerHTML = docs.map(d => `
-      <div class="card" style="margin-bottom:8px;padding:10px 12px;">
-        <div style="font-size:.78rem;color:#64748b;">
-          ${d.context ? escHtml(d.context) : "General"} · ${d.status === "answered" ? "✅ Answered" : "⏳ Pending"}
-        </div>
-        <div style="font-weight:600;margin:4px 0;">${escHtml(d.doubtText || "")}</div>
-        ${d.adminReply ? `<div style="background:#f0fdf4;border-radius:6px;padding:8px;font-size:.85rem;color:#15803d;">👨‍🏫 ${escHtml(d.adminReply)}</div>` : ""}
-      </div>`).join("");
-  }
-
-  async function renderMyDoubts() {
-    const list = document.getElementById("my-doubts-list");
-    const session = getStudentSession();
-    const db = getDB();
-    if (!list || !session || !db) return;
-    const mobile = normalizeMobile(session.mobile);
-    const cache = cacheFor(mobile);
-
-    if (cache.doubts) {
-      paintDoubtsList(cache.doubts, list);
-    } else {
-      list.innerHTML = '<p class="muted-text">Loading...</p>';
-    }
-
-    try {
-      const snap = await db.collection("doubts").where("mobile", "==", mobile).get();
-      let docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      docs.sort((a, b) => (b.createdIso || "").localeCompare(a.createdIso || ""));
-      cache.doubts = docs;
-      persistExtrasCache();
-      paintDoubtsList(docs, list);
-    } catch (err) {
-      console.error(err);
-      if (!cache.doubts) list.innerHTML = '<p class="muted-text">Load nahi ho paya.</p>';
-    }
-  }
-
-  async function renderAdminDoubts() {
-    const list = document.getElementById("admin-doubts-list");
-    const db = getDB();
-    if (!list || !db) return;
-    list.innerHTML = '<p class="muted-text">Loading...</p>';
-    try {
-      const snap = await db.collection("doubts").get();
-      let docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      docs.sort((a, b) => {
-        if (a.status !== b.status) return a.status === "answered" ? 1 : -1;
-        return (b.createdIso || "").localeCompare(a.createdIso || "");
-      });
-      const openCount = docs.filter(d => d.status !== "answered").length;
-      const badge = document.getElementById("doubts-open-count");
-      if (badge) {
-        badge.style.display = openCount > 0 ? "inline-block" : "none";
-        badge.textContent = String(openCount);
-      }
-      const cdBadge = document.getElementById("cd-doubts-badge");
-      if (cdBadge) cdBadge.textContent = openCount > 0 ? `${openCount} New` : "Chat";
-      if (!docs.length) { list.innerHTML = '<p class="muted-text">Koi doubt nahi aaya abhi tak.</p>'; return; }
-      list.innerHTML = docs.map(d => `
-        <div class="card" style="margin-bottom:10px;padding:12px;border-left:4px solid ${d.status === "answered" ? "#22c55e" : "#f59e0b"};">
-          <div style="font-size:.8rem;color:#64748b;">
-            👤 ${escHtml(d.name || "Student")} · 📱 ${escHtml(d.mobile || "")}${d.context ? " · " + escHtml(d.context) : ""}
-          </div>
-          <div style="font-weight:600;margin:6px 0;">${escHtml(d.doubtText || "")}</div>
-          <textarea id="reply-input-${d.id}" rows="2" placeholder="Reply likhein..." style="width:100%;margin-bottom:6px;box-sizing:border-box;">${escHtml(d.adminReply || "")}</textarea>
-          <button type="button" class="btn-primary" style="font-size:.8rem;padding:4px 10px;" onclick="window.SavyaExtras.replyToDoubt('${d.id}')">📤 Reply Bhejein</button>
-        </div>`).join("");
-    } catch (err) {
-      console.error(err);
-      list.innerHTML = '<p class="muted-text">Load nahi ho paya.</p>';
-    }
-  }
-
-  async function replyToDoubt(id) {
-    const db = getDB();
-    const ta = document.getElementById("reply-input-" + id);
-    if (!db || !ta) return;
-    const reply = (ta.value || "").trim();
-    if (!reply) { alert("Kripya reply likhein."); return; }
-    try {
-      await db.collection("doubts").doc(id).update({ adminReply: reply, status: "answered" });
-      alert("✅ Reply bhej diya gaya.");
-      renderAdminDoubts();
-    } catch (err) {
-      console.error(err);
-      alert("Reply save nahi hua: " + (err.message || err));
-    }
   }
 
   /* ── 5) STUDY STREAK ─────────────────────────────────────────────── */
@@ -983,7 +854,6 @@
   function onStudentSectionShown(id) {
     if (id === "my-progress-card") renderMyProgress();
     else if (id === "my-mistakes-card") renderMyMistakes();
-    else if (id === "doubt-box-card") renderMyDoubts();
     else if (id === "my-result-detail-card") loadMyResults();
   }
 
@@ -1011,7 +881,6 @@
     renderStreakBadge();
     renderMyMistakes();
     renderMyProgress();
-    renderMyDoubts();
     renderTopStudentsPodium();
   }
 
@@ -1030,9 +899,6 @@
 
     const practiceMistakesBtn = document.getElementById("practice-mistakes-btn");
     if (practiceMistakesBtn) practiceMistakesBtn.onclick = practiceMyMistakes;
-
-    const doubtSubmitBtn = document.getElementById("doubt-submit-btn");
-    if (doubtSubmitBtn) doubtSubmitBtn.onclick = submitDoubt;
 
     const myResultBtn = document.getElementById("my-result-refresh-btn");
     if (myResultBtn) myResultBtn.onclick = loadMyResults;
@@ -1073,8 +939,6 @@
   window.SavyaExtras = {
     onTestSubmitted,
     removeMistake,
-    replyToDoubt,
-    renderAdminDoubts,
     syncPracticeFilters,
     onStudentSectionShown,
     renderTopStudentsPodium,

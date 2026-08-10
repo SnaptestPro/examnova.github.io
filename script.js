@@ -509,7 +509,6 @@ function init() {
   });
   bindEvent("#generator-tab", 'onclick', () => showAdminTab("generator"));
   bindEvent("#bulk-upload-tab", 'onclick', () => showAdminTab("bulk-upload"));
-  bindEvent("#doubts-tab", 'onclick', () => showAdminTab("doubts"));
   bindEvent("#omr-tab", 'onclick', () => showAdminTab("omr"));
   bindEvent("#grade-tab", 'onclick', () => showAdminTab("grade"));
   bindEvent("#add-test-section", 'onclick', addTestSection);
@@ -851,7 +850,7 @@ function getLastView() {
 // hide ho jaate hain, ek "Dashboard par wapas" button ke saath).
 const STUDENT_TAB_BOX_IDS = [
   "student-form-fields-anchor", "practice-mode-card", "student-results-card",
-  "my-result-detail-card", "my-progress-card", "my-mistakes-card", "doubt-box-card",
+  "my-result-detail-card", "my-progress-card", "my-mistakes-card",
   "student-settings-card"
 ];
 function goStudentSection(id) {
@@ -1143,7 +1142,7 @@ function logoutStudent() {
 const ADMIN_TAB_BOX_IDS = {
   tests: "tests-area", bank: "bank-box", "bulk-upload": "bulk-upload-box",
   records: "records-box", generator: "generator-box", trash: "trash-box",
-  doubts: "doubts-box", omr: "omr-box", grade: "grade-box", settings: "settings-box",
+  omr: "omr-box", grade: "grade-box", settings: "settings-box",
   leaderboard: "leaderboard-box"
 };
 function goAdmin(tab) {
@@ -1256,7 +1255,7 @@ function showAdminTab(tab) {
     autoSaveDraftSilently();
   }
 
-  ["tests","bank","bulk-upload","records","generator","trash","doubts","omr","grade","leaderboard"].forEach(t => {
+  ["tests","bank","bulk-upload","records","generator","trash","omr","grade","leaderboard"].forEach(t => {
     $(`#${t}-tab`)?.classList.toggle("active", t === tab);
   });
   $("#tests-area").classList.toggle("hidden", tab !== "tests");
@@ -1284,14 +1283,12 @@ function showAdminTab(tab) {
   $("#records-box").classList.toggle("hidden", tab !== "records");
   $("#generator-box").classList.toggle("hidden", tab !== "generator");
   $("#trash-box").classList.toggle("hidden", tab !== "trash");
-  $("#doubts-box")?.classList.toggle("hidden", tab !== "doubts");
   $("#omr-box")?.classList.toggle("hidden", tab !== "omr");
   $("#grade-box")?.classList.toggle("hidden", tab !== "grade");
   $("#settings-box")?.classList.toggle("hidden", tab !== "settings");
   $("#leaderboard-box")?.classList.toggle("hidden", tab !== "leaderboard");
   document.querySelector(".main-wrap")?.classList.toggle("wide-mode", tab === "generator");
   if (tab === "bank") renderBank();
-  if (tab === "doubts" && window.SavyaExtras) window.SavyaExtras.renderAdminDoubts();
   if (tab === "leaderboard" && window.SavyaExtras) window.SavyaExtras.renderAdminLeaderboard();
   if (tab === "tests") renderTestSections();
   if (tab === "trash") renderTrashBin();

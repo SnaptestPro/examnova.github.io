@@ -317,13 +317,6 @@
             <div class="cd-card-bottom"><span class="cd-arrow-btn">→</span></div>
           </button>
 
-          <button type="button" class="cd-card cd-pink" onclick="goStudentSection('doubt-box-card')">
-            <div class="cd-card-top"><div class="cd-icon-circle">❓</div><span class="cd-badge">Ask</span></div>
-            <div class="cd-card-title">Doubt Box</div>
-            <div class="cd-card-sub">Apna doubt admin se puchein</div>
-            <div class="cd-card-bottom"><span class="cd-arrow-btn">→</span></div>
-          </button>
-
           <button type="button" class="cd-card cd-gold" onclick="goStudentSection('student-settings-card')">
             <div class="cd-card-top"><div class="cd-icon-circle">⚙️</div><span class="cd-badge">Account</span></div>
             <div class="cd-card-title">Settings</div>
@@ -439,24 +432,6 @@
         <div id="my-mistakes-list"></div>
       </div>
 
-      <!-- ── DOUBT BOX (student asks, admin replies) ── -->
-      <div class="card hidden" id="doubt-box-card">
-        <h3 class="section-title">❓ Doubt Box</h3>
-        <p class="muted-text">Kisi bhi question par doubt ho to yahan pucho — Admin seedha yahin reply karega.</p>
-        <div id="doubt-submit-form">
-          <div class="field-row">
-            <label>Test / Chapter (optional)</label>
-            <input id="doubt-context-input" type="text" placeholder="jaise: Mathematics — Trigonometry" />
-          </div>
-          <div class="field-row">
-            <label>Aapka Doubt</label>
-            <textarea id="doubt-text-input" rows="3" placeholder="Apna doubt yahan likhein..."></textarea>
-          </div>
-          <button type="button" id="doubt-submit-btn" class="btn-primary">📤 Doubt Bhejein</button>
-        </div>
-        <h4 style="margin-top:16px;">Mere Doubts</h4>
-        <div id="my-doubts-list"></div>
-      </div>
     </form>
 
 
@@ -534,13 +509,6 @@
             <div class="cd-card-bottom"><span class="cd-arrow-btn">→</span></div>
           </button>
 
-          <button type="button" class="cd-card cd-teal" onclick="goAdmin('doubts')">
-            <div class="cd-card-top"><div class="cd-icon-circle">💬</div><span class="cd-badge" id="cd-doubts-badge">Chat</span></div>
-            <div class="cd-card-title">Doubts</div>
-            <div class="cd-card-sub">Students ke doubts ka reply</div>
-            <div class="cd-card-bottom"><span class="cd-arrow-btn">→</span></div>
-          </button>
-
           <button type="button" class="cd-card cd-green" onclick="goAdmin('omr')">
             <div class="cd-card-top"><div class="cd-icon-circle">🔲</div><span class="cd-badge">Scan</span></div>
             <div class="cd-card-title">OMR</div>
@@ -584,7 +552,6 @@
         <button id="bulk-upload-tab" class="tab" style="background: linear-gradient(135deg,#0284c7,#075985); color: white;">📦 Bulk Upload</button>
         <button id="records-tab" class="tab" style="background: linear-gradient(135deg,#64748b,#334155); color: white;">📁 Records</button>
         <button id="generator-tab" class="tab" style="background: linear-gradient(135deg,#8b5cf6,#6d28d9); color: white;">📄 Paper Generator</button>
-        <button id="doubts-tab" class="tab" style="background: linear-gradient(135deg,#0891b2,#0e7490); color: white;">💬 Doubts <span id="doubts-open-count" style="display:none;background:#fff;color:#0e7490;border-radius:999px;padding:0 6px;font-size:.75rem;margin-left:2px;"></span></button>
         <button id="omr-tab" class="tab" style="background: linear-gradient(135deg,#059669,#047857); color: white;">🔲 OMR</button>
         <button id="grade-tab" class="tab" style="background: linear-gradient(135deg,#f59e0b,#b45309); color: white;">📝 Grade Subjective</button>
         <button id="leaderboard-tab" class="tab" onclick="showAdminTab('leaderboard')" style="background: linear-gradient(135deg,#eab308,#a16207); color: white;">🏆 Top Performers</button>
@@ -1256,15 +1223,6 @@ B"></textarea>
             <button id="set-recovery-btn" class="btn-primary" style="background:linear-gradient(135deg,#0891b2,#0e7490);">ℹ️ Recovery Info</button>
             <button id="admin-logout-btn" type="button" class="btn-primary" style="background:linear-gradient(135deg,#64748b,#334155);">🚪 Admin Logout</button>
           </div>
-        </div>
-      </div>
-
-      <!-- DOUBTS -->
-      <div id="doubts-box" class="hidden">
-        <div class="card">
-          <h3 class="section-title">💬 Student Doubts</h3>
-          <p class="muted-text">Students ke saare doubts yahan dikhte hain — reply likhkar "Reply Bhejein" dabayein.</p>
-          <div id="admin-doubts-list"></div>
         </div>
       </div>
 

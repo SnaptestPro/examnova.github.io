@@ -82,7 +82,6 @@
     { tab: "records",     box: "records-box" },
     { tab: "generator",   box: "generator-box" },
     { tab: "trash",       box: "trash-box" },
-    { tab: "doubts",      box: "doubts-box" },
     { tab: "omr",         box: "omr-box" },
     { tab: "grade",       box: "grade-box" },
     { tab: "settings",    box: "settings-box" }
@@ -145,7 +144,7 @@
   //    par (aur uske baad hi peechli screen par) jao.
   var STUDENT_SUBTABS = [
     "student-form-fields-anchor", "practice-mode-card", "student-results-card",
-    "my-result-detail-card", "my-progress-card", "my-mistakes-card", "doubt-box-card"
+    "my-result-detail-card", "my-progress-card", "my-mistakes-card", "student-settings-card"
   ];
   function currentStudentTab() {
     if (!isVisible($$("#student-form"))) return null;
