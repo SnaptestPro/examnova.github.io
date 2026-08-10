@@ -23,11 +23,16 @@
         if (sessionStorage.getItem(FLAG)) return; // is session mein already ho chuka
         sessionStorage.setItem(FLAG, "1");
 
-        // Cache-clear aur Service-Worker-update BACKGROUND mein karte hain —
-        // reload inka wait nahi karta, isliye refresh turant (instant) hota
-        // hai. Service Worker ka fetch handler pehle se hi {cache:'no-store'}
-        // use karta hai, to fresh files milna sirf isi background-cleanup
-        // par depend nahi karta — ye bas extra safety hai.
+        // NOTE: Pehle yahan har naye tab/session mein ek FULL PAGE RELOAD
+        // (location.replace) bhi hota tha taaki purana cached version na
+        // dikhe — matlab har pehli visit asal mein DO BAAR poora page
+        // load karti thi (ek baar normal, phir turant reload), jo load
+        // time roughly double kar deta tha. Ab Service Worker ka fetch
+        // handler khud hi {cache:'no-store'} (network-first) use karta
+        // hai — matlab freshness pehle se hi guaranteed hai, is extra
+        // reload ki ab zaroorat nahi. Sirf background mein purane
+        // Service-Worker caches saaf kar dete hain (halka, koi reload
+        // nahi, page load speed par koi asar nahi).
         try {
           if (window.caches && caches.keys) {
             caches.keys().then(function (keys) {
@@ -42,11 +47,6 @@
             }).catch(function () {});
           }
         } catch (e) {}
-
-        // Turant reload — kisi bhi cleanup ka wait nahi.
-        var url = new URL(location.href);
-        url.searchParams.set("_hr", Date.now().toString());
-        location.replace(url.toString());
       } catch (e) {
         // Kuch bhi fail ho jaaye to bhi site normal load ho jaaye
       }
@@ -112,16 +112,22 @@
   <link rel="stylesheet" href="theme-picker.css">
   <link rel="stylesheet" href="creative-dashboard.css?v=1">
   
-  <!-- CDNs for Mega Update Features -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/docx@9.7.1/dist/index.iife.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+  <!-- CDNs for Mega Update Features — defer kiya kyunki ye sab (chart,
+       excel/pdf/word export, confetti) sirf user ke button-click par
+       kaam mein aate hain, page open hote hi nahi. defer se yeh initial
+       page paint ko block nahi karte, background mein parallel load
+       hote hain, aur phir DOM-ready hone se pehle order mein chal jaate
+       hain — behavior same rehta hai, sirf shuruaati load fast ho jaata
+       hai. -->
+  <script defer src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/docx@9.7.1/dist/index.iife.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
   <!-- KaTeX for automatic Math Equation rendering -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.css">
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/contrib/auto-render.min.js"></script>
+  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.js"></script>
+  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/contrib/auto-render.min.js"></script>
 </head>
 <body>
 
@@ -1505,18 +1511,31 @@ B"></textarea>
 <script src="History-India-question-bank.js"></script>
 <script src="history-indochina-question-bank.js"></script>
 <script src="socialism-question-bank.js"></script>
-<!-- Main App -->
+<!-- Main App
+     NOTE: Pehle ye files document.write('<script src="X?v='+Date.now()+'">')
+     se load hoti thi. Iske 2 nuksaan the:
+       1) document.write render-blocking hai (browser HTML parsing rok kar
+          isse chalata hai) — normal <script> tag se koi extra fayda nahi
+          deta, bas extra overhead.
+       2) ?v=Date.now() — matlab URL HAR SINGLE PAGE-LOAD par badal jaata
+          hai, isliye browser is file ko KABHI cache nahi kar paata; har
+          baar poora script.js (sabse badi file) dobara download hota
+          tha. Service Worker ka fetch handler pehle se hi network-first
+          {cache:'no-store'} use karta hai, to freshness wahi se
+          guaranteed hai — is URL-versioning ki ab zaroorat nahi. Stable
+          URL rakhne se browser/SW ka apna cache theek se kaam karta hai
+          aur repeat visits kaafi fast ho jaate hain. -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="subject-resolver.js"></script>
 <script src="pdf-import.js"></script>
-<script>document.write('<script src="script.js?v=' + Date.now() + '"><\/script>');</script>
-<script>document.write('<script src="upgrade.js?v=' + Date.now() + '"><\/script>');</script>
-<script>document.write('<script src="whatsapp-poll-export.js?v=' + Date.now() + '"><\/script>');</script>
-<script>document.write('<script src="student-features.js?v=' + Date.now() + '"><\/script>');</script>
-<script>document.write('<script src="omr.js?v=' + Date.now() + '"><\/script>');</script>
+<script src="script.js"></script>
+<script src="upgrade.js"></script>
+<script src="whatsapp-poll-export.js"></script>
+<script src="student-features.js"></script>
+<script src="omr.js"></script>
 <!-- Android/TWA back-button fix: exam ya kisi bhi screen ke beech
      back dabane par app close hone se rokta hai -->
-<script>document.write('<script src="back-button-guard.js?v=' + Date.now() + '"><\/script>');</script>
+<script src="back-button-guard.js"></script>
 <script>
 // ══════════════════════════════════════════════════════
 //  AUTOMATIC MATH EQUATION FORMATTER + KATEX RENDERER

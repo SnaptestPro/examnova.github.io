@@ -1,13 +1,35 @@
-const CACHE_NAME = 'savyasachi-v67-autohardrefresh-20260727';
+const CACHE_NAME = 'savyasachi-v69-instantload-20260810';
+
+// App-shell files — sab kuch jo student ko app chalane ke liye chahiye
+// (code + question-bank data + icons). Pehli visit par yeh sab download
+// ho kar device par (Cache Storage mein) save ho jaate hain.
 const urlsToCache = [
   '/',
   '/index.html',
   '/styles.css',
+  '/theme-picker.css',
+  '/creative-dashboard.css',
   '/script.js',
   '/upgrade.js',
+  '/whatsapp-poll-export.js',
+  '/student-features.js',
+  '/omr.js',
+  '/back-button-guard.js',
   '/subject-resolver.js',
+  '/pdf-import.js',
+  '/firebase-config.js',
+  '/theme-palette.js',
+  '/live-theme-effects.js',
+  '/theme-manager.js',
+  '/mathematics-question-bank.js',
+  '/history-question-bank.js',
+  '/History-India-question-bank.js',
+  '/history-indochina-question-bank.js',
+  '/socialism-question-bank.js',
   '/icon-192.png',
   '/icon-512.png',
+  '/icon-192-maskable.png',
+  '/icon-512-maskable.png',
   '/savyasachi-coaching-logo.png',
   '/manifest.webmanifest',
   '/screenshot-wide.jpg',
@@ -17,7 +39,13 @@ const urlsToCache = [
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME)
-      .then((cache) => cache.addAll(urlsToCache))
+      .then((cache) =>
+        // Promise.allSettled use kiya hai (cache.addAll ki jagah) — taaki
+        // agar in mein se koi EK file fetch fail ho (jaise koi optional
+        // screenshot missing), to poora install fail na ho aur baaki
+        // saari files phir bhi cache ho jaayein.
+        Promise.allSettled(urlsToCache.map((url) => cache.add(url)))
+      )
       .then(() => self.skipWaiting())
   );
 });
@@ -33,27 +61,52 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// NETWORK-FIRST strategy:
-// Always try to fetch the latest file from the server first (when online).
-// Only fall back to the cached copy if the network request fails (offline).
-// This fixes mobile devices getting permanently stuck on an old cached
-// version, since mobile browsers have no "hard refresh" option like desktop
-// DevTools does.
+// STALE-WHILE-REVALIDATE strategy:
+// ────────────────────────────────
+// Pehle: "network-first" tha — matlab HAR file (chahe pehle se bilkul
+// same ho) ke liye pehle network wait karna padta tha, tab jaake kuch
+// bhi screen par dikhta tha. Isse app "load ho raha hai" jaisa mehsoos
+// hota tha, khaaskar dheeme mobile network par.
+//
+// Ab: agar file device ke local cache mein already save hai, to woh
+// TURANT (0ms wait, koi network round-trip nahi) return ho jaati hai —
+// student ko app turant khula hua dikhta hai. Usi waqt background mein
+// (parallel) ek fresh copy network se mangwa li jaati hai aur cache
+// silently update kar di jaati hai — is turant response ka wait karke
+// UI ko block nahi kiya jaata.
+//
+// Result: agli baar app kholne par (ya usi session mein dusri baar
+// kisi file ki zaroorat padne par) turant naya/updated version milega,
+// kyunki cache already background mein update ho chuka hota hai. Jaise
+// hi koi change deploy hota hai aur student app ek baar bhi khol leta
+// hai, usi waqt background download shuru ho jaata hai.
+//
+// Note: agar file cache mein hai hi nahi (bilkul pehli visit, ya koi
+// naya URL), to obviously network ka wait karna padega — usse bachne
+// ka koi tareeka nahi, lekin uske baad se woh file bhi turant milegi.
 self.addEventListener('fetch', (event) => {
-  // Only handle GET requests; let everything else (POST etc.) pass through normally.
-  if (event.request.method !== 'GET') return;
+  if (event.request.method !== 'GET') return; // POST etc. ko as-is jaane do
 
   event.respondWith(
-    fetch(event.request, { cache: 'no-store' })
-      .then((networkResponse) => {
-        // Save a fresh copy in cache for offline use later.
-        const clone = networkResponse.clone();
-        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
-        return networkResponse;
+    caches.open(CACHE_NAME).then((cache) =>
+      cache.match(event.request).then((cachedResponse) => {
+        const networkFetch = fetch(event.request, { cache: 'no-store' })
+          .then((networkResponse) => {
+            // Sirf valid (ok) response hi cache mein save karo — 404/500
+            // jaisi error-response ko cache karna future loads ko todd
+            // sakta hai.
+            if (networkResponse && networkResponse.ok) {
+              cache.put(event.request, networkResponse.clone());
+            }
+            return networkResponse;
+          })
+          .catch(() => cachedResponse); // offline/network-fail -> jo cache mein hai wahi de do
+
+        // Cache mein already kuch mila -> USE IT INSTANTLY (turant
+        // response), background update apni jagah chalta rahega.
+        // Cache mein kuch nahi -> pehli baar hai, network ka wait karo.
+        return cachedResponse || networkFetch;
       })
-      .catch(() => {
-        // Offline (or network failed) -> fall back to whatever we have cached.
-        return caches.match(event.request);
-      })
+    )
   );
 });
