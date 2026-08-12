@@ -480,54 +480,77 @@ h4 { color: var(--navy); font-size: .95rem; font-weight: 700; margin-bottom: 10p
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 10px;
-  background: var(--navy);
+  background: linear-gradient(120deg, #1e1b4b 0%, #312e81 55%, #4338ca 100%);
   padding: 14px 24px;
   color: #fff;
+  position: relative;
+  overflow: hidden;
 }
+.exam-header::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 12% 30%, rgba(251,191,36,.18) 0%, transparent 45%),
+    radial-gradient(circle at 88% 70%, rgba(244,114,182,.16) 0%, transparent 45%);
+  pointer-events: none;
+}
+.exam-header-left, .exam-header-right { position: relative; z-index: 1; }
 .exam-header-left { min-width: 0; }
 .exam-title-text {
   font-size: 1rem;
-  font-weight: 700;
+  font-weight: 800;
   color: #fff;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 42vw;
 }
-.exam-meta-text { font-size: .76rem; color: rgba(255,255,255,.6); margin-top: 2px; }
+.exam-meta-text { font-size: .76rem; color: rgba(255,255,255,.65); margin-top: 2px; }
 .exam-header-right { display: flex; align-items: center; gap: 12px; }
 .timer-box {
-  background: rgba(255,255,255,.1);
+  background: rgba(255,255,255,.12);
   color: #fff;
   font-size: 1.05rem;
-  font-weight: 700;
-  padding: 6px 14px;
-  border-radius: 8px;
+  font-weight: 800;
+  padding: 6px 14px 6px 12px;
+  border-radius: 999px;
   font-variant-numeric: tabular-nums;
   letter-spacing: 1px;
-  border: 1.5px solid rgba(255,255,255,.15);
+  border: 1.5px solid rgba(255,255,255,.2);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
+.timer-box::before { content: "⏱️"; font-size: .95rem; }
 .timer-box.low-time { background: var(--red); border-color: var(--red); animation: pulse-timer 1s infinite; }
-@keyframes pulse-timer { 0%,100%{opacity:1} 50%{opacity:.8} }
+@keyframes pulse-timer { 0%,100%{opacity:1; transform:scale(1);} 50%{opacity:.85; transform:scale(1.04);} }
 
-/* Slim progress bar under header */
-.exam-progress-track { height: 4px; background: #e2e8f0; }
-.exam-progress-fill { height: 100%; background: var(--blue); width: 0%; transition: width .3s ease; }
+/* Playful rainbow progress bar under header */
+.exam-progress-track { height: 6px; background: #e2e8f0; }
+.exam-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #4f46e5, #8b5cf6, #ec4899, #f59e0b);
+  background-size: 200% 100%;
+  width: 0%;
+  border-radius: 0 999px 999px 0;
+  transition: width .35s ease;
+}
 
 /* Language toggle */
-.lang-toggle { display: flex; gap: 3px; background: rgba(255,255,255,.08); padding: 3px; border-radius: 8px; }
+.lang-toggle { display: flex; gap: 3px; background: rgba(255,255,255,.1); padding: 3px; border-radius: 999px; position: relative; z-index: 1; }
 .lang-btn {
   background: transparent;
   color: rgba(255,255,255,.65);
   border: none;
-  border-radius: 6px;
+  border-radius: 999px;
   padding: 5px 11px;
   font-size: .78rem;
-  font-weight: 600;
+  font-weight: 700;
   cursor: pointer;
   transition: all .15s;
 }
-.lang-btn.active { background: #fff; color: var(--navy); }
+.lang-btn.active { background: #fff; color: var(--navy); box-shadow: 0 2px 6px rgba(0,0,0,.15); }
 .lang-btn:hover:not(.active) { color: #fff; }
 
 .exam-body {
@@ -547,54 +570,105 @@ h4 { color: var(--navy); font-size: .95rem; font-weight: 700; margin-bottom: 10p
   border-left: 1px solid var(--line, #e5e7eb);
 }
 
-/* Question meta */
+/* Question meta — playful pill badges */
 .q-meta-row { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
-.q-count { font-size: .78rem; font-weight: 700; color: var(--blue); text-transform: uppercase; letter-spacing: .4px; }
-.q-meta-dot { color: #cbd5e1; }
-.q-marks { font-size: .78rem; color: #6b7280; }
+.q-count {
+  font-size: .74rem;
+  font-weight: 800;
+  color: #9a3412;
+  text-transform: uppercase;
+  letter-spacing: .4px;
+  background: linear-gradient(135deg, #fed7aa, #fdba74);
+  padding: 5px 12px;
+  border-radius: 999px;
+}
+.q-meta-dot { display: none; }
+.q-marks {
+  font-size: .74rem;
+  font-weight: 800;
+  color: #15803d;
+  background: #dcfce7;
+  padding: 5px 12px;
+  border-radius: 999px;
+}
 .q-text {
   font-size: 1.05rem;
   font-weight: 500;
   color: #1e293b;
   line-height: 1.7;
   background: #fff;
-  padding: 20px 22px;
-  border-radius: 12px;
+  padding: 22px 24px;
+  border-radius: 16px;
   border: 1px solid #e5e7eb;
+  border-left: 5px solid #6366f1;
   margin-bottom: 20px;
+  box-shadow: 0 6px 20px rgba(79, 70, 229, .08);
+  position: relative;
+  animation: fadeInSlideUp .3s ease;
 }
 .lang-en { margin-bottom: 8px; }
 .lang-hi { border-top: 1px dashed #e5e7eb; padding-top: 10px; margin-top: 8px; }
 
-/* Options */
-.options-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 24px; }
+/* Options — colorful letter badges */
+.options-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 24px; }
 .options-list button {
   display: flex;
   align-items: center;
   gap: 14px;
   padding: 13px 16px;
   border: 1.5px solid #e5e7eb;
-  border-radius: 10px;
+  border-radius: 14px;
   background: #fff;
   text-align: left;
   cursor: pointer;
   font-size: .94rem;
   font-weight: 500;
   color: #1e293b;
-  transition: border-color .15s, background .15s;
+  transition: border-color .15s, background .15s, transform .12s, box-shadow .15s;
 }
-.options-list button:hover { border-color: var(--blue); background: #f5f6ff; }
-.options-list button.selected { border-color: var(--blue); background: #eef2ff; color: var(--navy); font-weight: 700; }
-.options-list button.limit-locked:hover { border-color: #e5e7eb; background: #fff; }
-.radio-dot {
-  width: 18px;
-  height: 18px;
+.options-list button:hover {
+  border-color: var(--blue);
+  background: #f5f6ff;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(79, 70, 229, .12);
+}
+.options-list button.selected {
+  border-color: var(--blue);
+  background: #eef2ff;
+  color: var(--navy);
+  font-weight: 700;
+  box-shadow: 0 6px 16px rgba(79, 70, 229, .18);
+}
+.options-list button.limit-locked:hover { border-color: #e5e7eb; background: #fff; transform: none; box-shadow: none; }
+.opt-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
   border-radius: 50%;
-  border: 2px solid #cbd5e1;
+  font-weight: 800;
+  font-size: .8rem;
+  color: #fff;
   flex-shrink: 0;
-  transition: border-color .15s, background .15s;
+  transition: transform .15s;
 }
-.options-list button.selected .radio-dot { border-color: var(--blue); background: var(--blue); box-shadow: inset 0 0 0 3px #fff; }
+.options-list button.selected .opt-badge { transform: scale(1.1); }
+.opt-badge-a { background: linear-gradient(135deg, #60a5fa, #3b82f6); }
+.opt-badge-b { background: linear-gradient(135deg, #34d399, #10b981); }
+.opt-badge-c { background: linear-gradient(135deg, #fbbf24, #f59e0b); }
+.opt-badge-d { background: linear-gradient(135deg, #f472b6, #ec4899); }
+.opt-text { flex: 1; }
+.opt-check {
+  color: #22c55e;
+  font-size: 1.15rem;
+  font-weight: 900;
+  opacity: 0;
+  transform: scale(.4);
+  transition: all .18s;
+  flex-shrink: 0;
+}
+.options-list button.selected .opt-check { opacity: 1; transform: scale(1); }
 
 /* Exam actions: mark/clear on one side, prev/next pager on the other */
 .exam-actions {
@@ -612,26 +686,30 @@ h4 { color: var(--navy); font-size: .95rem; font-weight: 700; margin-bottom: 10p
   background: transparent;
   border: 1.5px solid #e5e7eb;
   color: #475569;
-  border-radius: 8px;
+  border-radius: 999px;
   padding: 8px 14px;
   font-size: .82rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all .15s;
-}
-.btn-ghost:hover { border-color: #cbd5e1; background: #f8fafc; }
-.btn-pager {
-  background: #fff;
-  border: 1.5px solid var(--blue);
-  color: var(--blue);
-  border-radius: 8px;
-  padding: 8px 16px;
-  font-size: .85rem;
   font-weight: 700;
   cursor: pointer;
   transition: all .15s;
 }
-.btn-pager:hover { background: var(--blue); color: #fff; }
+.btn-ghost:hover { border-color: #cbd5e1; background: #f8fafc; transform: translateY(-1px); }
+#mark-review { border-color: #fdba74; color: #c2410c; }
+#mark-review:hover { background: #fff7ed; border-color: #f97316; }
+#clear-response { border-color: #fca5a5; color: #b91c1c; }
+#clear-response:hover { background: #fef2f2; border-color: #ef4444; }
+.btn-pager {
+  background: #fff;
+  border: 1.5px solid var(--blue);
+  color: var(--blue);
+  border-radius: 999px;
+  padding: 8px 18px;
+  font-size: .85rem;
+  font-weight: 800;
+  cursor: pointer;
+  transition: all .15s;
+}
+.btn-pager:hover { background: var(--blue); color: #fff; transform: translateY(-1px); box-shadow: 0 6px 14px rgba(79,70,229,.25); }
 .exam-footer-btns {
   display: flex;
   align-items: center;
@@ -650,6 +728,12 @@ h4 { color: var(--navy); font-size: .95rem; font-weight: 700; margin-bottom: 10p
   text-underline-offset: 2px;
 }
 .btn-text-muted:hover { color: #64748b; }
+#submit-test {
+  background: linear-gradient(135deg, #f97316, #ea580c);
+  box-shadow: 0 6px 18px rgba(234, 88, 12, .35);
+  transition: transform .15s, box-shadow .15s;
+}
+#submit-test:hover { transform: translateY(-2px); box-shadow: 0 10px 24px rgba(234, 88, 12, .45); }
 
 /* Sidebar stats */
 .stats-card { margin-bottom: 16px; }
@@ -660,39 +744,40 @@ h4 { color: var(--navy); font-size: .95rem; font-weight: 700; margin-bottom: 10p
 }
 .stat {
   padding: 8px 12px;
-  border-radius: 8px;
+  border-radius: 10px;
   font-size: .8rem;
-  font-weight: 700;
+  font-weight: 800;
 }
 .stat.answered { background: #f0fdf4; color: #15803d; }
 .stat.not-answered { background: #fef2f2; color: #b91c1c; }
 .stat.review { background: #fffbeb; color: #a16207; }
 .total-q { font-size: .78rem; color: #94a3b8; font-weight: 600; margin-bottom: 10px; }
 
-/* Question nav grid */
+/* Question nav grid — playful circular buttons */
 .q-nav-grid {
   display: grid;
   grid-template-columns: repeat(5, 1fr);
-  gap: 6px;
+  gap: 7px;
   margin-bottom: 14px;
 }
 .q-nav-grid button {
   width: 100%;
   aspect-ratio: 1;
-  border-radius: 7px;
+  border-radius: 50%;
   border: 1.5px solid #e5e7eb;
   background: #fff;
   color: #64748b;
   font-size: .78rem;
-  font-weight: 700;
+  font-weight: 800;
   cursor: pointer;
   transition: all .15s;
   padding: 0;
 }
-.q-nav-grid button.active { outline: 2px solid var(--navy); outline-offset: 1px; }
-.q-nav-grid button.answered { background: #22c55e; color: #fff; border-color: #16a34a; }
-.q-nav-grid button.not-answered { background: #ef4444; color: #fff; border-color: #dc2626; }
-.q-nav-grid button.review { background: #f59e0b; color: #fff; border-color: #d97706; }
+.q-nav-grid button:hover { transform: scale(1.1); }
+.q-nav-grid button.active { outline: 2.5px solid var(--navy); outline-offset: 2px; }
+.q-nav-grid button.answered { background: linear-gradient(135deg,#4ade80,#22c55e); color: #fff; border-color: #16a34a; }
+.q-nav-grid button.not-answered { background: linear-gradient(135deg,#f87171,#ef4444); color: #fff; border-color: #dc2626; }
+.q-nav-grid button.review { background: linear-gradient(135deg,#fbbf24,#f59e0b); color: #fff; border-color: #d97706; }
 .q-nav-grid button.not-visited { background: #f8fafc; color: #94a3b8; }
 
 .q-nav-legend {
@@ -709,6 +794,54 @@ h4 { color: var(--navy); font-size: .95rem; font-weight: 700; margin-bottom: 10p
 .q-nav-legend .dot.review { background: #f59e0b; }
 .q-nav-legend .dot.not-visited { background: #cbd5e1; }
 
+/* Mobile question-palette: floating button opens the nav grid as a
+   bottom sheet, instead of student ko scroll karke neeche jaana pade.
+   Desktop par ye poori tarah hidden rehta hai — sidebar hamesha ki tarah
+   dikhti hai. */
+.qnav-fab {
+  display: none;
+  position: fixed;
+  right: 18px;
+  bottom: 86px;
+  z-index: 60;
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  border: none;
+  background: linear-gradient(135deg, #4f46e5, #4338ca);
+  color: #fff;
+  font-size: 1.3rem;
+  cursor: pointer;
+  box-shadow: 0 8px 22px rgba(79, 70, 229, .38);
+  align-items: center;
+  justify-content: center;
+}
+.qnav-fab-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  background: #ef4444;
+  color: #fff;
+  font-size: .68rem;
+  font-weight: 800;
+  min-width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid #fff;
+  padding: 0 4px;
+}
+.qnav-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, .45);
+  z-index: 65;
+}
+.qnav-backdrop.open { display: block; }
+
 /* ══════════════════════════════════════
    RESULT SCREEN
 ══════════════════════════════════════ */
@@ -719,13 +852,41 @@ h4 { color: var(--navy); font-size: .95rem; font-weight: 700; margin-bottom: 10p
 }
 .result-wrap { max-width: 820px; margin: 0 auto; }
 
-.hero-card {
+.result-header-card {
   text-align: center;
   padding: 32px 24px;
+  margin-bottom: 20px;
+  position: relative;
+  overflow: hidden;
+  background: rgba(255,255,255,.07);
+  border: 1px solid rgba(255,255,255,.13);
+  border-radius: 18px;
+  backdrop-filter: blur(8px);
 }
-.result-logo { font-size: 3rem; margin-bottom: 10px; }
-.result-greeting { font-size: 1.2rem; font-weight: 800; color: #fff; margin-bottom: 8px; }
-.result-feedback { font-size: .95rem; color: rgba(255,255,255,.75); max-width: 500px; margin: 0 auto; }
+.result-header-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 15% 20%, rgba(251,191,36,.16) 0%, transparent 45%),
+    radial-gradient(circle at 85% 80%, rgba(236,72,153,.14) 0%, transparent 45%);
+  pointer-events: none;
+}
+.result-logo {
+  font-size: 3rem;
+  margin-bottom: 10px;
+  position: relative;
+  z-index: 1;
+  display: inline-block;
+  animation: trophy-pop .5s cubic-bezier(.34,1.56,.64,1);
+}
+@keyframes trophy-pop {
+  0% { transform: scale(0) rotate(-15deg); opacity: 0; }
+  60% { transform: scale(1.15) rotate(8deg); opacity: 1; }
+  100% { transform: scale(1) rotate(0); }
+}
+.result-greeting { font-size: 1.25rem; font-weight: 800; color: #fff; margin-bottom: 8px; position: relative; z-index: 1; }
+.result-feedback { font-size: .95rem; color: rgba(255,255,255,.75); max-width: 500px; margin: 0 auto; position: relative; z-index: 1; }
 
 .perf-grid {
   display: grid;
@@ -739,6 +900,12 @@ h4 { color: var(--navy); font-size: .95rem; font-weight: 700; margin-bottom: 10p
   border-radius: 14px;
   padding: 16px 18px;
   backdrop-filter: blur(8px);
+  transition: transform .18s, background .18s, border-color .18s;
+}
+.perf-card:hover {
+  transform: translateY(-3px);
+  background: rgba(255,255,255,.1);
+  border-color: rgba(255,255,255,.22);
 }
 .perf-label { font-size: .78rem; font-weight: 700; color: rgba(255,255,255,.6); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 6px; }
 .perf-value { font-size: 1.5rem; font-weight: 800; color: #fff; margin-bottom: 10px; }
@@ -907,6 +1074,39 @@ h4 { color: var(--navy); font-size: .95rem; font-weight: 700; margin-bottom: 10p
   .perf-grid { grid-template-columns: 1fr 1fr; }
   .site-header { padding: 12px 14px; }
   .tab { padding: 7px 10px; font-size: .8rem; }
+
+  /* Question palette: ab mobile par scroll karke neeche jaane ki jagah,
+     ek floating button se bottom-sheet ki tarah khulta hai — jaise
+     zyadatar exam apps mein hota hai. */
+  .qnav-fab { display: flex; }
+  #exam-sidebar {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    top: auto;
+    width: 100%;
+    max-height: 72vh;
+    overflow-y: auto;
+    background: #fff;
+    border-radius: 20px 20px 0 0;
+    border-top: none;
+    box-shadow: 0 -12px 32px rgba(15, 23, 42, .18);
+    z-index: 70;
+    padding: 18px 18px 24px;
+    transform: translateY(115%);
+    transition: transform .28s cubic-bezier(.4,0,.2,1);
+  }
+  #exam-sidebar.open { transform: translateY(0); }
+  #exam-sidebar::before {
+    content: "";
+    display: block;
+    width: 44px;
+    height: 5px;
+    border-radius: 999px;
+    background: #e2e8f0;
+    margin: 0 auto 14px;
+  }
 
   /* Result Sheet: table + TOP PERFORMERS ko phone par side-by-side ki
      jagah stacked (upar-neeche) dikhao, warna dono squeeze ho kar

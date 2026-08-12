@@ -577,6 +577,9 @@ function init() {
   bindEvent("#cancel-bank-edit", 'onclick', cancelBankEdit);
   bindEvent("#prev-question", 'onclick', () => moveQuestion(-1));
   bindEvent("#next-question", 'onclick', () => moveQuestion(1));
+  setupExamSwipeNav();
+  bindEvent("#qnav-fab", 'onclick', () => toggleQuestionPalette(true));
+  bindEvent("#qnav-backdrop", 'onclick', () => toggleQuestionPalette(false));
   bindEvent("#clear-response", 'onclick', clearResponse);
   bindEvent("#mark-review", 'onclick', markForReview);
   bindEvent("#exam-back", 'onclick', backHome);
@@ -1784,7 +1787,7 @@ function renderQuestion() {
         btn.style.opacity = "0.5";
         btn.style.cursor = "not-allowed";
       }
-      btn.innerHTML = `<span class="radio-dot"></span><span><strong>${labels[i]}.</strong> ${escHtml(oText)}</span>`;
+      btn.innerHTML = `<span class="opt-badge opt-badge-${labels[i].toLowerCase()}">${labels[i]}</span><span class="opt-text">${escHtml(oText)}</span><span class="opt-check">✓</span>`;
       btn.onclick = () => {
         if (mcqLimit && current.answers[current.index] === null && countMcqAttempted() >= mcqLimit) {
           alert(`⚠️ Attempt limit poora ho gaya hai! Aap sirf ${mcqLimit} MCQ questions attempt kar sakte hain. Naya answer dene se pehle kisi answered question ko "Clear Response" karke slot khaali karein.`);
@@ -1830,7 +1833,11 @@ function renderQuestionNav() {
     btn.type = "button";
     btn.textContent = i + 1;
     btn.className = getQStatus(i) + (i === current.index ? " active" : "");
-    btn.onclick = () => { current.index = i; renderQuestion(); };
+    btn.onclick = () => {
+      current.index = i;
+      renderQuestion();
+      toggleQuestionPalette(false); // mobile sheet: question chunte hi band ho jaaye
+    };
     nav.appendChild(btn);
   });
 }
@@ -1854,6 +1861,28 @@ function renderExamStats() {
   $("#answered-count").style.color = (attemptLimit && mcqAnswered >= attemptLimit) ? "#b91c1c" : "";
   $("#unanswered-count").textContent= `❌ Unanswered ${total - answered}`;
   $("#review-count").textContent    = `🔖 Review ${review}`;
+
+  // Mobile floating "question palette" button par bhi kitne questions
+  // abhi bache hue hain wo turant dikha do — taaki student ko sheet
+  // khole bina hi andaza ho jaaye.
+  const fabBadge = $("#qnav-fab-badge");
+  if (fabBadge) {
+    const remaining = total - answered;
+    fabBadge.textContent = String(remaining);
+    fabBadge.classList.toggle("hidden", remaining <= 0);
+  }
+}
+
+// Mobile par question-palette (sidebar ka nav grid) ko bottom-sheet ki
+// tarah open/close karta hai. Desktop par ye function no-op hai kyunki
+// wahan sidebar already hamesha visible rehti hai (CSS ismein "open"
+// class ka koi effect nahi rakhta 700px se upar).
+function toggleQuestionPalette(show) {
+  const sidebar = document.getElementById("exam-sidebar");
+  const backdrop = document.getElementById("qnav-backdrop");
+  if (!sidebar || !backdrop) return;
+  sidebar.classList.toggle("open", show);
+  backdrop.classList.toggle("open", show);
 }
 
 function getMcqAttemptLimit() {
@@ -1873,6 +1902,50 @@ function markForReview()  { current.marked[current.index] = !current.marked[curr
 function moveQuestion(step) {
   current.index = Math.max(0, Math.min(current.test.questions.length - 1, current.index + step));
   renderQuestion();
+}
+
+// Mobile par (jahan swipe hi sabse natural gesture hai) — question ke
+// text/options area par left/right swipe karke bhi Next/Prev ki tarah
+// navigate kar sakte hain, seedhe button dabaye bina. Sirf horizontal
+// swipe ko pakadta hai (vertical scroll ya kisi option/button ka normal
+// tap kabhi trigger nahi hoga) — isliye judge karne ke liye dono axis ka
+// movement compare karte hain aur ek minimum distance/speed threshold
+// rakhte hain taaki galti se hua chhota sa touch move swipe na ban jaaye.
+function setupExamSwipeNav() {
+  const zone = document.getElementById("exam-main");
+  if (!zone) return;
+  let startX = 0, startY = 0, startTime = 0, tracking = false;
+
+  zone.addEventListener("touchstart", (e) => {
+    if (e.touches.length !== 1) { tracking = false; return; }
+    // Ek naye MCQ-option ya button par tap ho raha ho to swipe-tracking
+    // shuru hi mat karo — sirf "khaali" jagah (question card ke bahar
+    // hisse) se shuru hui drag hi swipe maani jaayegi, taaki option tap
+    // karte waqt ungli thodi si idhar-udhar hile to bhi answer select
+    // hone mein koi dikkat na aaye.
+    tracking = true;
+    startX = e.touches[0].clientX;
+    startY = e.touches[0].clientY;
+    startTime = Date.now();
+  }, { passive: true });
+
+  zone.addEventListener("touchend", (e) => {
+    if (!tracking) return;
+    tracking = false;
+    const touch = e.changedTouches[0];
+    if (!touch) return;
+    const dx = touch.clientX - startX;
+    const dy = touch.clientY - startY;
+    const elapsed = Date.now() - startTime;
+    const absDx = Math.abs(dx), absDy = Math.abs(dy);
+    // Horizontal movement vertical se kaafi zyada ho, ek reasonable
+    // distance (40px) ho, aur bahut dheere-dheere kiya gaya drag na ho
+    // (600ms se kam) — tabhi ise "swipe" maano.
+    if (absDx > 40 && absDx > absDy * 1.5 && elapsed < 600) {
+      if (dx < 0) moveQuestion(1);  // left swipe -> next question
+      else moveQuestion(-1);        // right swipe -> prev question
+    }
+  }, { passive: true });
 }
 
 function startTimer() {
