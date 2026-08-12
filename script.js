@@ -5460,6 +5460,17 @@ function syncTests() {
     // usse turant re-render karo taaki sahi, LIVE max marks turant dikhe.
     if (typeof renderStudentResultSheet === "function" && $("#result-test-select")?.value) renderStudentResultSheet();
     if (typeof renderRecords === "function" && typeof records !== "undefined" && records.length) renderRecords();
+    // Top Performers podium (student) aur Top Performers list (admin) bhi
+    // isi stale-max-marks bug se prabhavit the — inhe bhi turant refresh
+    // karo taaki reload ke turant baad dikhne wala "purana" total (jaise
+    // 130) turant sahi (jaise 100) ho jaaye, 25-second auto-refresh ka
+    // wait na karna pade.
+    if (window.SavyaExtras && typeof window.SavyaExtras.renderTopStudentsPodium === "function") {
+      window.SavyaExtras.renderTopStudentsPodium();
+    }
+    if (typeof renderAdminLeaderboard === "function" && $("#admin-leaderboard-list")) {
+      renderAdminLeaderboard();
+    }
   }, () => renderTests());
 }
 
