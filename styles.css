@@ -557,17 +557,24 @@ h4 { color: var(--navy); font-size: .95rem; font-weight: 700; margin-bottom: 10p
   display: flex;
   flex: 1;
   gap: 0;
+  justify-content: center;
 }
 .exam-main {
   flex: 1;
   padding: 28px 32px;
   max-width: 700px;
 }
-.exam-sidebar {
-  width: 260px;
-  padding: 24px 18px;
+/* Question navigator ab hamesha-visible sidebar nahi hai — exam ke
+   dauraan ek floating button (.qnav-fab) se on-demand khulta hai (dono
+   mobile aur desktop par), taaki poora screen sirf question/options ke
+   liye mile aur navigator sirf zaroorat padne par overlay ki tarah aaye. */
+#exam-sidebar {
+  position: fixed;
+  z-index: 70;
   background: #fff;
-  border-left: 1px solid var(--line, #e5e7eb);
+  padding: 18px 18px 24px;
+  overflow-y: auto;
+  transition: transform .28s cubic-bezier(.4,0,.2,1);
 }
 
 /* Question meta — playful pill badges */
@@ -794,12 +801,13 @@ h4 { color: var(--navy); font-size: .95rem; font-weight: 700; margin-bottom: 10p
 .q-nav-legend .dot.review { background: #f59e0b; }
 .q-nav-legend .dot.not-visited { background: #cbd5e1; }
 
-/* Mobile question-palette: floating button opens the nav grid as a
-   bottom sheet, instead of student ko scroll karke neeche jaana pade.
-   Desktop par ye poori tarah hidden rehta hai — sidebar hamesha ki tarah
-   dikhti hai. */
+/* Question palette button: exam ke dauraan kabhi bhi is button se
+   Question Navigator (answered/review/jump-to-question grid) ek overlay
+   panel ki tarah khul jaata hai — dono mobile aur desktop par kaam
+   karta hai (neeche breakpoint-specific position/animation di gayi
+   hai). */
 .qnav-fab {
-  display: none;
+  display: flex;
   position: fixed;
   right: 18px;
   bottom: 86px;
@@ -815,7 +823,9 @@ h4 { color: var(--navy); font-size: .95rem; font-weight: 700; margin-bottom: 10p
   box-shadow: 0 8px 22px rgba(79, 70, 229, .38);
   align-items: center;
   justify-content: center;
+  transition: transform .15s;
 }
+.qnav-fab:hover { transform: scale(1.06); }
 .qnav-fab-badge {
   position: absolute;
   top: -4px;
@@ -1062,9 +1072,25 @@ h4 { color: var(--navy); font-size: .95rem; font-weight: 700; margin-bottom: 10p
 /* ══════════════════════════════════════
    RESPONSIVE
 ══════════════════════════════════════ */
+@media (min-width: 701px) {
+  /* Desktop par navigator ek right-side drawer ki tarah khulta hai —
+     poori width ka fixed sidebar lene ki jagah, sirf zaroorat padne par
+     .qnav-fab button dabakar overlay ki tarah aata hai. */
+  #exam-sidebar {
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 300px;
+    max-height: 100vh;
+    box-shadow: -10px 0 32px rgba(15, 23, 42, .16);
+    border-left: 1px solid var(--line, #e5e7eb);
+    transform: translateX(105%);
+  }
+  #exam-sidebar.open { transform: translateX(0); }
+}
+
 @media (max-width: 700px) {
   .exam-body { flex-direction: column; }
-  .exam-sidebar { width: 100%; border-left: none; border-top: 1.5px solid var(--line, #e5e7eb); }
   .exam-main { padding: 16px; max-width: 100%; }
   .exam-title-text { max-width: 60vw; }
   .exam-actions { flex-direction: column; align-items: stretch; }
@@ -1075,27 +1101,20 @@ h4 { color: var(--navy); font-size: .95rem; font-weight: 700; margin-bottom: 10p
   .site-header { padding: 12px 14px; }
   .tab { padding: 7px 10px; font-size: .8rem; }
 
-  /* Question palette: ab mobile par scroll karke neeche jaane ki jagah,
+  /* Question palette: mobile par scroll karke neeche jaane ki jagah,
      ek floating button se bottom-sheet ki tarah khulta hai — jaise
      zyadatar exam apps mein hota hai. */
-  .qnav-fab { display: flex; }
   #exam-sidebar {
-    position: fixed;
     left: 0;
     right: 0;
     bottom: 0;
     top: auto;
     width: 100%;
     max-height: 72vh;
-    overflow-y: auto;
-    background: #fff;
     border-radius: 20px 20px 0 0;
     border-top: none;
     box-shadow: 0 -12px 32px rgba(15, 23, 42, .18);
-    z-index: 70;
-    padding: 18px 18px 24px;
     transform: translateY(115%);
-    transition: transform .28s cubic-bezier(.4,0,.2,1);
   }
   #exam-sidebar.open { transform: translateY(0); }
   #exam-sidebar::before {

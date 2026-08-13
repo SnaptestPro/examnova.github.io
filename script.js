@@ -388,6 +388,12 @@ let current = {
    ══════════════════════════════════════════ */
 const EXAM_PROGRESS_KEY = "savya_exam_progress_v1";
 
+// Jab bhi koi adhoora (in-progress) exam mile, use yahan rakha jaata hai
+// taaki "Start Test" dropdown usko highlight kar sake aur student wahi
+// test dobara select karke seedhe wahin se continue kar sake — koi
+// intrusive "Resume karein?" popup ab nahi dikhaya jaata.
+let resumableExam = null;
+
 function saveExamProgressLocal() {
   if (!current.test || !current.testId || !current.startedAt) return;
   try {
@@ -413,10 +419,14 @@ function clearExamProgressLocal() {
 }
 
 // App khulte hi (init se) call hota hai — agar koi adhoora, submit-na-hua
-// exam mile to student ko resume karne ka mauka deta hai. Yeh bina
-// internet ke bhi kaam karta hai kyunki test ka poora snapshot bhi
-// isi payload ke andar save hota hai.
+// exam mile to use "resumableExam" mein rakh dete hain. Koi popup nahi
+// dikhaya jaata — iski jagah "Start Test" dropdown mein wahi test
+// "⏳ Resume karein" ke saath highlight ho jaata hai, aur student use
+// dobara select karke Start Test dabate hi seedhe wahin se continue kar
+// sakta hai jahan chhoda tha. Yeh bina internet ke bhi kaam karta hai
+// kyunki test ka poora snapshot bhi isi payload ke andar save hota hai.
 function checkForInProgressExam() {
+  resumableExam = null;
   let saved = null;
   try {
     const raw = localStorage.getItem(EXAM_PROGRESS_KEY);
@@ -427,43 +437,51 @@ function checkForInProgressExam() {
     clearExamProgressLocal();
     return;
   }
+  resumableExam = saved;
+  // Dropdown/banner already render ho chuki ho to turant refresh kar do
+  // (tests baad mein Firestore se load hone par renderTests() dobara
+  // call hoti hi hai, wahan bhi yeh banner apne aap sahi ho jaayega).
+  if (typeof renderTests === "function" && document.getElementById("test-select")) {
+    renderTests($("#test-select")?.value);
+  }
+}
 
+// resumableExam ke liye kitna time bacha hai — agar already khatam ho
+// chuka ho to negative/zero return karta hai.
+function getResumableRemainingSec(saved) {
   const elapsedSec = Math.floor((Date.now() - new Date(saved.startedAt).getTime()) / 1000);
-  const remaining = (saved.durationSec || 0) - elapsedSec;
+  return (saved.durationSec || 0) - elapsedSec;
+}
 
-  // Ise exam-screen ke alawa kisi aur screen (result, solution, admin)
-  // par mat poocho — sirf tab jab student home/login screen par ho.
-  const restoreCurrent = () => {
-    current.testId    = saved.testId;
-    current.test      = saved.test;
-    current.student   = saved.student || {};
-    current.index     = saved.index || 0;
-    current.answers   = saved.answers || [];
-    current.marked    = saved.marked || [];
-    current.visited   = saved.visited || [];
-    current.lang      = saved.lang || "hi";
-    current.startedAt = new Date(saved.startedAt);
-  };
+// resumableExam se current state restore karke exam-screen (ya, agar
+// time khatam ho chuka ho to result-screen) par le jaata hai — bilkul
+// wahi jagah se jahan student ne chhoda tha.
+function resumeExamFromLocal(saved) {
+  current.testId    = saved.testId;
+  current.test      = saved.test;
+  current.student   = saved.student || {};
+  current.index     = saved.index || 0;
+  current.answers   = saved.answers || [];
+  current.marked    = saved.marked || [];
+  current.visited   = saved.visited || [];
+  current.lang      = saved.lang || "hi";
+  current.startedAt = new Date(saved.startedAt);
+  resumableExam = null;
+
+  const remaining = getResumableRemainingSec(saved);
 
   if (remaining <= 0) {
     // Time already khatam ho chuka tha jab tak student wapas aaya —
     // fair yehi hai ki jo bhi answers the unhi se result nikal diya
     // jaaye (jaise normal timer khatam hone par hota hai), naya time
     // na diya jaaye.
-    restoreCurrent();
     current.remaining = 0;
-    alert(`⏱️ "${current.test.title}" ka time khatam ho chuka tha jab tak app dobara khuli — aapke jo bhi answers save the, unhi se result taiyaar kiya jaa raha hai.`);
     $("#home-screen").classList.add("hidden");
     $("#exam-screen").classList.remove("hidden");
     showResult();
     return;
   }
 
-  const mins = Math.floor(remaining / 60);
-  const wantsResume = confirm(`📝 Aapka pichla test "${saved.test.title}" adhoora reh gaya tha (~${mins} minute bache the).\n\nUse wahin se RESUME karna chahte hain?\n\n(OK = Resume karein, Cancel = Filhaal chhodein — baad mein dobara puchega)`);
-  if (!wantsResume) return; // progress delete nahi karte — agli baar phir poochega
-
-  restoreCurrent();
   current.remaining = remaining;
   $("#home-screen").classList.add("hidden");
   $("#result-screen").classList.add("hidden");
@@ -1665,6 +1683,14 @@ function startTest(e) {
   if (studentTestMode === "custom") { alert("Custom Test option remove ho gaya hai — Practice Mode use karein."); return; }
   current.testId = $("#test-select").value;
   if (!current.testId) { alert("Pehle upar se ek test select karein."); return; }
+
+  // Agar yehi wo test hai jo pehle adhoora chhoot gaya tha, to naya
+  // shuru karne ki jagah wahin se resume karo jahan chhoda tha.
+  if (resumableExam && resumableExam.testId === current.testId) {
+    resumeExamFromLocal(resumableExam);
+    return;
+  }
+
   current.test   = tests[current.testId];
   if (!current.test) { alert("Koi test nahi mila."); return; }
   const sched = checkTestSchedule(current.test);
@@ -2450,16 +2476,33 @@ function renderTests(selId) {
   placeholder.value = "";
   placeholder.textContent = "— Test chunein —";
   sel.appendChild(placeholder);
+  const canResume = resumableExam && tests[resumableExam.testId] && !tests[resumableExam.testId].isDraft;
   Object.entries(tests).forEach(([id, t]) => {
     if (t.isDraft) return; // Hide drafts from students
     const op = document.createElement("option");
     op.value = id;
     const attemptNote = t.attemptLimit ? `, attempt any ${t.attemptLimit} MCQs` : "";
-    op.textContent = `${t.title} (${t.questions.length}Q, ${t.minutes}min${attemptNote})`;
+    const resumeNote = (canResume && id === resumableExam.testId) ? "⏳ Resume — " : "";
+    op.textContent = `${resumeNote}${t.title} (${t.questions.length}Q, ${t.minutes}min${attemptNote})`;
     sel.appendChild(op);
   });
   sel.value = "";
   if (selId && tests[selId] && !tests[selId].isDraft) sel.value = selId;
+
+  // Adhoore-chhute-hue test ke baare mein ek chhota reminder banner —
+  // koi popup nahi, bas dropdown ke upar ek friendly note.
+  const banner = $("#resume-test-banner");
+  if (banner) {
+    if (canResume) {
+      const remaining = getResumableRemainingSec(resumableExam);
+      const mins = Math.max(0, Math.floor(remaining / 60));
+      $("#resume-test-title").textContent = resumableExam.test.title;
+      $("#resume-test-time").textContent = remaining > 0 ? `~${mins} min` : "0 min (time khatam)";
+      banner.classList.remove("hidden");
+    } else {
+      banner.classList.add("hidden");
+    }
+  }
   renderTestList();
 }
 
