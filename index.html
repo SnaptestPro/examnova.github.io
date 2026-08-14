@@ -111,7 +111,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css?v=8">
   <link rel="stylesheet" href="theme-picker.css">
-  <link rel="stylesheet" href="creative-dashboard.css?v=1">
+  <link rel="stylesheet" href="creative-dashboard.css?v=2">
   
   <!-- CDNs for Mega Update Features — defer kiya kyunki ye sab (chart,
        excel/pdf/word export, confetti) sirf user ke button-click par
@@ -317,6 +317,13 @@
             <div class="cd-card-bottom"><span class="cd-arrow-btn">→</span></div>
           </button>
 
+          <button type="button" class="cd-card cd-pink" onclick="goStudentSection('special-booster-card')">
+            <div class="cd-card-top"><div class="cd-icon-circle">📚</div><span class="cd-badge">New</span></div>
+            <div class="cd-card-title">Special Booster</div>
+            <div class="cd-card-sub">Chapter-wise mock test series</div>
+            <div class="cd-card-bottom"><span class="cd-arrow-btn">→</span></div>
+          </button>
+
           <button type="button" class="cd-card cd-gold" onclick="goStudentSection('student-settings-card')">
             <div class="cd-card-top"><div class="cd-icon-circle">⚙️</div><span class="cd-badge">Account</span></div>
             <div class="cd-card-title">Settings</div>
@@ -439,6 +446,14 @@
           <button type="button" id="practice-mistakes-btn" class="btn-primary" style="background:linear-gradient(135deg,#f59e0b,#d97706);">🔁 Inhe Practice Karein</button>
         </div>
         <div id="my-mistakes-list"></div>
+      </div>
+
+      <!-- ── SPECIAL BOOSTER (chapter-wise mock-test series: purple header,
+           chip filters by chapter, Start Now / Resume-Solution-Analysis) ──
+           Poori markup JS se banti hai (window.SavyaExtras.renderSpecialBooster,
+           student-features.js mein) — yahan sirf ek khaali container hai. ── -->
+      <div class="hidden" id="special-booster-card">
+        <div id="sb-root"></div>
       </div>
 
     </form>

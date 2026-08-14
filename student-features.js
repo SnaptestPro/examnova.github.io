@@ -845,6 +845,276 @@
     } catch (e) { console.warn("[TopStudents] render fail", e); }
   }
 
+  /* ── 8) SPECIAL BOOSTER — chapter-wise mock-test series browser ──
+     "Percentage - 1", "Percentage - 2", ... "Ratio and Proportion - 1"
+     jaise multiple tests ko admin normal tareeke se hi banata hai (koi
+     naya field nahi chahiye) — yahan bas har test ke apne questions
+     dekh kar (jinme har question ka `chapter` already hota hai) uska
+     MAJORITY chapter aur subject nikaal liya jaata hai, aur usi se
+     chip-categories (jaise "Percentage (6)") aur subject header
+     ("Mathematics Special Booster") apne aap ban jaate hain — admin ko
+     kuch alag se tag/group karne ki zaroorat nahi.
+     Button state (Start Now vs Resume/Solution/Analysis) student ke
+     apne resumableExam aur studentRecords se decide hota hai — sab
+     REAL data hai, kuch bhi fake/static nahi. ─────────────────────── */
+
+  let sbSubject = null;
+  let sbChapterFilter = "All";
+
+  // Test ke apne questions se uska "chapter" (majority-vote) aur
+  // "subject" (SubjectResolver ke through) nikaalta hai.
+  function getTestChapterMeta(t) {
+    const counts = {};
+    (t.questions || []).forEach(q => {
+      const ch = (q.chapter || "").trim();
+      if (ch) counts[ch] = (counts[ch] || 0) + 1;
+    });
+    let chapter = null, max = 0;
+    Object.entries(counts).forEach(([ch, c]) => { if (c > max) { max = c; chapter = ch; } });
+    const sample = (t.questions || []).find(q => (q.chapter || "").trim() === chapter) || (t.questions || [])[0];
+    const subject = (sample && typeof getQuestionSubject === "function") ? getQuestionSubject(sample) : "General";
+    return { chapter: chapter || "General Topics", subject: subject || "General" };
+  }
+
+  // Sabhi (non-draft, non-empty) tests ko subject ke hisaab se group
+  // karta hai — { "Mathematics": [{id,t,chapter}, ...], "History": [...] }
+  function getBoosterTestsBySubject() {
+    const map = {};
+    if (typeof tests === "undefined") return map;
+    Object.entries(tests).forEach(([id, t]) => {
+      if (!t || t.isDraft) return;
+      if (!Array.isArray(t.questions) || !t.questions.length) return;
+      const { chapter, subject } = getTestChapterMeta(t);
+      if (!map[subject]) map[subject] = [];
+      map[subject].push({ id, t, chapter });
+    });
+    return map;
+  }
+
+  function findMyRecordForTest(testId, myResultsCache) {
+    return (myResultsCache || []).find(r => r.testId === testId && Array.isArray(r.details) && r.details.length);
+  }
+
+  function sbTestStatus(id) {
+    const session = getStudentSession();
+    const mobile = session ? normalizeMobile(session.mobile) : "";
+    const cache = mobile ? cacheFor(mobile) : null;
+    const isResumable = !!(typeof resumableExam !== "undefined" && resumableExam && resumableExam.testId === id);
+    const record = cache ? findMyRecordForTest(id, cache.myResults) : null;
+    if (isResumable) return { state: "resumable", record };
+    if (record) return { state: "attempted", record };
+    return { state: "new", record: null };
+  }
+
+  // Fresh test shuru karta hai (ya, agar wahi test resumable hai, to
+  // usi se resume kar deta hai) — bilkul startTest() jaisa hi, bas
+  // dropdown se nahi, seedhe card se.
+  function sbStartTest(id) {
+    const t = (typeof tests !== "undefined") ? tests[id] : null;
+    if (!t) { alert("Test nahi mila."); return; }
+    const session = getStudentSession();
+    if (!session) { alert("Pehle login karein."); return; }
+    if (typeof resumableExam !== "undefined" && resumableExam && resumableExam.testId === id) {
+      resumeExamFromLocal(resumableExam);
+      return;
+    }
+    const sched = (typeof checkTestSchedule === "function") ? checkTestSchedule(t) : { ok: true };
+    if (!sched.ok) { alert(sched.msg); return; }
+    current.student = { name: session.name || "Student", mobile: session.mobile || "", email: "" };
+    current.testId = id;
+    current.test = t;
+    beginExam();
+  }
+
+  // "Solution" — is test ka SABSE RECENT completed attempt ka
+  // sahi/galat breakdown dikhata hai (openMyResultDetail jaisa hi hai,
+  // bas "wapas" karne par My Result ki jagah Special Booster par hi
+  // wapas le jaata hai, jahan se student aaya tha).
+  function sbShowSolution(id) {
+    const session = getStudentSession();
+    const mobile = session ? normalizeMobile(session.mobile) : "";
+    const cache = mobile ? cacheFor(mobile) : null;
+    const record = cache ? findMyRecordForTest(id, cache.myResults) : null;
+    if (!record) { alert("Is test ka result abhi available nahi hai — pehle attempt karein."); return; }
+    currentDetails = record.details;
+    currentSolIndex = 0;
+    currentSolLang = "hi";
+    document.getElementById("home-screen")?.classList.add("hidden");
+    document.getElementById("solution-screen")?.classList.remove("hidden");
+    setSolLang("hi");
+    renderSolNav();
+    const backBtn = document.getElementById("solution-back");
+    if (backBtn) {
+      backBtn.textContent = "← Wapas Jaayein";
+      backBtn.onclick = function () {
+        document.getElementById("solution-screen")?.classList.add("hidden");
+        document.getElementById("home-screen")?.classList.remove("hidden");
+        if (typeof showMode === "function") showMode("student", { preserveSection: true });
+        goStudentSection("special-booster-card");
+      };
+    }
+  }
+
+  // "Analysis" — score, % aur chapter-wise sahi/galat count (isi test
+  // ke andar agar multiple chapters mixed ho) ek chhote modal mein.
+  function sbShowAnalysis(id) {
+    const session = getStudentSession();
+    const mobile = session ? normalizeMobile(session.mobile) : "";
+    const cache = mobile ? cacheFor(mobile) : null;
+    const record = cache ? findMyRecordForTest(id, cache.myResults) : null;
+    const t = (typeof tests !== "undefined") ? tests[id] : null;
+    if (!record || !t) { alert("Analysis dekhne ke liye pehle is test ko attempt karein."); return; }
+
+    const byChapter = {};
+    (record.details || []).forEach(d => {
+      const ch = d.chapter || "General";
+      if (!byChapter[ch]) byChapter[ch] = { correct: 0, wrong: 0, skipped: 0 };
+      if (d.status === "Correct") byChapter[ch].correct++;
+      else if (d.status === "Wrong") byChapter[ch].wrong++;
+      else byChapter[ch].skipped++;
+    });
+    const liveMax = (typeof liveMaxForRecord === "function") ? liveMaxForRecord(record) : (record.maxScore || 0);
+    const pct = liveMax > 0 ? Math.round((record.score / liveMax) * 100) : 0;
+    const rowsHtml = Object.entries(byChapter).map(([ch, s]) => `
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px 0;border-bottom:1px dashed #e5e7eb;font-size:.83rem;">
+        <span style="color:#374151;">${escHtml(ch)}</span>
+        <span style="white-space:nowrap;"><span style="color:#16a34a;font-weight:700;">${s.correct}✓</span>&nbsp;&nbsp;<span style="color:#dc2626;font-weight:700;">${s.wrong}✗</span>${s.skipped ? `&nbsp;&nbsp;<span style="color:#9ca3af;">${s.skipped} skip</span>` : ""}</span>
+      </div>`).join("");
+
+    let overlay = document.getElementById("sb-analysis-modal");
+    if (!overlay) {
+      overlay = document.createElement("div");
+      overlay.id = "sb-analysis-modal";
+      overlay.style.cssText = "position:fixed;inset:0;background:rgba(15,15,30,.55);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;";
+      overlay.onclick = function (e) { if (e.target === overlay) overlay.remove(); };
+      document.body.appendChild(overlay);
+    }
+    overlay.innerHTML = `
+      <div style="background:#fff;border-radius:16px;max-width:400px;width:100%;padding:20px;box-shadow:0 12px 40px rgba(0,0,0,.3);max-height:80vh;overflow:auto;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;gap:10px;">
+          <h3 style="margin:0;color:#1e1b4b;font-size:1.02rem;">📊 ${escHtml(t.title)}</h3>
+          <button onclick="document.getElementById('sb-analysis-modal').remove()" style="background:#f3f4f6;border:none;border-radius:8px;width:28px;height:28px;flex-shrink:0;cursor:pointer;font-size:.9rem;">✕</button>
+        </div>
+        <p style="margin:0 0 14px;color:#6b7280;font-size:.85rem;">Score: <strong style="color:#4338ca;">${fmtNum(record.score)}/${fmtNum(liveMax)}</strong> (${pct}%)</p>
+        ${rowsHtml || '<p style="color:#9ca3af;font-size:.85rem;">Chapter-wise detail available nahi.</p>'}
+      </div>`;
+  }
+
+  function sbSetSubject(subject) {
+    sbSubject = subject;
+    sbChapterFilter = "All";
+    renderSpecialBooster();
+  }
+  function sbSetChapter(chapter) {
+    sbChapterFilter = chapter;
+    renderSpecialBooster();
+  }
+
+  function renderSpecialBooster() {
+    const root = document.getElementById("sb-root");
+    if (!root) return;
+
+    const bySubject = getBoosterTestsBySubject();
+    const subjects = Object.keys(bySubject).sort();
+    if (!subjects.length) {
+      root.innerHTML = `
+        <div class="sb-header">
+          <button type="button" class="sb-back" onclick="backToStudentDashboard()">←</button>
+          <span class="sb-header-icon">📚</span>
+          <span class="sb-header-title">Special Booster</span>
+        </div>
+        <div class="sb-empty"><p class="muted-text">Abhi koi Special Booster test available nahi hai — jald hi add kiya jaayega.</p></div>`;
+      return;
+    }
+    if (!sbSubject || !bySubject[sbSubject]) sbSubject = subjects[0];
+
+    const list = bySubject[sbSubject];
+    const chapterCounts = {};
+    list.forEach(item => { chapterCounts[item.chapter] = (chapterCounts[item.chapter] || 0) + 1; });
+    const chapters = Object.keys(chapterCounts);
+    if (sbChapterFilter !== "All" && !chapters.includes(sbChapterFilter)) sbChapterFilter = "All";
+
+    const visibleItems = sbChapterFilter === "All" ? list : list.filter(x => x.chapter === sbChapterFilter);
+
+    // NOTE: chapter/subject names aur test titles admin-entered free-text
+    // ho sakte hain (kabhi apostrophe/quote wale bhi) — isliye inline
+    // onclick="...('...')" mein seedha nahi dalte (ek stray apostrophe
+    // poori attribute todd sakta hai). Iski jagah data-* attributes use
+    // karte hain aur render ke baad JS se listeners attach karte hain —
+    // bilkul isi file ke renderMyResultsList() jaisa pattern.
+    const subjectSwitchHtml = subjects.length > 1 ? `
+      <div class="sb-subject-switch">
+        ${subjects.map(s => `<button type="button" class="sb-subject-chip ${s === sbSubject ? "active" : ""}" data-sb-subject="${escHtml(s)}">${escHtml(s)}</button>`).join("")}
+      </div>` : "";
+
+    const chipsHtml = [`<button type="button" class="sb-chip ${sbChapterFilter === "All" ? "active" : ""}" data-sb-chapter="All">All</button>`]
+      .concat(chapters.map(ch => `<button type="button" class="sb-chip ${sbChapterFilter === ch ? "active" : ""}" data-sb-chapter="${escHtml(ch)}">${escHtml(ch)} (${chapterCounts[ch]})</button>`))
+      .join("");
+
+    const cardsHtml = visibleItems.map(({ id, t }) => {
+      const status = sbTestStatus(id);
+      const marksLabel = (typeof getTestMaxMarks === "function") ? fmtNum(getTestMaxMarks(t)) : "0";
+      const metaHtml = `
+        <div class="sb-meta">
+          <span>📄 ${t.questions.length} Que</span>
+          <span>✅ ${marksLabel} Marks</span>
+          <span>⏱️ ${t.minutes} Min</span>
+        </div>`;
+
+      const idAttr = `data-sb-id="${escHtml(id)}"`;
+      let actionHtml, cardExtraClass = "";
+      if (status.state === "new") {
+        actionHtml = `<button type="button" class="sb-btn-start sb-act-start" ${idAttr}>Start Now</button>`;
+      } else if (status.state === "resumable") {
+        actionHtml = `<button type="button" class="sb-btn-start sb-act-start" ${idAttr}>⏳ Resume</button>`;
+      } else {
+        cardExtraClass = " sb-card-stacked";
+        actionHtml = `
+          <div class="sb-actions-row">
+            <button type="button" class="sb-btn-outline sb-outline-navy sb-act-start" ${idAttr}>Resume</button>
+            <button type="button" class="sb-btn-outline sb-outline-green sb-act-solution" ${idAttr}>Solution</button>
+            <button type="button" class="sb-btn-outline sb-outline-red sb-act-analysis" ${idAttr}>Analysis</button>
+          </div>`;
+      }
+
+      return `
+        <div class="sb-card${cardExtraClass}">
+          <div class="sb-card-icon">📋</div>
+          <div class="sb-card-body">
+            <div class="sb-card-title">${escHtml(t.title)}</div>
+            ${metaHtml}
+          </div>
+          <div class="sb-card-action">${actionHtml}</div>
+        </div>`;
+    }).join("");
+
+    root.innerHTML = `
+      <div class="sb-header">
+        <button type="button" class="sb-back" onclick="backToStudentDashboard()">←</button>
+        <span class="sb-header-icon">📚</span>
+        <span class="sb-header-title">${escHtml(sbSubject)} Special Booster</span>
+      </div>
+      ${subjectSwitchHtml}
+      <div class="sb-chips">${chipsHtml}</div>
+      <div class="sb-list">${cardsHtml || '<p class="muted-text" style="padding:20px;text-align:center;">Is chapter mein abhi koi test nahi hai.</p>'}</div>`;
+
+    root.querySelectorAll("[data-sb-subject]").forEach(btn => {
+      btn.onclick = () => sbSetSubject(btn.getAttribute("data-sb-subject"));
+    });
+    root.querySelectorAll("[data-sb-chapter]").forEach(btn => {
+      btn.onclick = () => sbSetChapter(btn.getAttribute("data-sb-chapter"));
+    });
+    root.querySelectorAll(".sb-act-start").forEach(btn => {
+      btn.onclick = () => sbStartTest(btn.getAttribute("data-sb-id"));
+    });
+    root.querySelectorAll(".sb-act-solution").forEach(btn => {
+      btn.onclick = () => sbShowSolution(btn.getAttribute("data-sb-id"));
+    });
+    root.querySelectorAll(".sb-act-analysis").forEach(btn => {
+      btn.onclick = () => sbShowAnalysis(btn.getAttribute("data-sb-id"));
+    });
+  }
+
   /* ── HOOK: called from script.js's goStudentSection() whenever a
      student opens a dashboard card, so that card's data is refreshed
      right then (cheap thanks to the stale-while-revalidate cache —
@@ -855,6 +1125,10 @@
     if (id === "my-progress-card") renderMyProgress();
     else if (id === "my-mistakes-card") renderMyMistakes();
     else if (id === "my-result-detail-card") loadMyResults();
+    else if (id === "special-booster-card") {
+      renderSpecialBooster(); // cache se turant dikha do
+      loadMyResults().then(renderSpecialBooster); // fir fresh myResults se sahi Resume/Solution/Analysis state
+    }
   }
 
   /* ── HOOK: called from script.js showResult() after every submit ─── */
@@ -882,6 +1156,7 @@
     renderMyMistakes();
     renderMyProgress();
     renderTopStudentsPodium();
+    renderSpecialBooster();
   }
 
   function init() {
@@ -942,7 +1217,13 @@
     syncPracticeFilters,
     onStudentSectionShown,
     renderTopStudentsPodium,
-    renderAdminLeaderboard
+    renderAdminLeaderboard,
+    renderSpecialBooster,
+    sbSetSubject,
+    sbSetChapter,
+    sbStart: sbStartTest,
+    sbSolution: sbShowSolution,
+    sbAnalysis: sbShowAnalysis
   };
 
 })();

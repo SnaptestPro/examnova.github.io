@@ -499,3 +499,165 @@
   .cd-self-rank { flex-wrap: wrap; gap: 6px 10px; }
   .cd-self-rank-text { font-size: .78rem; }
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   SPECIAL BOOSTER — chapter-wise mock-test series browser
+   (purple header + chip filters + Start Now / Resume·Solution·Analysis)
+   Data-driven from real `tests` + `studentRecords`, see student-features.js
+   ═══════════════════════════════════════════════════════════════ */
+#special-booster-card { margin-bottom: 10px; }
+
+.sb-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: linear-gradient(135deg, #4f46e5 0%, #1e1b8f 100%);
+  border-radius: 22px;
+  padding: 18px 20px;
+  margin-bottom: 16px;
+  box-shadow: 0 12px 30px rgba(30,27,75,.22);
+}
+.sb-back {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255,255,255,.16);
+  color: #fff;
+  font-size: 1.15rem;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.sb-back:hover { background: rgba(255,255,255,.28); }
+.sb-header-icon { font-size: 1.5rem; flex-shrink: 0; }
+.sb-header-title { color: #fff; font-weight: 800; font-size: 1.05rem; }
+
+.sb-subject-switch {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  margin-bottom: 12px;
+  scrollbar-width: none;
+}
+.sb-subject-switch::-webkit-scrollbar { display: none; }
+.sb-subject-chip {
+  flex-shrink: 0;
+  border: 1.5px solid #c7d2fe;
+  background: #fff;
+  color: #4338ca;
+  border-radius: 999px;
+  padding: 7px 16px;
+  font-weight: 700;
+  font-size: .82rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.sb-subject-chip.active {
+  background: linear-gradient(135deg,#4f46e5,#3730a3);
+  color: #fff;
+  border-color: transparent;
+}
+
+.sb-chips {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 6px;
+  margin-bottom: 16px;
+  scrollbar-width: none;
+}
+.sb-chips::-webkit-scrollbar { display: none; }
+.sb-chip {
+  flex-shrink: 0;
+  border: 1.5px solid #e5e7eb;
+  background: #fff;
+  color: #374151;
+  border-radius: 999px;
+  padding: 9px 18px;
+  font-weight: 700;
+  font-size: .82rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.sb-chip.active {
+  background: linear-gradient(135deg,#4f46e5,#3730a3);
+  color: #fff;
+  border-color: transparent;
+  box-shadow: 0 4px 12px rgba(79,70,229,.3);
+}
+
+.sb-list { display: flex; flex-direction: column; gap: 12px; }
+
+.sb-card {
+  background: #fff;
+  border-radius: 16px;
+  padding: 14px 16px;
+  box-shadow: 0 6px 18px rgba(30,27,75,.08);
+  border: 1px solid rgba(79,70,229,.06);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.sb-card-stacked { align-items: flex-start; }
+.sb-card-icon {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: #e7e0fd;
+  color: #7c3aed;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+}
+.sb-card-body { flex: 1; min-width: 160px; }
+.sb-card-title { font-weight: 800; color: #1e1b4b; font-size: .92rem; margin-bottom: 4px; }
+.sb-meta { display: flex; gap: 12px; flex-wrap: wrap; font-size: .76rem; color: #6b7280; }
+.sb-card-action { flex-shrink: 0; margin-left: auto; }
+.sb-card-stacked .sb-card-action { width: 100%; margin-left: 0; }
+
+.sb-btn-start {
+  border: none;
+  background: linear-gradient(135deg, #1e3a8a, #1e293b);
+  color: #fff;
+  border-radius: 999px;
+  padding: 10px 22px;
+  font-weight: 700;
+  font-size: .84rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.sb-btn-start:disabled { opacity: .5; cursor: not-allowed; }
+
+.sb-actions-row { display: flex; gap: 8px; flex-wrap: wrap; width: 100%; }
+.sb-btn-outline {
+  flex: 1;
+  min-width: 84px;
+  border-radius: 999px;
+  padding: 8px 10px;
+  font-weight: 700;
+  font-size: .78rem;
+  cursor: pointer;
+  background: #fff;
+  text-align: center;
+  white-space: nowrap;
+}
+.sb-outline-navy  { border: 1.5px solid #1e3a8a; color: #1e3a8a; }
+.sb-outline-green { border: 1.5px solid #16a34a; color: #16a34a; }
+.sb-outline-red   { border: 1.5px solid #dc2626; color: #dc2626; }
+.sb-btn-outline:disabled { opacity: .45; cursor: not-allowed; }
+
+.sb-empty { padding: 30px 10px; text-align: center; }
+
+@media (max-width: 480px) {
+  .sb-header { padding: 14px 16px; border-radius: 18px; }
+  .sb-header-title { font-size: .95rem; }
+  .sb-card { padding: 12px; }
+}
