@@ -1130,7 +1130,12 @@ function formatMathChunk(t) {
   t = t.replace(/\bsqrt\(([^)]+)\)/gi, "\\sqrt{$1}");
   t = t.replace(/\^\(([^)]+)\)/g, "^{$1}");
   t = t.replace(/\^([a-zA-Z0-9]+)/g, "^{$1}");
-  t = t.replace(/\b(\d+)\s*\/\s*(\d+)\b/g, "\\frac{$1}{$2}");
+  // Fractions: numeric ("3/2") AND single-letter-variable ("a/x", "b/y")
+  // fractions must both become a proper stacked \frac{}{} — book/textbook
+  // equations like (a/x) + (b/y) = 0 use variable denominators, not just
+  // numbers, so limiting this to \d+/\d+ left those printing as flat
+  // "(a/x)" text instead of a real fraction.
+  t = t.replace(/\b([a-zA-Z0-9]+)\s*\/\s*([a-zA-Z0-9]+)\b/g, "\\frac{$1}{$2}");
   t = t.replace(/<=/g,"\\leq ").replace(/>=/g,"\\geq ").replace(/!=/g,"\\neq ");
   t = t.replace(/≤/g,"\\leq ").replace(/≥/g,"\\geq ").replace(/≠/g,"\\neq ");
   t = t.replace(/×/g,"\\times ").replace(/÷/g,"\\div ").replace(/π/g,"\\pi ");
@@ -1565,14 +1570,14 @@ function clearAddForm() {
 
 // ── Draft Edit section ────────────────────────
 function readDraftEditForm() {
-  const text = document.getElementById('de-qText')?.value.trim() || '';
-  const optA = document.getElementById('de-optA')?.value.trim() || '';
-  const optB = document.getElementById('de-optB')?.value.trim() || '';
-  const optC = document.getElementById('de-optC')?.value.trim() || '';
-  const optD = document.getElementById('de-optD')?.value.trim() || '';
+  const rawText = document.getElementById('de-qText')?.value.trim() || '';
+  const rawA = document.getElementById('de-optA')?.value.trim() || '';
+  const rawB = document.getElementById('de-optB')?.value.trim() || '';
+  const rawC = document.getElementById('de-optC')?.value.trim() || '';
+  const rawD = document.getElementById('de-optD')?.value.trim() || '';
   const ans  = parseInt(document.getElementById('de-correctAns')?.value || '0');
   const chap = document.getElementById('de-qChapter')?.value.trim() || 'Mixed';
-  if (!text) { toast('⚠️ Question text likhein!'); return null; }
+  if (!rawText) { toast('⚠️ Question text likhein!'); return null; }
   // Subjective questions don't have MCQ options — this quick panel doesn't
   // expose marks/model-answer editing (use the main Add/Edit form for
   // that), but it must not block saving text/chapter changes just because
@@ -1580,8 +1585,14 @@ function readDraftEditForm() {
   const allQ = isSectionMode() ? getAllQuestionsFlat() : paperQuestions;
   const existing = allQ.find(p => p.id === editingDraftQId);
   const isSub = existing?.qType === 'subjective';
-  if (!isSub && (!optA || !optB || !optC || !optD)) { toast('⚠️ Saare 4 options bharen!'); return null; }
-  const opts = isSub ? (existing.opts || ["", "", "", ""]) : [optA, optB, optC, optD];
+  if (!isSub && (!rawA || !rawB || !rawC || !rawD)) { toast('⚠️ Saare 4 options bharen!'); return null; }
+  // Run the same math-formatting pipeline used by the main Add form and by
+  // bank imports (autoMathFmt + sanitizeQuestionText) — without this, plain
+  // notation like "(a/x) + (b/y) = 0" typed here was being saved as raw,
+  // un-formatted text and printing literally instead of as a proper
+  // textbook-style stacked fraction.
+  const text = autoMathFmt(sanitizeQuestionText(rawText));
+  const opts = isSub ? (existing.opts || ["", "", "", ""]) : [rawA, rawB, rawC, rawD].map(o => autoMathFmt(sanitizeQuestionText(o)));
   return { text, opts, ans, chapter: chap };
 }
 
@@ -1667,6 +1678,45 @@ function removeDraftQuestion(id) {
   renderDraftEditSection();
 }
 
+// Permanently deletes a wrong/bad question — not just from this paper, but
+// from the shared question bank itself (Firestore "questionBank" collection
+// + the in-memory window.QUESTION_BANK array), so it never gets pulled into
+// any future test again. This is intentionally a separate, more destructive
+// action than removeDraftQuestion()/✕ (which only unselects the question
+// from the current paper — the question stays in the bank and can still be
+// picked again later).
+async function permanentlyDeleteBankQuestion(id) {
+  if (id === null || id === undefined) { toast('ℹ️ Pehle list se question select karein'); return; }
+  const allQ = isSectionMode() ? getAllQuestionsFlat() : paperQuestions;
+  const q = allQ.find(p => p.id === id);
+  if (!q) return;
+
+  const warnBank = q.firestoreId
+    ? '⚠️ Yeh question PAPER se aur poore QUESTION BANK se HAMESHA ke liye delete ho jayega — aage kabhi kisi bhi test mein nahi aayega. Yeh wapas nahi ho sakta.'
+    : '⚠️ Yeh question hamesha ke liye delete ho jayega. Yeh wapas nahi ho sakta.';
+  if (!confirm(warnBank + '\n\nPakka delete karna hai?')) return;
+
+  // Remove from the current paper/section first so the UI updates immediately.
+  removeFromPaper(id);
+  if (editingDraftQId === id) clearDraftEditForm();
+
+  if (q.firestoreId) {
+    const db = window.vishnuFirebase?.db;
+    try {
+      if (db) await db.collection('questionBank').doc(q.firestoreId).delete();
+      window.QUESTION_BANK = (window.QUESTION_BANK || []).filter(bq => bq[4] !== q.firestoreId);
+      toast('🗑️ Question bank se permanently delete ho gaya!');
+    } catch (e) {
+      toast('⚠️ Bank se delete karte waqt error aaya — sirf paper se hataya gaya hai');
+    }
+  } else {
+    toast('🗑️ Question delete ho gaya!');
+  }
+
+  renderDraftEditSection();
+  if (typeof buildBankList === 'function') buildBankList();
+}
+
 function renderDraftEditSection() {
   const list = document.getElementById('draftEditList');
   const countEl = document.getElementById('draftEditCount');
@@ -1703,7 +1753,8 @@ function renderDraftEditSection() {
               </div>
               <div class="draft-q-actions">
                 <button type="button" class="draft-q-edit" onclick="openDraftEditForm(${q.id})">✏️</button>
-                <button type="button" class="draft-q-del" onclick="removeDraftQuestion(${q.id})">✕</button>
+                <button type="button" class="draft-q-del" onclick="removeDraftQuestion(${q.id})" title="Sirf is paper se hatayein">✕</button>
+                <button type="button" class="draft-q-del" onclick="permanentlyDeleteBankQuestion(${q.id})" title="Bank se permanently delete karein">🗑️</button>
               </div>
             </div>`;
         }).join('');
@@ -1725,7 +1776,8 @@ function renderDraftEditSection() {
         </div>
         <div class="draft-q-actions">
           <button type="button" class="draft-q-edit" onclick="openDraftEditForm(${q.id})">✏️</button>
-          <button type="button" class="draft-q-del" onclick="removeDraftQuestion(${q.id})">✕</button>
+          <button type="button" class="draft-q-del" onclick="removeDraftQuestion(${q.id})" title="Sirf is paper se hatayein">✕</button>
+          <button type="button" class="draft-q-del" onclick="permanentlyDeleteBankQuestion(${q.id})" title="Bank se permanently delete karein">🗑️</button>
         </div>
       </div>`;
   }).join('');
