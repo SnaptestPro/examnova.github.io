@@ -358,6 +358,11 @@ let currentDetails = []; // stores last test result details
 let currentSolIndex = 0;
 let currentSolLang = "hi";
 
+// ── Student "Start Test" card-list state ──
+let studentTestActiveCategory = "All"; // currently selected filter chip
+let myTestAttemptsCache = null;        // testId -> most-recent studentRecords doc (for this student)
+let myTestAttemptsMobile = null;       // jis mobile ke liye cache upar valid hai
+
 let current = {
   testId: "",
   test: null,
@@ -872,7 +877,7 @@ function getLastView() {
 const STUDENT_TAB_BOX_IDS = [
   "student-form-fields-anchor", "practice-mode-card", "student-results-card",
   "my-result-detail-card", "my-progress-card", "my-mistakes-card",
-  "special-booster-card", "student-settings-card"
+  "student-settings-card"
 ];
 function goStudentSection(id) {
   const el = document.getElementById(id);
@@ -889,6 +894,13 @@ function goStudentSection(id) {
   // doubts/my-result) — cheap thanks to the stale-while-revalidate cache.
   if (window.SavyaExtras && typeof window.SavyaExtras.onStudentSectionShown === "function") {
     window.SavyaExtras.onStudentSectionShown(id);
+  }
+  // "Start Test" card-list turant purani (cached) attempt-status dikha
+  // deta hai, phir background mein fresh data laa kar chup-chaap update
+  // kar deta hai — taaki abhi-abhi submit kiya gaya test turant "Solution/
+  // Analysis" mein badal jaaye, poora page reload kiye bina.
+  if (id === "student-form-fields-anchor" && typeof loadMyTestAttempts === "function") {
+    loadMyTestAttempts(true).then(() => renderStudentTestCards());
   }
 }
 window.goStudentSection = goStudentSection;
@@ -1672,8 +1684,19 @@ function validateStudentForm() {
   return true;
 }
 
+// Legacy form-submit path (hidden dropdown + hidden submit button ab bhi
+// DOM mein hain safety ke liye) — asal kaam ab startTestWithId() karta hai,
+// jise "Start Test" card-list ke buttons seedha call karte hain.
 function startTest(e) {
   e.preventDefault();
+  const testId = $("#test-select")?.value || "";
+  if (!testId) { alert("Pehle upar se ek test select karein."); return; }
+  startTestWithId(testId);
+}
+
+// Card list ke "Start Now" / "⏳ Resume" buttons isi function ko seedha
+// testId ke saath call karte hain — dropdown par depend nahi karta.
+function startTestWithId(testId) {
   if (!validateStudentForm()) return;
   current.student = {
     name:   $("#student-name").value.trim(),
@@ -1681,17 +1704,17 @@ function startTest(e) {
     email:  ""
   };
   if (studentTestMode === "custom") { alert("Custom Test option remove ho gaya hai — Practice Mode use karein."); return; }
-  current.testId = $("#test-select").value;
-  if (!current.testId) { alert("Pehle upar se ek test select karein."); return; }
+  if (!testId) { alert("Koi test nahi mila."); return; }
 
   // Agar yehi wo test hai jo pehle adhoora chhoot gaya tha, to naya
   // shuru karne ki jagah wahin se resume karo jahan chhoda tha.
-  if (resumableExam && resumableExam.testId === current.testId) {
+  if (resumableExam && resumableExam.testId === testId) {
     resumeExamFromLocal(resumableExam);
     return;
   }
 
-  current.test   = tests[current.testId];
+  current.testId = testId;
+  current.test   = tests[testId];
   if (!current.test) { alert("Koi test nahi mila."); return; }
   const sched = checkTestSchedule(current.test);
   if (!sched.ok) { alert(sched.msg); return; }
@@ -2489,21 +2512,273 @@ function renderTests(selId) {
   sel.value = "";
   if (selId && tests[selId] && !tests[selId].isDraft) sel.value = selId;
 
-  // Adhoore-chhute-hue test ke baare mein ek chhota reminder banner —
-  // koi popup nahi, bas dropdown ke upar ek friendly note.
-  const banner = $("#resume-test-banner");
-  if (banner) {
-    if (canResume) {
-      const remaining = getResumableRemainingSec(resumableExam);
-      const mins = Math.max(0, Math.floor(remaining / 60));
-      $("#resume-test-title").textContent = resumableExam.test.title;
-      $("#resume-test-time").textContent = remaining > 0 ? `~${mins} min` : "0 min (time khatam)";
-      banner.classList.remove("hidden");
+  // Student-facing card-list (icon + title + Que/Marks/Min + status-aware
+  // buttons) — asal UI jo student dekhta hai. Dropdown upar sirf internal
+  // bookkeeping ke liye hai.
+  renderStudentTestCards();
+  renderTestList();
+}
+
+/* ══════════════════════════════════════════
+   STUDENT "START TEST" — CARD LIST
+   ------------------------------------------
+   Har (non-draft) test ek card mein: icon, title, Que/Marks/Min meta,
+   aur status ke hisaab se buttons —
+     • Resume        agar yahi test resumableExam mein adhoora pada hai
+     • Solution       agar iska pehle se koi submitted record hai (sawaal-
+                       wise sahi/galat detail ke saath)
+     • Analysis       agar iska pehle se koi submitted record hai
+                       (chapter-wise weak/strong report)
+     • Start Now      agar abhi tak attempt hi nahi kiya
+   Upar category filter chips (test-form ke "Category" field se) — jaise
+   "All", "Percentage (6)", "Ratio and Proportion (4)".
+══════════════════════════════════════════ */
+
+// Is student (mobile) ke saare studentRecords fetch karke testId -> sabse
+// recent record ka map banata hai — Solution/Analysis buttons isi se
+// decide hote hain ki kaunsa test already attempt ho chuka hai.
+async function loadMyTestAttempts(forceRefresh) {
+  const session = (typeof getStudentSession === "function") ? getStudentSession() : null;
+  if (!session) return {};
+  const mobile = normalizeMobile(session.mobile);
+  if (!mobile) return {};
+  if (!forceRefresh && myTestAttemptsCache && myTestAttemptsMobile === mobile) return myTestAttemptsCache;
+
+  const db = getDB();
+  let myRecs = [];
+  try {
+    if (db) {
+      const snap = await db.collection("studentRecords").where("mobile", "==", mobile).get();
+      myRecs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     } else {
-      banner.classList.add("hidden");
+      myRecs = (records || []).filter(r => normalizeMobile(r.mobile) === mobile);
+    }
+  } catch (err) {
+    console.warn("[Start Test cards] attempt map fetch fail:", err);
+    myRecs = (records || []).filter(r => normalizeMobile(r.mobile) === mobile);
+  }
+  myRecs.sort((a, b) => (b.submittedIso || "").localeCompare(a.submittedIso || ""));
+  const map = {};
+  myRecs.forEach(r => { if (r.testId && !map[r.testId]) map[r.testId] = r; }); // pehla (sabse recent) hi rakhna hai
+  myTestAttemptsCache = map;
+  myTestAttemptsMobile = mobile;
+  return map;
+}
+
+function renderStudentTestCards() {
+  const tabsEl = $("#test-category-tabs");
+  const listEl = $("#test-cards-list");
+  if (!tabsEl || !listEl) return;
+
+  // Attempt-map background mein (re)load karo — jab mile, dobara render ho jaayega.
+  const session = (typeof getStudentSession === "function") ? getStudentSession() : null;
+  const mobile = session ? normalizeMobile(session.mobile) : "";
+  if (mobile) {
+    if (myTestAttemptsMobile !== mobile || !myTestAttemptsCache) {
+      loadMyTestAttempts(true).then(() => renderStudentTestCards());
     }
   }
-  renderTestList();
+  const attemptsMap = (mobile && myTestAttemptsMobile === mobile) ? (myTestAttemptsCache || {}) : {};
+
+  const allTests = Object.entries(tests)
+    .filter(([, t]) => !t.isDraft)
+    .map(([id, t]) => ({ ...t, id }));
+
+  if (!allTests.length) {
+    tabsEl.innerHTML = "";
+    listEl.innerHTML = `<p class="muted-text">Abhi koi test available nahi hai.</p>`;
+    return;
+  }
+
+  // Category counts (blank/missing category => "General")
+  const catCounts = {};
+  allTests.forEach(t => {
+    const cat = (t.category || "").trim() || "General";
+    catCounts[cat] = (catCounts[cat] || 0) + 1;
+  });
+  // "All" naam ka category reserve hai upar wale special tab ke liye,
+  // isliye agar admin ne kisi test ka category literally "All" likh diya
+  // ho to use apna alag tab nahi milega (bas overall "All" mein count hoga).
+  const cats = Object.keys(catCounts).filter(c => c.toLowerCase() !== "all").sort((a, b) => a.localeCompare(b));
+
+  // Sirf tab ek hi category ho to filter chips dikhane ka koi matlab nahi.
+  if (cats.length < 2) {
+    tabsEl.innerHTML = "";
+    studentTestActiveCategory = "All";
+  } else {
+    if (studentTestActiveCategory !== "All" && !cats.includes(studentTestActiveCategory)) {
+      studentTestActiveCategory = "All";
+    }
+    tabsEl.innerHTML = ["All", ...cats].map(c => {
+      const label = c === "All" ? `All (${allTests.length})` : `${escHtml(c)} (${catCounts[c]})`;
+      const active = c === studentTestActiveCategory ? " active" : "";
+      return `<button type="button" class="test-tab-chip${active}" data-cat="${escHtml(c)}">${label}</button>`;
+    }).join("");
+    tabsEl.querySelectorAll(".test-tab-chip").forEach(btn => {
+      btn.onclick = () => {
+        studentTestActiveCategory = btn.getAttribute("data-cat");
+        renderStudentTestCards();
+      };
+    });
+  }
+
+  const filtered = studentTestActiveCategory === "All"
+    ? allTests
+    : allTests.filter(t => ((t.category || "").trim() || "General") === studentTestActiveCategory);
+
+  if (!filtered.length) {
+    listEl.innerHTML = `<p class="muted-text">Is category mein koi test nahi hai.</p>`;
+    return;
+  }
+
+  listEl.innerHTML = filtered.map(t => {
+    const qCount = (t.questions || []).length;
+    const totalMarks = getTestGrandTotalMarks(t);
+    const isResumable = Boolean(resumableExam && resumableExam.testId === t.id);
+    const attempt = attemptsMap[t.id];
+    const hasDetails = attempt && Array.isArray(attempt.details) && attempt.details.length > 0;
+    const sched = checkTestSchedule(t);
+
+    let btns = "";
+    if (isResumable) {
+      btns += `<button type="button" class="test-card-btn resume" data-action="resume" data-test="${t.id}">⏳ Resume</button>`;
+    }
+    if (attempt) {
+      if (hasDetails) btns += `<button type="button" class="test-card-btn solution" data-action="solution" data-test="${t.id}">📖 Solution</button>`;
+      btns += `<button type="button" class="test-card-btn analysis" data-action="analysis" data-test="${t.id}">📊 Analysis</button>`;
+    }
+    if (!isResumable && !attempt) {
+      btns = sched.ok
+        ? `<button type="button" class="test-card-btn start" data-action="start" data-test="${t.id}">Start Now</button>`
+        : `<button type="button" class="test-card-btn locked" data-action="locked" data-test="${t.id}">🔒 Locked</button>`;
+    }
+
+    return `
+      <div class="test-card">
+        <div class="test-card-icon">📋</div>
+        <div class="test-card-body">
+          <div class="test-card-title">${escHtml(t.title)}</div>
+          <div class="test-card-meta">
+            <span>❓ ${qCount} Que</span>
+            <span>✅ ${fmtNum(totalMarks)} Marks</span>
+            <span>⏳ ${t.minutes} Min</span>
+          </div>
+        </div>
+        <div class="test-card-actions">${btns}</div>
+      </div>`;
+  }).join("");
+
+  listEl.querySelectorAll("[data-action]").forEach(btn => {
+    const action = btn.getAttribute("data-action");
+    const testId = btn.getAttribute("data-test");
+    if (action === "start" || action === "resume") {
+      btn.onclick = () => startTestWithId(testId);
+    } else if (action === "solution") {
+      btn.onclick = () => openTestSolutionFromRecord(attemptsMap[testId]);
+    } else if (action === "analysis") {
+      btn.onclick = () => openTestAnalysisFromRecord(attemptsMap[testId], testId);
+    } else if (action === "locked") {
+      btn.onclick = () => { const s = checkTestSchedule(tests[testId]); alert(s.msg || "Ye test abhi available nahi hai."); };
+    }
+  });
+}
+
+// ── "📖 Solution" button: script.js ke existing solution-review screen
+// (currentDetails/renderSolNav/setSolLang) reuse karta hai, bina current.*
+// ko chhede — kyunki ye ek PURANE record ka review hai, live exam nahi.
+function openTestSolutionFromRecord(record) {
+  if (!record || !Array.isArray(record.details) || !record.details.length) {
+    alert("Is result ke sath sawaal-wise detail save nahi hai.");
+    return;
+  }
+  currentDetails = record.details;
+  currentSolIndex = 0;
+  currentSolLang = "hi";
+  $("#home-screen")?.classList.add("hidden");
+  $("#solution-screen")?.classList.remove("hidden");
+  setSolLang("hi");
+  renderSolNav();
+  const backBtn = $("#solution-back");
+  if (backBtn) {
+    backBtn.textContent = "← Wapas Jaayein";
+    backBtn.onclick = closeTestCardSolution;
+  }
+}
+function closeTestCardSolution() {
+  $("#solution-screen")?.classList.add("hidden");
+  $("#home-screen")?.classList.remove("hidden");
+  if (typeof showMode === "function") showMode("student", { preserveSection: true });
+  goStudentSection("student-form-fields-anchor");
+}
+
+// ── "📊 Analysis" button: score summary + chapter-wise weak/strong report,
+// seedha record.details se compute hota hai — koi naya record save nahi
+// hota, koi live rank recompute nahi hota (isliye purane test ke liye bhi
+// hamesha reliable hai).
+function openTestAnalysisFromRecord(record, testId) {
+  if (!record) { alert("Is test ka result nahi mila."); return; }
+  const test = tests[testId];
+  const liveMax = test ? getTestGrandTotalMarks(test) : 0;
+  const maxScore = liveMax > 0 ? liveMax : (record.maxScore || 0);
+  const score = record.score || 0;
+  const pct = maxScore > 0 ? Math.round((score / maxScore) * 100) : 0;
+  const dateTxt = (typeof formatResultDate === "function") ? formatResultDate(record.submittedIso) : "";
+
+  $("#test-analysis-title").textContent = record.testTitle || test?.title || "Test";
+  $("#test-analysis-meta").textContent = `${dateTxt ? dateTxt + " · " : ""}${record.testMode || "Online"}`;
+
+  const details = Array.isArray(record.details) ? record.details : [];
+  if (details.length) {
+    let correct = 0, wrong = 0, skipped = 0;
+    details.forEach(d => {
+      if (d.status === "Correct") correct++;
+      else if (d.status === "Wrong") wrong++;
+      else skipped++;
+    });
+    $("#test-analysis-summary").innerHTML = `
+      <span class="test-analysis-chip score">🎯 ${fmtNum(score)}/${fmtNum(maxScore)} (${pct}%)</span>
+      <span class="test-analysis-chip correct">✅ Correct: ${correct}</span>
+      <span class="test-analysis-chip wrong">❌ Wrong: ${wrong}</span>
+      <span class="test-analysis-chip skip">⬜ Skipped: ${skipped}</span>`;
+
+    const chapMap = {};
+    details.forEach(d => {
+      const ch = d.chapter || d.subject || "Unknown";
+      if (!chapMap[ch]) chapMap[ch] = { correct: 0, total: 0 };
+      chapMap[ch].total++;
+      if (d.status === "Correct") chapMap[ch].correct++;
+    });
+    const sorted = Object.entries(chapMap).sort((a, b) => (a[1].correct / a[1].total) - (b[1].correct / b[1].total));
+    $("#test-analysis-chapters").innerHTML = sorted.map(([ch, data]) => {
+      const p = data.total > 0 ? Math.round((data.correct / data.total) * 100) : 0;
+      const color = p >= 70 ? "#22c55e" : p >= 40 ? "#f59e0b" : "#ef4444";
+      const label = p >= 70 ? "✅ Strong" : p >= 40 ? "⚠️ Average" : "❌ Weak";
+      return `<div style="margin-bottom:10px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;font-size:.85rem;font-weight:600;">
+          <span>${escHtml(ch)}</span>
+          <span style="color:${color};">${label} — ${p}% (${data.correct}/${data.total})</span>
+        </div>
+        <div style="background:#e5e7eb;border-radius:20px;height:8px;overflow:hidden;">
+          <div style="width:${p}%;height:100%;background:${color};border-radius:20px;"></div>
+        </div>
+      </div>`;
+    }).join("");
+
+    const solBtn = $("#test-analysis-solution-btn");
+    if (solBtn) {
+      solBtn.classList.remove("hidden");
+      solBtn.onclick = () => { closeTestAnalysisOverlay(); openTestSolutionFromRecord(record); };
+    }
+  } else {
+    $("#test-analysis-summary").innerHTML = `<span class="test-analysis-chip score">🎯 ${fmtNum(score)}/${fmtNum(maxScore)} (${pct}%)</span>`;
+    $("#test-analysis-chapters").innerHTML = `<p class="muted-text">Is purane record mein sawaal-wise/chapter-wise detail save nahi hai.</p>`;
+    $("#test-analysis-solution-btn")?.classList.add("hidden");
+  }
+
+  $("#test-analysis-overlay")?.classList.remove("hidden");
+}
+function closeTestAnalysisOverlay() {
+  $("#test-analysis-overlay")?.classList.add("hidden");
 }
 
 function renderTestList() {
@@ -2513,6 +2788,7 @@ function renderTestList() {
     const item = document.createElement("div");
     item.className = "item";
     const draftBadge = t.isDraft ? '<span class="draft-badge">DRAFT</span>' : '';
+    const catBadge = t.category ? ` <span style="background:#e7e0fd;color:#7c3aed;font-size:.7rem;font-weight:700;padding:2px 8px;border-radius:999px;">🏷️ ${escHtml(t.category)}</span>` : '';
     const secCount = t.sections?.length || [...new Set((t.questions || []).map(q => q.section).filter(Boolean))].length;
     const secLabel = secCount > 1 ? ` · ${secCount} sections` : "";
     const attemptLabel = t.attemptLimit ? ` · attempt any ${t.attemptLimit} MCQs` : "";
@@ -2520,7 +2796,7 @@ function renderTestList() {
     const marksLabel = subMarks
       ? `MCQ: ${fmtNum(getTestMaxMarks(t))} + Subjective: ${fmtNum(subMarks)} = Total: ${fmtNum(getTestGrandTotalMarks(t))} marks`
       : `Max: ${fmtNum(getTestMaxMarks(t))} marks`;
-    item.innerHTML = `<span><strong>${draftBadge}${escHtml(t.title)}</strong><small>${t.questions.length} questions${secLabel} · ${t.minutes}min · ${marksLabel}${attemptLabel}</small></span>`;
+    item.innerHTML = `<span><strong>${draftBadge}${escHtml(t.title)}</strong>${catBadge}<small>${t.questions.length} questions${secLabel} · ${t.minutes}min · ${marksLabel}${attemptLabel}</small></span>`;
     const acts = document.createElement("div");
     
     if (t.isDraft) {
@@ -2560,6 +2836,7 @@ function editTest(id) {
   showTestsSubTab("create");
   editingTestId = id;
   $("#test-title").value = t.title;
+  if ($("#test-category")) $("#test-category").value = t.category || "";
   $("#test-minutes").value = t.minutes || 30;
   $("#test-marks").value = getMarks(t);
   if ($("#test-attempt-limit")) $("#test-attempt-limit").value = t.attemptLimit || "";
@@ -3024,6 +3301,7 @@ async function saveTest(e) {
   if (pending) { draftQuestions.push(cloneQ(pending)); clearQForm(false); }
   if (!draftQuestions.length) { alert("Question add karo pehle."); return; }
   const title = $("#test-title").value.trim();
+  const category = ($("#test-category")?.value || "").trim();
   const min   = Number($("#test-minutes").value || 30);
   const marks = Number($("#test-marks").value || 2);
   const negEn = $("#test-negative-enabled").value === "yes";
@@ -3037,7 +3315,7 @@ async function saveTest(e) {
   const startTime = $("#test-start-time")?.value || "";
   const endTime   = $("#test-end-time")?.value || "";
   const t  = {
-    title, minutes: min || 30, marksPerQuestion: marks, negativeEnabled: negEn, negativeMarks: neg,
+    title, category: category || null, minutes: min || 30, marksPerQuestion: marks, negativeEnabled: negEn, negativeMarks: neg,
     attemptLimit,
     subjectiveMarks,
     startTime: startTime || null, endTime: endTime || null,
@@ -6249,6 +6527,7 @@ async function saveAsDraft() {
   if (pending) { draftQuestions.push(cloneQ(pending)); clearQForm(false); }
   if (!draftQuestions.length) { alert("Question add karo pehle."); return; }
   const title = $("#test-title").value.trim();
+  const category = ($("#test-category")?.value || "").trim();
   const min   = Number($("#test-minutes").value || 30);
   const marks = Number($("#test-marks").value || 2);
   const negEn = $("#test-negative-enabled").value === "yes";
@@ -6260,7 +6539,7 @@ async function saveAsDraft() {
   if (!title) { alert("Test title required hai."); return; }
   const id = editingTestId || `test-${Date.now()}`;
   const t  = {
-    title, minutes: min || 30, marksPerQuestion: marks,
+    title, category: category || null, minutes: min || 30, marksPerQuestion: marks,
     negativeEnabled: negEn, negativeMarks: neg,
     attemptLimit,
     subjectiveMarks,

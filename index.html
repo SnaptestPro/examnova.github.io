@@ -111,7 +111,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css?v=8">
   <link rel="stylesheet" href="theme-picker.css">
-  <link rel="stylesheet" href="creative-dashboard.css?v=2">
+  <link rel="stylesheet" href="creative-dashboard.css?v=1">
   
   <!-- CDNs for Mega Update Features — defer kiya kyunki ye sab (chart,
        excel/pdf/word export, confetti) sirf user ke button-click par
@@ -317,13 +317,6 @@
             <div class="cd-card-bottom"><span class="cd-arrow-btn">→</span></div>
           </button>
 
-          <button type="button" class="cd-card cd-pink" onclick="goStudentSection('special-booster-card')">
-            <div class="cd-card-top"><div class="cd-icon-circle">📚</div><span class="cd-badge">New</span></div>
-            <div class="cd-card-title">Special Booster</div>
-            <div class="cd-card-sub">Chapter-wise mock test series</div>
-            <div class="cd-card-bottom"><span class="cd-arrow-btn">→</span></div>
-          </button>
-
           <button type="button" class="cd-card cd-gold" onclick="goStudentSection('student-settings-card')">
             <div class="cd-card-top"><div class="cd-icon-circle">⚙️</div><span class="cd-badge">Account</span></div>
             <div class="cd-card-title">Settings</div>
@@ -346,15 +339,6 @@
       <div class="card hero-card hidden" id="student-form-fields-anchor">
         <h2 class="section-title">🎯 Start Your Test</h2>
 
-        <div id="resume-test-banner" class="hidden" style="background:linear-gradient(135deg,#fef3c7,#fde68a);border:1.5px solid #f59e0b;border-radius:12px;padding:12px 14px;margin-bottom:16px;display:flex;align-items:center;gap:10px;">
-          <span style="font-size:1.4rem;">⏳</span>
-          <span style="font-size:.85rem;color:#78350f;font-weight:600;">
-            Aapka <strong id="resume-test-title"></strong> test adhoora reh gaya tha
-            (<span id="resume-test-time"></span> bache the). Neeche dropdown se <strong>usi test</strong> ko
-            chunein aur <strong>Start Test</strong> dabayein — jahan se chhoda tha wahin se shuru ho jaayega.
-          </span>
-        </div>
-
         <div class="field-row" style="display:none">
           <label>Name</label>
           <input id="student-name" type="text" placeholder="Apna naam likhein" required />
@@ -364,15 +348,23 @@
           <input id="student-mobile" type="tel" placeholder="jaise: 9876543210" required />
         </div>
 
-        <!-- Saved test -->
-        <div id="saved-test-fields">
+        <!-- Legacy dropdown — hidden, ab bhi kuch internal JS isse reference karta
+             hai, isliye DOM mein rakha hai taaki kuch tootne na paaye. Student ko
+             ab isme se select nahi karna padta — neeche card list se seedha
+             test start hota hai. -->
+        <div id="saved-test-fields" class="hidden">
           <div class="field-row">
             <label>Select Test</label>
             <select id="test-select"></select>
           </div>
         </div>
+        <button id="student-submit" type="submit" class="hidden">Start Test →</button>
 
-        <button id="student-submit" type="submit" class="btn-primary big-btn">Start Test →</button>
+        <!-- Category filter chips (jaise "All", "Percentage (6)") -->
+        <div id="test-category-tabs" class="test-tabs-row"></div>
+
+        <!-- Card-style test list -->
+        <div id="test-cards-list" class="test-cards-list"></div>
       </div>
 
       <div class="card hidden" id="student-settings-card">
@@ -448,17 +440,20 @@
         <div id="my-mistakes-list"></div>
       </div>
 
-      <!-- ── SPECIAL BOOSTER (chapter-wise mock-test series: purple header,
-           chip filters by chapter, Start Now / Resume-Solution-Analysis) ──
-           Poori markup JS se banti hai (window.SavyaExtras.renderSpecialBooster,
-           student-features.js mein) — yahan sirf ek khaali container hai. ── -->
-      <div class="hidden" id="special-booster-card">
-        <div id="sb-root"></div>
-      </div>
-
     </form>
 
-
+    <!-- ── TEST ANALYSIS OVERLAY (per-test chapter-wise report, "Start Test"
+         card list ke "📊 Analysis" button se khulta hai) ── -->
+    <div id="test-analysis-overlay" class="test-analysis-overlay hidden" onclick="if(event.target===this) closeTestAnalysisOverlay()">
+      <div class="test-analysis-sheet">
+        <button type="button" class="test-analysis-close" onclick="closeTestAnalysisOverlay()">✕</button>
+        <h3 id="test-analysis-title" class="test-analysis-title"></h3>
+        <div id="test-analysis-meta" class="test-analysis-meta"></div>
+        <div id="test-analysis-summary" class="test-analysis-summary"></div>
+        <div id="test-analysis-chapters"></div>
+        <button type="button" id="test-analysis-solution-btn" class="btn-primary hidden" style="width:100%;margin-top:14px;">📖 Solution Dekhein</button>
+      </div>
+    </div>
 
     <!-- ── ADMIN LOGIN ── -->
     <form id="admin-login-form" class="hidden card" autocomplete="off">
@@ -612,6 +607,11 @@
         <form id="test-form" class="card">
           <h3 class="section-title">Create / Edit Test</h3>
           <div class="field-row"><label>Test Title</label><input id="test-title" type="text" required /></div>
+          <div class="field-row">
+            <label>Category (optional)</label>
+            <input id="test-category" type="text" placeholder="jaise: Percentage, Ratio and Proportion" />
+            <small style="color:#6b7280;font-size:.78rem;">Student ke "Start Test" screen par isi naam se ek filter tab ban jaata hai (jaise "Percentage (6)"). Same category naam wale sabhi tests ek hi tab mein group ho jaate hain. Khaali chhodne par test "General" tab mein dikhega.</small>
+          </div>
           <div class="field-row"><label>Duration (min)</label><input id="test-minutes" type="number" value="30" /></div>
           <div class="field-row"><label>Marks / Question</label><input id="test-marks" type="number" value="2" step="0.25" /></div>
           <div class="field-row">
