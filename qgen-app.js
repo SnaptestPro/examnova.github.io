@@ -1938,10 +1938,13 @@ function shuffleQuestions() {
 }
 
 // ── Clear paper ───────────────────────────────
-function clearPaper() {
-  const total = isSectionMode() ? getAllQuestionsFlat().length : paperQuestions.length;
-  if(!total && !editingDraftId){ toast('ℹ️ Paper pehle se khaali hai!'); return; }
-  if(!confirm(`Kya aap ${total} saare questions hata dena chahte hain?`)) return;
+// Shared reset logic: wipes the live paper builder (questions, sections,
+// loaded-draft pointer) back to a blank slate and refreshes every panel
+// that reflects that state. Used by the manual "Clear" button AND
+// automatically after a successful "Save as Draft" (see savePaperAsDraft),
+// so the builder is ready for a new paper right away instead of staying
+// loaded with what was just saved.
+function resetPaperBuilder() {
   if (isSectionMode()) { sections.forEach(s => s.questions = []); paperQuestions = []; }
   else { paperQuestions = []; }
   editingDraftId = null;
@@ -1954,6 +1957,13 @@ function clearPaper() {
   document.querySelectorAll('.bank-item').forEach(item => item.classList.remove('selected'));
   reRenderPaper();
   updateSelectedCount();
+}
+
+function clearPaper() {
+  const total = isSectionMode() ? getAllQuestionsFlat().length : paperQuestions.length;
+  if(!total && !editingDraftId){ toast('ℹ️ Paper pehle se khaali hai!'); return; }
+  if(!confirm(`Kya aap ${total} saare questions hata dena chahte hain?`)) return;
+  resetPaperBuilder();
   toast('🗑️ Paper clear ho gaya!');
 }
 
@@ -2356,15 +2366,15 @@ async function savePaperAsDraft() {
     if (btn) { btn.disabled = true; btn.innerHTML = "☁️ Saving..."; }
 
     await db.collection("tests").doc(id).set(t);
-    editingDraftId = id;
-    loadedDraftTitle = t.title;
-    loadedDraftMarks = marks;
-    updateDraftSaveButton();
     if (btn) { btn.disabled = false; }
-    await fetchDraftTests();
+    // Save is a "commit" now, not a "keep editing" action: clear the
+    // builder so Preview goes back to blank and a new paper can be
+    // started right away. The saved paper isn't lost — it's sitting in
+    // the left panel's Drafts list, one click away via loadDraftIntoPaper.
+    resetPaperBuilder();
     alert(isUpdate
-      ? "✅ Draft update ho gaya! Questions edit karke dubara 'Update Draft' dabayein."
-      : "✅ Paper Draft mein save ho gaya!\nYahin se ✏️ se questions edit kar sakte hain, ya Admin Panel -> Tests tab mein 'Publish' karein.");
+      ? "✅ Draft update ho gaya!\nPaper builder khaali kar diya gaya hai — naya paper shuru karein, ya isi draft ko dubara edit karne ke liye left panel ki Drafts list se select karein."
+      : "✅ Paper Draft mein save ho gaya!\nPaper builder khaali kar diya gaya hai — naya paper shuru karein, ya is draft ko edit karne ke liye left panel ki Drafts list se select karein. Publish karne ke liye Admin Panel -> Tests tab use karein.");
   } catch (err) {
     console.error(err);
     alert("Save nahi ho paya. Error: " + err.message);
