@@ -1155,10 +1155,56 @@ function isMathToken(tok) {
          /[0-9+\-*/^=√π≤≥≠×÷⁰¹²³⁴⁵⁶⁷⁸⁹]/.test(tok); // must have at least one math-y char
 }
 
+// Handles "(expr)/(expr)", "(expr)/token", and "token/(expr)" fractions —
+// e.g. "(ax - c)/b", "(ax - c)/(-b)", "b/(-ax + c)" — up front, fully
+// converting each straight to \(\frac{...}{...}\).
+//
+// Why this can't just be left to the per-token loop in autoMathFmt(): that
+// loop only classifies a *single whitespace-delimited token* as "math" if
+// it directly contains an operator/digit/etc itself. The opening piece of
+// an expression like "(ax" has no digit or operator of its own (just
+// letters and a paren), so isMathToken() rejects it, the math-run breaks
+// right there, and everything from "(ax" onward gets left as flat,
+// unconverted text — exactly the "(ax - c)/b" bug. Resolving the whole
+// paren-fraction shape before that per-token pass runs sidesteps the
+// problem entirely, since \frac{...} sequences that come out of this
+// function simply pass through the later tokenizer untouched (backslashes
+// and braces aren't in its "math-ish character" set, so it never tries to
+// re-wrap or re-split them).
+function wrapParenFractions(s) {
+  if (!s) return s;
+  var tok = "[a-zA-Z0-9\\-\u2010-\u2015]+"; // digits/letters + hyphen/en-dash/em-dash variants
+  s = s.replace(/\(([^()]+)\)\s*\/\s*\(([^()]+)\)/g, function(_, a, b) {
+    return "\\(\\frac{" + a.trim() + "}{" + b.trim() + "}\\)";
+  });
+  s = s.replace(new RegExp("\\(([^()]+)\\)\\s*/\\s*(" + tok + ")\\b", "g"), function(_, a, b) {
+    return "\\(\\frac{" + a.trim() + "}{" + b.trim() + "}\\)";
+  });
+  s = s.replace(new RegExp("\\b(" + tok + ")\\s*/\\s*\\(([^()]+)\\)", "g"), function(_, a, b) {
+    return "\\(\\frac{" + a.trim() + "}{" + b.trim() + "}\\)";
+  });
+  return s;
+}
+
 function autoMathFmt(s) {
   if (!s) return s;
   if (/\\\(|\\\[|\$\$|\\frac|\\sqrt|\\times/.test(s)) return s; // already has explicit LaTeX
-  var hasMath = /[=+\-*/^√π≤≥≠×÷]|\b\d+\s*\/\s*\d+\b|\bsqrt\b|\b(sin|cos|tan|log)\b/i.test(s);
+  s = wrapParenFractions(s);
+
+  // wrapParenFractions() may have produced \(\frac{...}{...}\) segments
+  // whose numerator/denominator contain internal spaces (e.g. "ax - c").
+  // The tokenizer below splits purely on whitespace, so without protection
+  // it would slice straight through the middle of that segment and mangle
+  // it. Swap each finished segment out for a space-free placeholder, run
+  // the normal tokenizer on what's left, then swap the real text back in.
+  var placeholders = [];
+  s = s.replace(/\\\(\\frac\{[^{}]*\}\{[^{}]*\}\\\)/g, function(m) {
+    placeholders.push(m);
+    return "\u0001" + (placeholders.length - 1) + "\u0002";
+  });
+
+  var hasMath = placeholders.length > 0 ||
+    /[=+\-*/^√π≤≥≠×÷]|\b\d+\s*\/\s*\d+\b|\bsqrt\b|\b(sin|cos|tan|log)\b/i.test(s);
   if (!hasMath) return s;
 
   // Split into tokens, keeping whitespace, so we can selectively wrap only
@@ -1183,6 +1229,10 @@ function autoMathFmt(s) {
       out += part;
       i++;
     }
+  }
+  // Swap the protected \frac{...}{...} segments back in.
+  if (placeholders.length) {
+    out = out.replace(/\u0001(\d+)\u0002/g, function(_, idx) { return placeholders[idx]; });
   }
   return out;
 }
