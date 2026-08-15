@@ -204,7 +204,8 @@ Model Answer: समाजवाद एक आर्थिक व्यवस्
         <div class="draft-form-title" id="draftFormTitle">✏️ Question Edit</div>
         <div class="form-group">
           <label>Question</label>
-          <textarea id="de-qText" rows="2" placeholder="Question text..."></textarea>
+          <textarea id="de-qText" rows="2" placeholder="Question text..." oninput="updateDraftEditPreview()"></textarea>
+          <div id="de-math-preview" style="display:none;margin-top:6px;padding:8px 12px;background:#eff6ff;border:1.5px dashed #93c5fd;border-radius:8px;font-size:.93rem;color:#1e3a8a;"></div>
         </div>
         <div class="form-group">
           <label>Option A</label>
@@ -391,15 +392,12 @@ Model Answer: समाजवाद एक आर्थिक व्यवस्
 function updateQPreview() {
   var raw = (document.getElementById('qText') || {}).value || '';
   var box = document.getElementById('q-math-preview');
-  if (!box) return;
-  if (!raw.trim()) { box.style.display = 'none'; return; }
-  var fmt = typeof autoMathFmt === 'function' ? autoMathFmt(raw.trim()) : raw;
-  if (fmt === raw.trim()) { box.style.display = 'none'; return; }
-  box.style.display = 'block';
-  box.innerHTML = '<span style="font-size:.75rem;font-weight:600;color:#3b82f6;display:block;margin-bottom:4px;">Preview:</span>' + fmt;
-  if (window.renderMathInElement) {
-    try { window.renderMathInElement(box, { delimiters:[{left:"\\(",right:"\\)",display:false},{left:"\\[",right:"\\]",display:true}], throwOnError:false }); } catch(e){}
-  }
+  if (typeof updateMathPreviewBox === 'function') updateMathPreviewBox(raw, box);
+}
+function updateDraftEditPreview() {
+  var raw = (document.getElementById('de-qText') || {}).value || '';
+  var box = document.getElementById('de-math-preview');
+  if (typeof updateMathPreviewBox === 'function') updateMathPreviewBox(raw, box);
 }
 </script>
 

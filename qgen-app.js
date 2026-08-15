@@ -1222,6 +1222,53 @@ function renderMathIn(el) {
   } catch(e) {}
 }
 
+// ── Live math preview (Add / Draft Edit forms) ────────────────
+// Renders exactly what the question text will look like, live, as the
+// admin types — for BOTH paths: plain notation that autoMathFmt() auto-
+// converts (e.g. "3/2" or "x^2"), AND any hand-typed LaTeX attempt.
+// Previously the Add-tab preview only appeared when autoMathFmt() had
+// actually changed the text — which is precisely the one case where it
+// DOESN'T fire: the moment someone hand-types a \frac(...)/\(...\)
+// attempt, autoMathFmt() intentionally leaves it untouched (so it never
+// mangles already-correct LaTeX), so the preview silently hid at exactly
+// the moment it was needed most, and a broken fraction only ever showed
+// up later in the main Preview tab with no clue why. Now the box always
+// shows for any non-empty text and flags outright KaTeX render errors,
+// plus always reminds admins that no LaTeX is needed at all — every
+// existing bank question already uses plain "3/2"-style notation, which
+// auto-converts to a proper stacked fraction on its own.
+function updateMathPreviewBox(rawText, box) {
+  if (!box) return;
+  var raw = (rawText || '').trim();
+  if (!raw) { box.style.display = 'none'; box.innerHTML = ''; return; }
+  var fmt = typeof autoMathFmt === 'function' ? autoMathFmt(raw) : raw;
+  box.style.display = 'block';
+  box.innerHTML =
+    '<span style="font-size:.75rem;font-weight:600;color:#3b82f6;display:block;margin-bottom:4px;">👁️ Preview:</span>' +
+    '<span class="math-text">' + fmt + '</span>' +
+    '<div style="margin-top:6px;font-size:.75rem;color:#3b82f6;">💡 Fraction ke liye sirf <b>3/2</b> likhein (jaise <b>(3/2)x</b>), root ke liye <b>sqrt(16)</b> ya <b>√16</b>, power ke liye <b>x^2</b> — LaTeX (\\frac, \\sqrt) haath se likhne ki zaroorat nahi, khud ban jayega.</div>' +
+    '<div class="mp-err" style="display:none;margin-top:6px;font-size:.8rem;font-weight:600;color:#b91c1c;"></div>';
+  if (window.renderMathInElement) {
+    try {
+      window.renderMathInElement(box, {
+        delimiters: [
+          { left: "\\(", right: "\\)", display: false },
+          { left: "\\[", right: "\\]", display: true },
+          { left: "$$", right: "$$", display: true }
+        ],
+        throwOnError: false
+      });
+    } catch (e) {}
+  }
+  if (box.querySelector('.katex-error')) {
+    var err = box.querySelector('.mp-err');
+    if (err) {
+      err.style.display = 'block';
+      err.textContent = '⚠️ Kuch format galat lag raha hai (upar laal text dekhein). LaTeX hataakar sirf plain notation try karein.';
+    }
+  }
+}
+
 function readAddForm() {
   var rawText = document.getElementById('qText').value.trim();
   const qTypeEl = document.getElementById('qType');
@@ -1294,6 +1341,7 @@ function populateAddFormFromData(data) {
   const modelEl = document.getElementById('qModelAnswer');
   if (modelEl) modelEl.value = data.modelAnswer || '';
   onQTypeChange();
+  updateMathPreviewBox(data.text || '', document.getElementById('q-math-preview'));
 }
 
 async function saveBankQuestionToCloud(docId, data, subject) {
@@ -1511,6 +1559,7 @@ function clearAddForm() {
   editingPaperQId = null;
   editingBankDocId = null;
   setAddFormMode('add');
+  updateMathPreviewBox('', document.getElementById('q-math-preview'));
   document.getElementById('qText').focus();
 }
 
@@ -1543,6 +1592,7 @@ function clearDraftEditForm() {
   });
   const ansEl = document.getElementById('de-correctAns');
   if (ansEl) ansEl.value = '0';
+  updateMathPreviewBox('', document.getElementById('de-math-preview'));
   editingDraftQId = null;
   const title = document.getElementById('draftFormTitle');
   if (title) title.textContent = '✏️ Question Edit';
@@ -1563,6 +1613,7 @@ function openDraftEditForm(id) {
   document.getElementById('de-optD').value = q.opts?.[3] || '';
   document.getElementById('de-correctAns').value = String(q.ans ?? 0);
   document.getElementById('de-qChapter').value = q.chapter || 'Mixed';
+  updateMathPreviewBox(q.text || '', document.getElementById('de-math-preview'));
   const idx = allQ.findIndex(p => p.id === id);
   document.getElementById('draftFormTitle').textContent = `✏️ Q${idx + 1} Edit`;
   document.getElementById('de-updateBtn').textContent = `💾 Q${idx + 1} Update`;
