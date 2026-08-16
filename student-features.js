@@ -299,6 +299,45 @@
     beginExam();
   }
 
+  /* ── 1b) WEAK-CHAPTER AUTO PRACTICE ───────────────────────────────
+     Result screen ke "Chapter-wise Analysis" mein jo chapters weak/average
+     (< 70% accuracy) nikalte hain, unhi chapters se poore question bank
+     mein se (sirf is ek test ke questions se nahi) ek fresh mini-test bana
+     deta hai — taaki student turant apni sabse kamzor jagah par practice
+     kar sake, bina khud filters chunne ke.
+  ──────────────────────────────────────────────────────────────── */
+  function startWeakChapterPractice(chapters, count) {
+    const session = getStudentSession();
+    if (!session) { alert("Practice ke liye pehle login karein."); return; }
+    if (typeof questionBank === "undefined" || !questionBank.length) {
+      alert("Abhi koi question bank load nahi hua. Thodi der baad try karein.");
+      return;
+    }
+    if (!chapters || !chapters.length) {
+      alert("Koi weak chapter nahi mila — bahut badhiya performance hai! 🎉");
+      return;
+    }
+    let pool = questionBank
+      .filter(q => isValidQ(q) && chapters.includes(q.chapter))
+      .map(cloneQ);
+    pool = shuffleArray(pool);
+    if (!pool.length) {
+      alert("In chapters ke liye bank mein aur questions available nahi hain.");
+      return;
+    }
+    const finalQ = pool.slice(0, Math.min(count || 15, pool.length));
+    const label = chapters.length === 1 ? chapters[0] : chapters.length + " Weak Chapters";
+
+    current.student = { name: session.name || "Student", mobile: session.mobile || "", email: "" };
+    current.testId = "weakpractice-" + Date.now();
+    current.test = {
+      title: "🎯 Weak Topics Practice: " + label,
+      minutes: 999, marksPerQuestion: 1, negativeEnabled: false, negativeMarks: 0,
+      custom: true, isPractice: true, questions: finalQ
+    };
+    beginExam();
+  }
+
   /* ── 3) MY PROGRESS (score trend chart) ─────────────────────────── */
 
   let progressChartInstance = null;
@@ -942,7 +981,8 @@
     syncPracticeFilters,
     onStudentSectionShown,
     renderTopStudentsPodium,
-    renderAdminLeaderboard
+    renderAdminLeaderboard,
+    startWeakChapterPractice
   };
 
 })();

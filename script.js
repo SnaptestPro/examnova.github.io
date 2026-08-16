@@ -3,6 +3,13 @@
    script.js  |  Full App Logic
    ═══════════════════════════════════════════════════════════════ */
 
+// Institute ka WhatsApp number jahan "❓ Doubt Poochein" button se student
+// ka sawaal jaata hai (Solution Review screen, har question ke saath).
+// Country code sahit poora number daalein, bina + ya spaces ke —
+// jaise "919876543210". Khaali chhod dene par button ek chhota alert
+// dikha dega aur kuch nahi bhejega.
+const DOUBT_WHATSAPP_NUMBER = ""; // TODO: Admin — apna WhatsApp Business number yahan daalein
+
 /* ── SSC Chapter Analysis Data (from PDF) ── */
 const sscChaptersData = [
   { name: "Number System",             count: 374, pct: 6.8  },
@@ -2298,6 +2305,25 @@ async function showResult() {
     };
   }
 
+  // ── Weak-Chapter Auto Practice ──
+  // Reuses the chapter-wise accuracy map built above (chapMap) to pick out
+  // every chapter under 70% and hand them straight to a fresh practice
+  // mini-test drawn from the FULL question bank (not just this test's
+  // questions), via student-features.js.
+  const weakBtn = $("#weak-practice-btn");
+  if (weakBtn) {
+    const weakChapters = Object.entries(chapMap)
+      .filter(([, data]) => data.total > 0 && (data.correct / data.total) < 0.7)
+      .map(([ch]) => ch);
+    weakBtn.style.display = weakChapters.length > 0 ? "inline-block" : "none";
+    weakBtn.onclick = () => {
+      if (window.SavyaExtras && window.SavyaExtras.startWeakChapterPractice) {
+        $("#result-screen").classList.add("hidden");
+        window.SavyaExtras.startWeakChapterPractice(weakChapters, 15);
+      }
+    };
+  }
+
   // Save record (practice-mode attempts don't count towards leaderboard/records)
   if (!current.test.isPractice) {
     try {
@@ -2454,6 +2480,7 @@ function renderSolQuestion() {
       <div class="sol-question-text">${stripInlineColors(qText)}</div>
       <div class="sol-options">${optHTML}</div>
       ${exText ? `<div class="sol-explanation"><strong>💡 Explanation:</strong>${stripInlineColors(exText)}</div>` : ""}
+      <button type="button" class="btn-secondary sol-doubt-btn" onclick="askDoubtForCurrentSolQuestion()" style="margin-top:12px;width:100%;background:linear-gradient(135deg,#25d366,#128c7e);color:#fff;border:none;">❓ Is Question Par Doubt Poochein (WhatsApp)</button>
     </div>`;
   if (window.renderMathIn) requestAnimationFrame(() => window.renderMathIn(area));
 }
@@ -2470,6 +2497,41 @@ function renderSolNav() {
     nav.appendChild(btn);
   });
 }
+
+// ── Doubt Poochein (WhatsApp) ──────────────────────────────────────
+// Solution Review ke current question ka poora context (question, apna
+// jawab, sahi jawab, chapter) ek WhatsApp message mein daal kar seedha
+// institute ke number par bhej deta hai — student ko sirf ek tap karna
+// padta hai, alag se type nahi karna padta.
+function askDoubtForCurrentSolQuestion() {
+  const d = currentDetails[currentSolIndex];
+  if (!d) return;
+  if (!DOUBT_WHATSAPP_NUMBER) {
+    alert("Doubt WhatsApp number abhi set nahi hai. Admin ko script.js mein DOUBT_WHATSAPP_NUMBER set karne ke liye kahein.");
+    return;
+  }
+  const labels = ["A", "B", "C", "D"];
+  const qText = (d.questionHI || d.questionEN || "").replace(/\\[()[\]]/g, "").trim();
+  const isSubjective = d.qType === "subjective";
+  const studentAnsRaw = d.studentAnswer;
+  const hasAns = isSubjective
+    ? (studentAnsRaw !== null && studentAnsRaw !== undefined && String(studentAnsRaw).trim() !== "")
+    : studentAnsRaw !== null;
+  const studentAns = !hasAns ? "Blank (nahi diya)"
+    : isSubjective ? String(studentAnsRaw) : labels[studentAnsRaw];
+  const correctAns = isSubjective ? "" : labels[d.correctAnswer];
+
+  let msg = `❓ *Doubt* — ${current.test?.title || ""}\n\n`;
+  msg += `👤 ${current.student?.name || "Student"}${current.student?.mobile ? " (" + current.student.mobile + ")" : ""}\n`;
+  msg += `📘 Q${d.questionNo} · ${d.chapter || "-"}\n\n`;
+  msg += `*Sawaal:* ${qText}\n\n`;
+  msg += `Mera jawab: ${studentAns}${correctAns ? " | Sahi jawab: " + correctAns : ""}\n\n`;
+  msg += `Mujhe is question mein doubt hai, please samjha dijiye. 🙏`;
+
+  const url = `https://wa.me/${DOUBT_WHATSAPP_NUMBER}?text=${encodeURIComponent(msg)}`;
+  window.open(url, "_blank");
+}
+window.askDoubtForCurrentSolQuestion = askDoubtForCurrentSolQuestion;
 
 /* ══════════════════════════════════════════
    BACK HOME
@@ -5034,6 +5096,16 @@ function renderRecords() {
   }
   let tests = getTestsWithResults();
 
+  // Registered-students list is needed to work out who's ABSENT for each
+  // test (registered but no record) — load it once in the background if
+  // it isn't already cached (e.g. Students Directory tab was never opened
+  // this session), then re-render once it arrives. Guarded so a genuinely
+  // empty directory doesn't cause a refetch loop.
+  if (!allStudentsCache.length && !_recordsAbsenteeDirTried) {
+    _recordsAbsenteeDirTried = true;
+    ensureAllStudentsCache().then(() => renderRecords());
+  }
+
   // populate / sync the admin "Select Test" dropdown
   const adminSel = $("#admin-result-test-select");
   if (adminSel) {
@@ -5110,8 +5182,30 @@ function renderRecords() {
       </tr>`;
     }).join("");
 
+    // Absent students for this test = registered students minus everyone
+    // who has a record for this testId. Browsers block auto-opening more
+    // than one wa.me tab in a loop, so this — like "Sequential Bulk Send"
+    // below — gives one tap per student rather than trying (and failing)
+    // to fire them all at once.
+    const attendedMobiles = new Set(testRecs.map(r => normalizeMobile(r.mobile || r.parentPhone || "")));
+    const absentees = allStudentsCache.filter(s => {
+      const m = normalizeMobile(s.mobile || "");
+      return m && !attendedMobiles.has(m);
+    });
+    const absenteeRows = absentees.map(s => {
+      const phone = normalizeMobile(s.mobile || "");
+      const fullPhone = phone.length === 10 ? "91" + phone : phone;
+      const rmsg = `🏫 *Savyasachi Coaching*\n\nNamaste ${escHtml(s.name || "")}! 🙏\n\nAapne *${escHtml(t.testTitle)}* test abhi tak nahi diya hai. Kripya jald hi de dein taaki aap peeche na reh jaayein. 📝\n\n— Savyasachi Coaching Team`;
+      const waUrl = `https://wa.me/${fullPhone}?text=${encodeURIComponent(rmsg)}`;
+      return `<tr>
+        <td style="padding:6px 10px">${escHtml(s.name || "-")}</td>
+        <td style="padding:6px 10px">${phone}</td>
+        <td style="padding:6px 10px"><a href="${waUrl}" target="_blank" style="display:inline-flex;align-items:center;gap:5px;background:#f59e0b;color:#fff;padding:4px 12px;border-radius:6px;text-decoration:none;font-size:13px;font-weight:600;">🔔 Reminder</a></td>
+      </tr>`;
+    }).join("");
+
     waPanel.innerHTML = `
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px">
         <h4 style="margin:0;font-size:14px;color:#15803d">📱 WhatsApp — ${escHtml(t.testTitle)}</h4>
         <span style="font-size:12px;color:#64748b">${testRecs.filter(r=>(r.mobile||r.parentPhone||"").replace(/\D/g,"").length>=10).length} / ${testRecs.length} numbers available</span>
       </div>
@@ -5129,7 +5223,22 @@ function renderRecords() {
           </thead>
           <tbody>${tableRows}</tbody>
         </table>
-      </div>`;
+      </div>
+      <details style="margin-top:14px">
+        <summary style="cursor:pointer;font-weight:700;color:#b45309;font-size:13px">🔔 Absent Students (${absentees.length}) — Reminder Bhejein</summary>
+        <div style="overflow-x:auto;margin-top:8px">
+          <table style="width:100%;border-collapse:collapse;font-size:13px">
+            <thead>
+              <tr style="background:#fffbeb">
+                <th style="padding:6px 10px;text-align:left;color:#b45309">Naam</th>
+                <th style="padding:6px 10px;text-align:left;color:#b45309">Number</th>
+                <th style="padding:6px 10px;text-align:left;color:#b45309">Reminder</th>
+              </tr>
+            </thead>
+            <tbody>${absenteeRows || '<tr><td colspan="3" style="padding:8px;color:#94a3b8">' + (allStudentsCache.length ? "Koi absent student nahi — sab ne test de diya! 🎉" : "Directory load ho rahi hai...") + '</td></tr>'}</tbody>
+          </table>
+        </div>
+      </details>`;
     list.appendChild(waPanel);
   });
   renderStudentResultPicker();
@@ -5151,6 +5260,21 @@ window.renderAdminRecordsForSelectedTest = renderAdminRecordsForSelectedTest;
    Password Reset" panel above (now one click away via the 🔑 button here).
 ══════════════════════════════════════════ */
 let allStudentsCache = [];
+let _recordsAbsenteeDirTried = false; // guards renderRecords()'s background directory fetch from looping
+
+// Lightweight loader used by renderRecords() to work out test absentees —
+// just the name+mobile directory, without the (slower) per-student record
+// counts that the full Students Directory tab also loads.
+async function ensureAllStudentsCache() {
+  if (allStudentsCache.length) return allStudentsCache;
+  const db = getDB();
+  if (!db) return allStudentsCache;
+  try {
+    const snap = await db.collection(STUDENTS_COLLECTION).get();
+    allStudentsCache = snap.docs.map(d => ({ mobile: d.id, ...d.data() }));
+  } catch (e) { console.warn("ensureAllStudentsCache failed", e); }
+  return allStudentsCache;
+}
 
 let studentRecordCountByMobile = {};
 let studentRecordCountIsFull = false; // true once the unlimited studentRecords count-query succeeds
