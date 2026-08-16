@@ -1131,11 +1131,16 @@ function formatMathChunk(t) {
   t = t.replace(/\^\(([^)]+)\)/g, "^{$1}");
   t = t.replace(/\^([a-zA-Z0-9]+)/g, "^{$1}");
   // Fractions: numeric ("3/2") AND single-letter-variable ("a/x", "b/y")
-  // fractions must both become a proper stacked \frac{}{} — book/textbook
+  // fractions must both become a proper stacked \dfrac{}{} — book/textbook
   // equations like (a/x) + (b/y) = 0 use variable denominators, not just
   // numbers, so limiting this to \d+/\d+ left those printing as flat
-  // "(a/x)" text instead of a real fraction.
-  t = t.replace(/\b([a-zA-Z0-9]+)\s*\/\s*([a-zA-Z0-9]+)\b/g, "\\frac{$1}{$2}");
+  // "(a/x)" text instead of a real fraction. \dfrac (not \frac) is used on
+  // purpose: KaTeX shrinks a plain \frac down to compressed "textstyle"
+  // sizing whenever it sits inside inline \( ... \) math (which every
+  // question/option here does) — so "3/2" was rendering as a tiny,
+  // cramped fraction instead of the full textbook-size stack. \dfrac forces
+  // full "displaystyle" sizing even inline.
+  t = t.replace(/\b([a-zA-Z0-9]+)\s*\/\s*([a-zA-Z0-9]+)\b/g, "\\dfrac{$1}{$2}");
   t = t.replace(/<=/g,"\\leq ").replace(/>=/g,"\\geq ").replace(/!=/g,"\\neq ");
   t = t.replace(/≤/g,"\\leq ").replace(/≥/g,"\\geq ").replace(/≠/g,"\\neq ");
   t = t.replace(/×/g,"\\times ").replace(/÷/g,"\\div ").replace(/π/g,"\\pi ");
@@ -1175,20 +1180,20 @@ function wrapParenFractions(s) {
   if (!s) return s;
   var tok = "[a-zA-Z0-9\\-\u2010-\u2015]+"; // digits/letters + hyphen/en-dash/em-dash variants
   s = s.replace(/\(([^()]+)\)\s*\/\s*\(([^()]+)\)/g, function(_, a, b) {
-    return "\\(\\frac{" + a.trim() + "}{" + b.trim() + "}\\)";
+    return "\\(\\dfrac{" + a.trim() + "}{" + b.trim() + "}\\)";
   });
   s = s.replace(new RegExp("\\(([^()]+)\\)\\s*/\\s*(" + tok + ")\\b", "g"), function(_, a, b) {
-    return "\\(\\frac{" + a.trim() + "}{" + b.trim() + "}\\)";
+    return "\\(\\dfrac{" + a.trim() + "}{" + b.trim() + "}\\)";
   });
   s = s.replace(new RegExp("\\b(" + tok + ")\\s*/\\s*\\(([^()]+)\\)", "g"), function(_, a, b) {
-    return "\\(\\frac{" + a.trim() + "}{" + b.trim() + "}\\)";
+    return "\\(\\dfrac{" + a.trim() + "}{" + b.trim() + "}\\)";
   });
   return s;
 }
 
 function autoMathFmt(s) {
   if (!s) return s;
-  if (/\\\(|\\\[|\$\$|\\frac|\\sqrt|\\times/.test(s)) return s; // already has explicit LaTeX
+  if (/\\\(|\\\[|\$\$|\\d?frac|\\sqrt|\\times/.test(s)) return s; // already has explicit LaTeX
   s = wrapParenFractions(s);
 
   // wrapParenFractions() may have produced \(\frac{...}{...}\) segments
@@ -1198,7 +1203,7 @@ function autoMathFmt(s) {
   // it. Swap each finished segment out for a space-free placeholder, run
   // the normal tokenizer on what's left, then swap the real text back in.
   var placeholders = [];
-  s = s.replace(/\\\(\\frac\{[^{}]*\}\{[^{}]*\}\\\)/g, function(m) {
+  s = s.replace(/\\\(\\dfrac\{[^{}]*\}\{[^{}]*\}\\\)/g, function(m) {
     placeholders.push(m);
     return "\u0001" + (placeholders.length - 1) + "\u0002";
   });
@@ -2379,14 +2384,14 @@ function mathToWordHtml(raw) {
 function convertLatexInner(latex) {
   let s = String(latex);
 
-  // \frac{a}{b} -> real stacked fraction (numerator, dividing line,
-  // denominator). Word's HTML-import engine has no support for CSS
-  // display:inline-block on divs, so a <table> is genuinely the only
-  // reliable way to get a true stacked fraction with a line in Word.
+  // \frac{a}{b} / \dfrac{a}{b} -> real stacked fraction (numerator,
+  // dividing line, denominator). Word's HTML-import engine has no support
+  // for CSS display:inline-block on divs, so a <table> is genuinely the
+  // only reliable way to get a true stacked fraction with a line in Word.
   // We reset border/cellpadding/cellspacing explicitly to 0/none on every
   // part so no stray gridlines show up while editing — only the one
   // border-bottom line under the numerator remains.
-  s = s.replace(/\\frac\{([^{}]*)\}\{([^{}]*)\}/g,
+  s = s.replace(/\\d?frac\{([^{}]*)\}\{([^{}]*)\}/g,
     (_, a, b) => `<table border="0" cellpadding="0" cellspacing="0" style="display:inline-table;border-collapse:collapse;vertical-align:middle;text-align:center;margin:0 2px;font-size:0.9em;line-height:1.15;"><tr><td style="border:none;border-bottom:1px solid #000;padding:0 3px 1px;">${a}</td></tr><tr><td style="border:none;padding:1px 3px 0;">${b}</td></tr></table>`);
 
   // \sqrt{x} -> real radical marker (Word export ise asli OOXML radical
