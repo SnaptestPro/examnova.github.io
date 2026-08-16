@@ -1193,20 +1193,36 @@ function wrapParenFractions(s) {
 
 function autoMathFmt(s) {
   if (!s) return s;
-  if (/\\\(|\\\[|\$\$|\\d?frac|\\sqrt|\\times/.test(s)) return s; // already has explicit LaTeX
+
+  // Protect any hand-typed / legacy-saved explicit LaTeX segments —
+  // \( ... \), \[ ... \], $$ ... $$ — so they're never re-touched or
+  // mangled. IMPORTANT: this used to be an all-or-nothing check — if the
+  // text had EVEN ONE existing \(...\) chunk anywhere in it, the whole
+  // function bailed out and left everything else in the string exactly
+  // as typed. That meant editing a question that already had legacy
+  // LaTeX in it (e.g. appending plain "3/2" after an existing
+  // "\(9x - 10y = 14\)") never auto-formatted the new plain part — it
+  // just stayed flat, unconverted text forever. Now only the existing
+  // LaTeX chunks themselves are protected; everything else around them
+  // still gets auto-formatted normally.
+  var placeholders = [];
+  var protect = function(re) {
+    s = s.replace(re, function(m) {
+      placeholders.push(m);
+      return "\u0001" + (placeholders.length - 1) + "\u0002";
+    });
+  };
+  protect(/\\\([\s\S]*?\\\)|\\\[[\s\S]*?\\\]|\$\$[\s\S]*?\$\$/g);
+
   s = wrapParenFractions(s);
 
-  // wrapParenFractions() may have produced \(\frac{...}{...}\) segments
+  // wrapParenFractions() may have produced \(\dfrac{...}{...}\) segments
   // whose numerator/denominator contain internal spaces (e.g. "ax - c").
   // The tokenizer below splits purely on whitespace, so without protection
   // it would slice straight through the middle of that segment and mangle
   // it. Swap each finished segment out for a space-free placeholder, run
   // the normal tokenizer on what's left, then swap the real text back in.
-  var placeholders = [];
-  s = s.replace(/\\\(\\dfrac\{[^{}]*\}\{[^{}]*\}\\\)/g, function(m) {
-    placeholders.push(m);
-    return "\u0001" + (placeholders.length - 1) + "\u0002";
-  });
+  protect(/\\\(\\dfrac\{[^{}]*\}\{[^{}]*\}\\\)/g);
 
   var hasMath = placeholders.length > 0 ||
     /[=+\-*/^√π≤≥≠×÷]|\b\d+\s*\/\s*\d+\b|\bsqrt\b|\b(sin|cos|tan|log)\b/i.test(s);
@@ -1235,7 +1251,7 @@ function autoMathFmt(s) {
       i++;
     }
   }
-  // Swap the protected \frac{...}{...} segments back in.
+  // Swap the protected LaTeX / \dfrac{...}{...} segments back in.
   if (placeholders.length) {
     out = out.replace(/\u0001(\d+)\u0002/g, function(_, idx) { return placeholders[idx]; });
   }
