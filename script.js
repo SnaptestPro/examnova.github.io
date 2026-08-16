@@ -2266,6 +2266,53 @@ async function showResult() {
     };
   }
 
+  // ── Poora Result + Chapter-wise Analysis + Galat Jawabon ki Answer-Key,
+  //    ek hi WhatsApp message mein — student ko turant apna poora
+  //    "report card" WhatsApp par mil jaata hai, bina kisi backend/bot ke.
+  //    (wa.me deep-link se khulta hai — koi target number fix nahi hai,
+  //    isliye student khud choose kar sakta hai kise bhejna hai: khud ko/
+  //    Saved Messages, parent, ya kisi group mein.)
+  const fullBtn = $("#whatsapp-full-btn");
+  if (fullBtn) {
+    fullBtn.onclick = () => {
+      const grade = pct >= 90 ? "A+" : pct >= 80 ? "A" : pct >= 70 ? "B+" : pct >= 60 ? "B" : pct >= 50 ? "C" : "D";
+      const letters = ["A", "B", "C", "D"];
+      let msg = `🎯 *${current.test.title}* — Poora Result\n`;
+      msg += `👤 ${current.student.name || "Student"}\n\n`;
+      msg += `📊 *Score:* ${fmtNum(score)}/${fmtNum(maxScore)} (${Math.round(pct)}%) — Grade *${grade}*\n`;
+      msg += `🏅 *Rank:* ${rank}/${total2}  |  🎯 *Accuracy:* ${accuracy}%\n`;
+      msg += `✅ Sahi: ${correct}  |  ❌ Galat: ${wrong}  |  ⬜ Chhoda: ${unattempted}\n`;
+
+      // Chapter-wise strong/weak breakdown (same data as the on-screen report)
+      const chapEntries = Object.entries(chapMap)
+        .sort((a, b) => (a[1].correct / a[1].total) - (b[1].correct / b[1].total));
+      if (chapEntries.length > 1) {
+        msg += `\n📚 *Chapter-wise Analysis:*\n`;
+        chapEntries.forEach(([ch, data]) => {
+          const p = data.total > 0 ? Math.round((data.correct / data.total) * 100) : 0;
+          const tag = p >= 70 ? "✅" : p >= 40 ? "⚠️" : "❌";
+          msg += `${tag} ${ch}: ${data.correct}/${data.total} (${p}%)\n`;
+        });
+      }
+
+      // Quick answer-key for the questions they got wrong, so they can
+      // start revising right from WhatsApp without opening the app.
+      const wrongQs = currentDetails.filter(d => d.status === "Wrong");
+      if (wrongQs.length) {
+        msg += `\n🔍 *Galat Jawabon ki Sahi Answer-Key:*\n`;
+        wrongQs.slice(0, 20).forEach(d => {
+          msg += `Q${d.questionNo} → Sahi: [${letters[d.correctAnswer] || "?"}]\n`;
+        });
+        if (wrongQs.length > 20) msg += `...aur ${wrongQs.length - 20} aur (poori list app mein)\n`;
+      }
+
+      msg += `\n📖 Har question ki poori solution/explanation dekhne ke liye app mein login karke *"Mera Result" → "🔍 View Solution"* par jaayein.\n\n— Savyasachi Coaching`;
+
+      const url = `https://api.whatsapp.com/send?text=${encodeURIComponent(msg)}`;
+      window.open(url, "_blank");
+    };
+  }
+
   // ── Re-attempt wrong questions ──
   const reBtn = $("#reattempt-wrong-btn");
   if (reBtn) {
