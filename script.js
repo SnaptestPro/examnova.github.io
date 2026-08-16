@@ -351,6 +351,34 @@ let selectedTrashIds = new Set(); // Recycle Bin: selective restore selection
 let draftQuestions = [];
 let questionBank = [];
 window.questionBank = questionBank;
+
+// ── INSTANT RELOAD: questionBank local cache ─────────────────────────
+// Firestore's own offline persistence (IndexedDB, enabled in
+// firebase-config.js) already makes onSnapshot() resolve fast on repeat
+// visits — but it's still an ASYNC callback, so the very first paint
+// after a reload used to always start from an empty bank (Practice Mode
+// filters/Bank tab briefly showing "no questions") until that callback
+// fired. Caching the last-synced bank in localStorage lets us hydrate
+// `questionBank` SYNCHRONOUSLY, before any network/IndexedDB round-trip,
+// so reload feels instant — the old data is there immediately, and
+// syncBank()'s onSnapshot listener (started right after) quietly swaps
+// in anything newer a moment later, same as it already did before.
+const BANK_CACHE_KEY = "savya_bank_cache";
+function loadBankCacheInstantly() {
+  try {
+    const cached = JSON.parse(localStorage.getItem(BANK_CACHE_KEY) || "null");
+    if (Array.isArray(cached) && cached.length) {
+      questionBank = cached;
+      window.questionBank = questionBank;
+    }
+  } catch (e) { /* corrupt cache — ignore, Firestore will repopulate */ }
+}
+function saveBankCacheQuietly(bank) {
+  try { localStorage.setItem(BANK_CACHE_KEY, JSON.stringify(bank)); }
+  catch (e) { /* quota exceeded (very large bank) — silently skip, not critical */ }
+}
+loadBankCacheInstantly(); // run immediately, before any Firestore call
+
 let editingTestId = null;
 let editingBankId = null;
 let approvingAppScriptDraftId = null;
@@ -6016,6 +6044,7 @@ function syncBank() {
     }
     questionBank.sort((a, b) => a.id.localeCompare(b.id));
     window.questionBank = questionBank;
+    saveBankCacheQuietly(questionBank); // keep the instant-reload cache fresh
     console.log("[syncBank] Loaded", questionBank.length, "questions from Firebase");
     renderBank();
     // Bank aur Bulk Upload tab ke "existing subject/chapter" select dropdowns
@@ -6035,6 +6064,7 @@ function syncBank() {
         }
         questionBank.sort((a, b) => a.id.localeCompare(b.id));
         window.questionBank = questionBank;
+        saveBankCacheQuietly(questionBank);
         console.log("[syncBank] Retry loaded", questionBank.length, "questions");
         renderBank();
         if (window.scheduleAutoDuplicateCheck) window.scheduleAutoDuplicateCheck();
@@ -6294,16 +6324,19 @@ async function emptyTrashBin() {
 }
 
 function syncRecords() {
+  // INSTANT RELOAD: hydrate synchronously from the last-synced localStorage
+  // snapshot FIRST (regardless of whether Firebase is reachable yet) so
+  // Records/Result-Sheet screens paint with real data immediately, instead
+  // of an empty/loading state until the first Firestore callback fires.
+  // The onSnapshot listener below still runs right after and silently
+  // replaces this with fresher data the moment it arrives — same as before,
+  // just no longer blocking the very first paint.
+  try { records = JSON.parse(localStorage.getItem("savya_records") || "[]"); } catch (e) { records = []; }
+  renderRecords();
+  renderStudentResultPicker();
+
   const db = getDB();
-  if (!db) {
-    // Firebase nahi hai — localStorage se load karo
-    try {
-      records = JSON.parse(localStorage.getItem("savya_records") || "[]");
-    } catch(e) { records = []; }
-    renderRecords();
-    renderStudentResultPicker();
-    return;
-  }
+  if (!db) return; // localStorage snapshot above is all we've got — already rendered
   db.collection("studentRecords").orderBy("submittedIso","desc").limit(200).onSnapshot(snap => {
     const firebaseRecs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     // Merge localStorage records not yet in Firebase
@@ -6312,6 +6345,7 @@ function syncRecords() {
     const fbNames = new Set(firebaseRecs.map(r => r.name + r.submittedIso));
     const onlyLocal = localRecs.filter(r => !fbNames.has(r.name + r.submittedIso));
     records = [...firebaseRecs, ...onlyLocal].sort((a,b) => (b.submittedIso||"").localeCompare(a.submittedIso||""));
+    try { localStorage.setItem("savya_records", JSON.stringify(records)); } catch (e) { /* quota — skip, not critical */ }
     renderRecords();
     renderStudentResultPicker();
     if ($("#result-test-select")?.value) renderStudentResultSheet();
