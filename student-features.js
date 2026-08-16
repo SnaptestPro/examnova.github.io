@@ -197,17 +197,27 @@
   }
 
   let currentMistakes = [];
+  let _mistakesUnsub = null;
+  let _mistakesUnsubMobile = null;
 
-  async function loadMyMistakes() {
-    const session = getStudentSession();
+  // Live (real-time) subscription instead of a one-time read: once
+  // subscribed for a given student, ANY change to their mistakes doc
+  // (a new wrong answer saved right after a test, or "✅ Maine sikh liya"
+  // removing one) repaints this list immediately — no need to wait for
+  // the tab-visible 25s refresh poll or a manual tab re-open.
+  function subscribeMyMistakesLive(mobile) {
     const db = getDB();
-    if (!session || !db) return [];
-    const mobile = normalizeMobile(session.mobile);
-    if (!mobile) return [];
-    try {
-      const snap = await db.collection("studentMistakes").doc(mobile).get();
-      return (snap.exists && Array.isArray(snap.data().items)) ? snap.data().items : [];
-    } catch (e) { console.warn("Mistake load failed", e); return []; }
+    if (!db || !mobile) return;
+    if (_mistakesUnsubMobile === mobile && _mistakesUnsub) return; // already live for this student
+    if (_mistakesUnsub) { _mistakesUnsub(); _mistakesUnsub = null; }
+    _mistakesUnsubMobile = mobile;
+    _mistakesUnsub = db.collection("studentMistakes").doc(mobile).onSnapshot(snap => {
+      const items = (snap.exists && Array.isArray(snap.data().items)) ? snap.data().items : [];
+      currentMistakes = items;
+      cacheFor(mobile).mistakes = items;
+      persistExtrasCache();
+      paintMistakesList(currentMistakes, document.getElementById("my-mistakes-list"));
+    }, (e) => console.warn("Mistakes live-sync failed", e));
   }
 
   function paintMistakesList(items, list) {
@@ -249,11 +259,7 @@
       list.innerHTML = '<p class="muted-text">Loading...</p>';
     }
 
-    const fresh = await loadMyMistakes();
-    currentMistakes = fresh;
-    cache.mistakes = fresh;
-    persistExtrasCache();
-    paintMistakesList(currentMistakes, list);
+    subscribeMyMistakesLive(mobile); // switches to true real-time updates from here on
   }
 
   async function removeMistake(idx) {

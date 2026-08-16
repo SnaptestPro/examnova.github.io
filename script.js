@@ -345,7 +345,31 @@ const defaultTests = {};
 
 let tests = { ...defaultTests };
 let remoteTests = {};
+
+// ── INSTANT RELOAD: tests local cache ────────────────────────────────
+// Same idea as the questionBank cache above — the Student home screen's
+// "Test chunein" dropdown reads straight from `tests` (built from
+// `remoteTests`), so without this it stayed empty for a beat after every
+// reload until syncTests()'s first Firestore callback landed. Hydrating
+// remoteTests from localStorage first (synchronously, before any network
+// call) means the test list is already there the instant the page paints.
+const TESTS_CACHE_KEY = "savya_tests_cache";
+function loadTestsCacheInstantly() {
+  try {
+    const cached = JSON.parse(localStorage.getItem(TESTS_CACHE_KEY) || "null");
+    if (cached && typeof cached === "object") {
+      remoteTests = cached;
+      rebuildTests();
+    }
+  } catch (e) { /* corrupt cache — ignore, Firestore will repopulate */ }
+}
+function saveTestsCacheQuietly(remote) {
+  try { localStorage.setItem(TESTS_CACHE_KEY, JSON.stringify(remote)); }
+  catch (e) { /* quota exceeded (many/large tests) — silently skip */ }
+}
+
 let deletedTestIds = new Set();
+loadTestsCacheInstantly(); // run immediately, before any Firestore call (needs deletedTestIds above)
 let deletedQuestions = []; // Recycle Bin
 let selectedTrashIds = new Set(); // Recycle Bin: selective restore selection
 let draftQuestions = [];
@@ -5991,6 +6015,7 @@ function syncTests() {
       }
     }));
     remoteTests = newRemote;
+    saveTestsCacheQuietly(remoteTests); // keep the instant-reload cache fresh
     Object.keys(testQuestionsCache).forEach(id => { if (!(id in newRemote)) delete testQuestionsCache[id]; });
     rebuildTests();
     renderTests($("#test-select")?.value);
