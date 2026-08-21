@@ -595,6 +595,7 @@ function init() {
   bindEvent("#grade-tab", 'onclick', () => showAdminTab("grade"));
   bindEvent("#add-test-section", 'onclick', addTestSection);
   bindEvent("#save-draft-btn", 'onclick', saveAsDraft);
+  bindEvent("#send-to-generator-btn", 'onclick', sendTestToPaperGenerator);
   const params = new URLSearchParams(window.location.search);
   let adminAutoShown = false;
   if (params.get("admin") === "1" && isAdminLoggedIn()) {
@@ -606,6 +607,11 @@ function init() {
     const tab = params.get("tab") || "tests";
     showAdminTab(tab);
     if (tab === "bank") renderBank();
+    // Fallback for when Paper Generator was opened as a standalone page
+    // (not inside the admin <iframe>) and saved back via a full redirect —
+    // ?openTest=<id> tells us to jump straight into editing that test.
+    const openTestId = params.get("openTest");
+    if (openTestId) window.receiveTestBackFromGenerator ? window.receiveTestBackFromGenerator(openTestId) : null;
     // Scroll past the Firebase seed banner straight to the relevant admin
     // section, so "Back" from the generator lands where the user expects
     // instead of at the very top of the admin panel.
@@ -6758,6 +6764,99 @@ async function saveAsDraft() {
     alert("Draft save nahi hua. Firestore rules check karo.");
   }
 }
+
+/* ══════════════════════════════════════════
+   SEND TO PAPER GENERATOR
+   "Create / Edit Test" ke meta fields (title, category, duration,
+   marks, MCQ limit, subjective marks) yahan bhar ke is button se seedha
+   Paper Generator (jo Tests tab ke andar hi <iframe> mein embed hai)
+   khul jaata hai, us test se "connected" — wahan Question Bank se select
+   karke ya naya likh/paste karke poora paper banaya ja sakta hai. Wahan
+   "✅ Save & Admin ko Bhejein" dabate hi wahi test (questions samet)
+   wapas isi form mein (editTest ke through) khul jaata hai, publish ke
+   liye taiyar. Dono taraf same Firestore "tests/{id}" doc use hota hai,
+   isliye koi alag sync system nahi chahiye.
+══════════════════════════════════════════ */
+async function sendTestToPaperGenerator() {
+  const title = $("#test-title").value.trim();
+  if (!title) { alert("Pehle Test Title bharein."); $("#test-title").focus(); return; }
+
+  const pending = readQForm(true);
+  if (pending === false) return;
+  if (pending) { draftQuestions.push(cloneQ(pending)); clearQForm(false); }
+
+  const category = ($("#test-category")?.value || "").trim();
+  const min   = Number($("#test-minutes").value || 30);
+  const marks = Number($("#test-marks").value || 2);
+  const negEn = $("#test-negative-enabled").value === "yes";
+  const neg   = negEn ? Number($("#test-negative").value || 0) : 0;
+  const attemptLimitRaw = Number($("#test-attempt-limit")?.value || 0);
+  const attemptLimit = attemptLimitRaw > 0 ? attemptLimitRaw : null;
+  const subjectiveMarksRaw = Number($("#test-subjective-marks")?.value || 0);
+  const subjectiveMarks = subjectiveMarksRaw > 0 ? subjectiveMarksRaw : null;
+
+  const id = editingTestId || `test-${Date.now()}`;
+  editingTestId = id;
+
+  const t = {
+    title, category: category || null, minutes: min || 30, marksPerQuestion: marks,
+    negativeEnabled: negEn, negativeMarks: neg,
+    attemptLimit,
+    subjectiveMarks,
+    isDraft: true,
+    sections: testSections.map(s => ({ id: s.id, title: s.title, marksPerQuestion: s.marksPerQuestion ?? null })),
+    questions: draftQuestions.map(cloneQ)
+  };
+
+  const btn = $("#send-to-generator-btn");
+  try {
+    if (btn) { btn.disabled = true; btn.textContent = "⏳ Bhej rahe hain..."; }
+    remoteTests[id] = t;
+    deletedTestIds.delete(id);
+    await saveTestOnline(id, t);
+    updateTestsHubCount();
+    openTestInPaperGenerator(id);
+  } catch (err) {
+    console.warn(err);
+    alert("Paper Generator mein bhejte waqt error aaya: " + err.message);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = "📄 Questions Paper Generator mein Add Karein →"; }
+  }
+}
+
+// Tests tab kholta hai, Paper Generator wale <iframe> par switch karta hai,
+// aur uske andar chal rahe qgen-app.js ka loadTestFromAdmin(id) call karta
+// hai — iframe pehle se hi DOM mein load hai, bas uska script abhi tak
+// ready na hua ho to thoda poll karke retry karte hain (max ~6s).
+function openTestInPaperGenerator(id) {
+  showAdminTab('generator');
+  let tries = 0;
+  const tryLoad = () => {
+    tries++;
+    const frame = document.getElementById('qgen-iframe');
+    const win = frame && frame.contentWindow;
+    if (win && typeof win.loadTestFromAdmin === 'function') {
+      win.loadTestFromAdmin(id);
+      return;
+    }
+    if (tries < 40) setTimeout(tryLoad, 150);
+    else console.warn('[Paper Generator] loadTestFromAdmin ready nahi hua, timeout.');
+  };
+  tryLoad();
+}
+window.openTestInPaperGenerator = openTestInPaperGenerator;
+
+// Paper Generator (iframe ke andar qgen-app.js) admin ko wapas bhejte
+// waqt yahi function call karta hai (window.parent.receiveTestBackFromGenerator).
+window.receiveTestBackFromGenerator = function (id) {
+  showAdminTab('tests');
+  showTestsSubTab('create');
+  const tryEdit = (attempt) => {
+    if (tests[id]) { editTest(id); return; }
+    if (attempt < 15) setTimeout(() => tryEdit(attempt + 1), 300);
+  };
+  tryEdit(0);
+};
 
 /* ══════════════════════════════════════════
    AUTO-SAVE DRAFT (Silent — no alert)

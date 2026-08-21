@@ -289,11 +289,13 @@ Model Answer: समाजवाद एक आर्थिक व्यवस्
 
     <!-- Actions bar -->
     <div class="sidebar-actions">
+      <button class="btn btn-sm btn-outline" style="grid-column: span 2;" onclick="goBackFromGenerator()">⬅ Admin Panel</button>
       <button class="btn btn-sm btn-info" onclick="switchMainTab('answerkey')">🔑 Answer Key</button>
       <button class="btn btn-sm btn-warning" onclick="clearPaper()">🗑️ Clear</button>
       <button class="btn btn-sm btn-primary" onclick="exportToWord()">📄 Download Word</button>
       <button class="btn btn-sm btn-danger" onclick="printPaper()">🖨️ Print</button>
       <button class="btn btn-sm btn-success" style="grid-column: span 2;" onclick="savePaperAsDraft()">☁️ Save to Drafts</button>
+      <button id="send-back-to-admin-btn" class="btn btn-sm btn-success hidden" style="grid-column: span 2;background:linear-gradient(135deg,#8b5cf6,#6d28d9);" onclick="saveAndReturnToAdmin()">✅ Save &amp; Admin ko Bhejein</button>
     </div>
 
   </aside>

@@ -2124,6 +2124,10 @@ function resetPaperBuilder() {
   editingDraftId = null;
   loadedDraftTitle = "";
   loadedDraftMarks = 2;
+  _qgenAdminLinked = false;
+  _qgenAdminMeta = null;
+  document.getElementById('admin-link-banner')?.remove();
+  document.getElementById('send-back-to-admin-btn')?.classList.add('hidden');
   updateDraftSaveButton();
   renderDraftsList();
   renderBankPage();
@@ -2524,12 +2528,20 @@ async function savePaperAsDraft() {
   const marks = loadedDraftMarks || 2;
   const isUpdate = Boolean(editingDraftId);
   const id = editingDraftId || `test-${Date.now()}`;
+  // Agar ye paper Admin panel se connected hai (loadTestFromAdmin ke
+  // through), to uske category/attemptLimit/subjectiveMarks fields yahan
+  // bhi jod do — warna plain "Save to Drafts" unhe Firestore se hata deta
+  // (merge:true ke bawajood in fields ko explicitly na bhejna unhe
+  // "as-is" chhod dega, jo theek hai, lekin negativeEnabled/negativeMarks
+  // jaise fields yahan overwrite ho sakte the isliye admin meta se bharo).
+  const linkedMeta = (isUpdate && _qgenAdminLinked && _qgenAdminMeta) ? _qgenAdminMeta : null;
   const t = {
     title: title.trim(),
     minutes: timeMin,
     marksPerQuestion: marks,
-    negativeEnabled: false,
-    negativeMarks: 0,
+    negativeEnabled: linkedMeta ? (linkedMeta.negativeEnabled || false) : false,
+    negativeMarks: linkedMeta ? (linkedMeta.negativeMarks || 0) : 0,
+    ...(linkedMeta ? { category: linkedMeta.category ?? null, attemptLimit: linkedMeta.attemptLimit ?? null, subjectiveMarks: linkedMeta.subjectiveMarks ?? null } : {}),
     questions: questions,
     isDraft: true,
     ...(sectionsPayload ? { sections: sectionsPayload, hasSections: true } : {})
@@ -2539,7 +2551,9 @@ async function savePaperAsDraft() {
     const btn = document.querySelector('button[onclick="savePaperAsDraft()"]');
     if (btn) { btn.disabled = true; btn.innerHTML = "☁️ Saving..."; }
 
-    await db.collection("tests").doc(id).set(t);
+    // merge:true taaki koi aur field (jaise chunkCount, includeInLeaderboard,
+    // ya Admin-connected meta jo upar shamil nahi hai) galti se delete na ho.
+    await db.collection("tests").doc(id).set(t, { merge: true });
     if (btn) { btn.disabled = false; }
     // Save is a "commit" now, not a "keep editing" action: clear the
     // builder so Preview goes back to blank and a new paper can be
@@ -2853,6 +2867,185 @@ async function fetchDraftTests() {
     list.innerHTML = '<div class="draft-empty">Drafts load nahi ho paye</div>';
   }
 }
+
+// ── Admin Panel bridge ───────────────────────────────────────────
+// Called by script.js (parent page) via window.parent → the "Create /
+// Edit Test" form's "📄 Questions Paper Generator mein Add Karein" button
+// calls this with the Firestore test id it just saved. We load that
+// test's meta + existing questions (if any) straight into the paper
+// builder, remember the admin-only fields (category/attemptLimit/
+// subjectiveMarks) that this UI has no fields for so they survive the
+// round trip, and reveal the "Save & Admin ko Bhejein" button.
+let _qgenAdminMeta = null;
+let _qgenAdminLinked = false;
+
+window.loadTestFromAdmin = async function (testId) {
+  const db = window.vishnuFirebase?.db;
+  if (!db) { toast('⚠️ Firebase connect nahi hai'); return; }
+
+  const totalExisting = isSectionMode() ? getAllQuestionsFlat().length : paperQuestions.length;
+  if (totalExisting && !confirm('Current paper builder khaali karke Admin test load karein?')) return;
+
+  let t = draftTestsCache.find(d => d.id === testId)?.data;
+  if (!t) {
+    try {
+      const snap = await db.collection('tests').doc(testId).get();
+      if (snap.exists) t = snap.data();
+    } catch (err) { console.error(err); }
+  }
+  if (!t) { toast('⚠️ Test data nahi mila, dobara try karein'); return; }
+
+  _qgenAdminLinked = true;
+  _qgenAdminMeta = {
+    category: t.category ?? null,
+    attemptLimit: t.attemptLimit ?? null,
+    subjectiveMarks: t.subjectiveMarks ?? null,
+    negativeEnabled: t.negativeEnabled ?? false,
+    negativeMarks: t.negativeMarks ?? 0
+  };
+
+  let questionsPayload = [];
+  try {
+    if (!t.questions?.length && t.chunkCount) toast('⏳ Questions load ho rahe hain...');
+    questionsPayload = await fetchDraftQuestionsPayload(t, testId);
+  } catch (err) {
+    console.error(err);
+    toast('⚠️ Test ke questions load nahi ho paye, khaali paper se shuru kar rahe hain');
+  }
+
+  editingDraftId = testId;
+  loadedDraftTitle = t.title || '';
+  loadedDraftMarks = t.marksPerQuestion || 2;
+  const subjEl = document.getElementById('subject');
+  if (subjEl) subjEl.value = loadedDraftTitle;
+  const timeEl = document.getElementById('timeMin');
+  if (timeEl) timeEl.value = t.minutes || 30;
+  syncHeader();
+  updateDraftSaveButton();
+
+  const allQMapped = (questionsPayload || []).map((q) => ({
+    id: qIdCounter++,
+    firestoreId: q.id,
+    text: q.textHI || q.textEN || q.text || '',
+    opts: (q.optionsHI?.length ? q.optionsHI : q.optionsEN?.length ? q.optionsEN : q.options) || [],
+    ans: parseInt(q.answer ?? 0),
+    chapter: q.chapter || 'Mixed',
+    subject: q.subject || 'General',
+    qType: q.qType === 'subjective' ? 'subjective' : 'mcq',
+    marks: q.qType === 'subjective' ? (q.marks ?? null) : null,
+    modelAnswer: q.qType === 'subjective' ? (q.modelAnswer || '') : '',
+    bankIdx: -1
+  }));
+
+  if (t.hasSections && t.sections?.length) {
+    const qById = {};
+    allQMapped.forEach(q => { if (q.firestoreId) qById[q.firestoreId] = q; });
+    sections = t.sections.map(sec => ({
+      id: sec.id || ('sec-' + Date.now()),
+      name: sec.name || sec.title || 'Section',
+      questions: (sec.questionIds || []).map(qid => qById[qid]).filter(Boolean)
+    }));
+    const assignedIds = new Set(sections.flatMap(s => s.questions.map(q => q.firestoreId)));
+    const orphans = allQMapped.filter(q => !assignedIds.has(q.firestoreId));
+    if (orphans.length && sections.length) sections[sections.length - 1].questions.push(...orphans);
+    activeSection = 0;
+    paperQuestions = sections[0]?.questions || [];
+    renderSectionTabs();
+  } else {
+    sections = [];
+    paperQuestions = allQMapped;
+    renderSectionTabs();
+  }
+
+  document.querySelectorAll('.bank-item input[type=checkbox]').forEach(cb => cb.checked = false);
+  document.querySelectorAll('.bank-item').forEach(item => item.classList.remove('selected'));
+  reRenderPaper();
+  renderBankPage();
+  updateSelectedCount();
+  switchSideTab('bank');
+  switchMainTab('preview');
+  showAdminLinkBanner(loadedDraftTitle, allQMapped.length);
+};
+
+function showAdminLinkBanner(title, qCount) {
+  const backBtn = document.getElementById('send-back-to-admin-btn');
+  if (backBtn) backBtn.classList.remove('hidden');
+  let banner = document.getElementById('admin-link-banner');
+  if (!banner) {
+    banner = document.createElement('div');
+    banner.id = 'admin-link-banner';
+    banner.style.cssText = 'background:#ecfdf5;border:1.5px solid #10b981;color:#065f46;font-size:.76rem;font-weight:600;line-height:1.5;padding:8px 10px;border-radius:8px;margin:0 0 10px;';
+    document.querySelector('.sidebar-logo')?.insertAdjacentElement('afterend', banner);
+  }
+  banner.innerHTML = `🔗 Admin Test se connected: <b>${escHtml(title || 'Untitled')}</b> (${qCount || 0} Q abhi)<br/>Bank se questions add karein, phir neeche <b>"✅ Save &amp; Admin ko Bhejein"</b> dabayein.`;
+}
+
+// "✅ Save & Admin ko Bhejein" — abhi tak banaya gaya paper Firestore mein
+// isi test id par save karta hai (admin ke category/attemptLimit/
+// subjectiveMarks fields ko bhi wapas jodta hai, taaki wo delete na hon),
+// aur phir parent (Admin panel) ko wapas bhej deta hai — jahan wahi test
+// "Create / Edit Test" form mein, questions samet, khul jaata hai.
+async function saveAndReturnToAdmin() {
+  const totalQ = isSectionMode() ? getAllQuestionsFlat().length : paperQuestions.length;
+  if (totalQ === 0) {
+    alert('Pehle paper mein kam se kam ek question add karein.');
+    return;
+  }
+  if (!editingDraftId || !_qgenAdminLinked) {
+    alert('Ye paper kisi Admin test se connected nahi hai.\nAdmin panel ke "Create / Edit Test" form se "📄 Questions Paper Generator mein Add Karein" button use karein.');
+    return;
+  }
+
+  const db = window.vishnuFirebase?.db;
+  if (!db) { alert('Firebase connected nahi hai!'); return; }
+
+  ensureDraftQuestionIds();
+  const questions = buildDraftQuestionsPayload();
+  const sectionsPayload = buildSectionsPayload();
+  const timeMin = Number(document.getElementById('timeMin').value || 30);
+  const marks = loadedDraftMarks || 2;
+  const meta = _qgenAdminMeta || {};
+  const idToOpen = editingDraftId;
+
+  const t = {
+    title: loadedDraftTitle || 'Untitled Test',
+    minutes: timeMin,
+    marksPerQuestion: marks,
+    negativeEnabled: meta.negativeEnabled || false,
+    negativeMarks: meta.negativeMarks || 0,
+    category: meta.category ?? null,
+    attemptLimit: meta.attemptLimit ?? null,
+    subjectiveMarks: meta.subjectiveMarks ?? null,
+    questions: questions,
+    isDraft: true,
+    ...(sectionsPayload ? { sections: sectionsPayload, hasSections: true } : {})
+  };
+
+  const btn = document.getElementById('send-back-to-admin-btn');
+  try {
+    if (btn) { btn.disabled = true; btn.innerHTML = '⏳ Save ho raha hai...'; }
+    await db.collection('tests').doc(idToOpen).set(t, { merge: true });
+    toast('✅ Save ho gaya — Admin panel mein wapas ja rahe hain...');
+    resetPaperBuilder();
+    _qgenAdminLinked = false;
+    _qgenAdminMeta = null;
+    document.getElementById('admin-link-banner')?.remove();
+    if (btn) btn.classList.add('hidden');
+    setTimeout(() => {
+      if (window.parent && window.parent !== window && typeof window.parent.receiveTestBackFromGenerator === 'function') {
+        window.parent.receiveTestBackFromGenerator(idToOpen);
+      } else {
+        window.location.href = 'index.html?admin=1&tab=tests&openTest=' + encodeURIComponent(idToOpen);
+      }
+    }, 400);
+  } catch (err) {
+    console.error(err);
+    alert('Save nahi ho paya: ' + err.message);
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = '✅ Save &amp; Admin ko Bhejein'; }
+  }
+}
+window.saveAndReturnToAdmin = saveAndReturnToAdmin;
 
 function renderDraftsList() {
   const list = document.getElementById('draftsList');

@@ -646,6 +646,10 @@
             </div>
           </div>
 
+          <div class="field-row" id="send-to-generator-row" style="margin-top:6px;">
+            <button type="button" id="send-to-generator-btn" class="btn-secondary" style="background:linear-gradient(135deg,#8b5cf6,#6d28d9);color:#fff;border:none;font-weight:700;">📄 Questions Paper Generator mein Add Karein →</button>
+            <small style="color:#6b7280;font-size:.78rem;display:block;margin-top:6px;">Upar ki details (Title, Category, Duration, Marks, Limits) pehle bhar lein, phir yahan click karein. Seedha Paper Generator khul jaayega jahan Question Bank se select karke, naye likhkar, ya bulk paste karke poora paper taiyar kar sakte hain. Wahan "✅ Save &amp; Admin ko Bhejein" dabate hi ye test — questions ke saath — yahan wapas aa jaayega, taiyar hoke.</small>
+          </div>
           <div class="hidden">
             <hr />
             <h4>Test Sections (Section-wise Paper)</h4>
@@ -1205,7 +1209,7 @@ B"></textarea>
 
       <!-- Generator Box -->
       <div id="generator-box" class="hidden">
-        <iframe src="question-generator.html?v=20260708-noback" style="width: 100%; height: calc(100vh - 90px); min-height: 600px; border: 1px solid #e2e8f0; border-radius: 8px; margin-top: 10px;"></iframe>
+        <iframe id="qgen-iframe" src="question-generator.html?v=20260708-noback" style="width: 100%; height: calc(100vh - 90px); min-height: 600px; border: 1px solid #e2e8f0; border-radius: 8px; margin-top: 10px;"></iframe>
       </div>
 
       <!-- TOP PERFORMERS / LEADERBOARD -->
