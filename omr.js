@@ -795,6 +795,258 @@
   // Accepts formats like: "1 c 2 b 3 a", "1) C  2) B", "1-c,2-b,3-a",
   // "1. c\n2. b\n3. a", or even "1c2b3a" with no separators at all.
   // "x" or "-" after the number marks that question as not attempted.
+  // ── ChatGPT OMR-scan fallback prompt ─────────────────────────────
+  // Jab is app ka apna OMR Scanner kisi sheet ke answers galat pakad
+  // le (halki marking, camera angle, shadow, waghera), admin is exact
+  // prompt ko ChatGPT mein OMR ki photo(s) ke saath bhej sakta hai —
+  // wapas mile "1 A / 2 / 3 C ..." format ko seedha neeche wale Manual
+  // Entry box mein paste karke parseAndPreviewManual() se save kiya
+  // ja sakta hai (parseManualAnswers ka regex isi format ko already
+  // handle karta hai — koi extra code nahi chahiye).
+  const CHATGPT_OMR_PROMPT = `तुम एक PROFESSIONAL OMR SHEET SCANNER हो।
+
+मैं तुम्हें एक या एक से अधिक OMR Sheet की images दूँगा। प्रत्येक image को एक अलग student की अलग OMR Answer Sheet मानो।
+
+सबसे महत्वपूर्ण नियम — हर image का अलग COPYABLE OUTPUT
+
+अगर मैंने 2 images दी हैं, तो तुम्हें 2 अलग-अलग code blocks देने हैं।
+
+अगर मैंने 5 images दी हैं, तो तुम्हें 5 अलग-अलग code blocks देने हैं।
+
+STRICT RULE:
+
+हर OMR image = केवल एक अलग code block
+
+हर code block में केवल उसी image के answers होंगे।
+
+एक image के answers को दूसरी image के answers के साथ कभी combine मत करना।
+
+उदाहरण
+
+अगर 2 images हैं, तो output EXACTLY इस तरह होना चाहिए:
+
+1 A
+2
+3 C
+4 B
+5
+6 D
+
+1 B
+2 C
+3
+4 A
+5 D
+6
+
+इन दोनों code blocks को अलग-अलग copy किया जा सके।
+
+बहुत महत्वपूर्ण OUTPUT नियम
+
+❌ "ANSWER SHEET 1" मत लिखो।
+
+❌ "ANSWER SHEET 2" मत लिखो।
+
+❌ "Image 1" मत लिखो।
+
+❌ "Image 2" मत लिखो।
+
+❌ किसी code block के अंदर कोई heading या explanation मत लिखो।
+
+❌ सभी images के answers को एक ही code block में मत डालो।
+
+✅ हर image के लिए अलग code block बनाओ।
+
+✅ पहला code block = पहली image के answers।
+
+✅ दूसरा code block = दूसरी image के answers।
+
+✅ तीसरा code block = तीसरी image के answers।
+
+और इसी तरह आगे।
+
+OMR BUBBLE पहचानने के नियम
+
+केवल VISUALLY FILLED bubble को answer मानो।
+
+किसी option को तभी selected मानो जब उसके bubble के अंदर student की स्पष्ट dark/colored marking दिखाई दे।
+
+इन चीजों को marking मत मानो:
+
+खाली गोल circle
+
+circle की border/outline
+
+printed option letter
+
+printing का निशान
+
+scan का shadow
+
+हल्का धब्बा
+
+paper की crease
+
+आसपास का text
+
+दूसरे bubble की marking
+
+image compression/noise
+
+हर Question को अलग-अलग जांचो
+
+हर question में A, B, C और D चारों bubbles को ध्यान से देखो।
+
+A → क्या bubble वास्तव में भरा है?
+
+B → क्या bubble वास्तव में भरा है?
+
+C → क्या bubble वास्तव में भरा है?
+
+D → क्या bubble वास्तव में भरा है?
+
+Result के नियम
+
+केवल A स्पष्ट रूप से भरा है → "A"
+
+केवल B स्पष्ट रूप से भरा है → "B"
+
+केवल C स्पष्ट रूप से भरा है → "C"
+
+केवल D स्पष्ट रूप से भरा है → "D"
+
+कोई bubble नहीं भरा है → केवल question number लिखो और उसके बाद खाली छोड़ दो।
+
+दो या अधिक bubbles भरे हुए हैं → केवल question number लिखो और उसके बाद खाली छोड़ दो।
+
+Marking स्पष्ट नहीं है → केवल question number लिखो और उसके बाद खाली छोड़ दो।
+
+उदाहरण
+
+यदि किसी image में:
+
+1 = A
+2 = खाली
+3 = C
+4 = B
+5 = खाली
+
+तो उस image का पूरा अलग code block:
+
+1 A
+2
+3 C
+4 B
+5
+
+दूसरी image में:
+
+1 = D
+2 = A
+3 = खाली
+4 = C
+5 = B
+
+तो दूसरी image का अलग code block:
+
+1 D
+2 A
+3
+4 C
+5 B
+
+QUESTION NUMBER
+
+हर image के लिए सभी question numbers क्रम से लिखो।
+
+अगर OMR में 1 से 100 तक questions हैं, तो प्रत्येक image के code block में 1 से 100 तक सभी numbers होने चाहिए।
+
+किसी question को skip मत करो।
+
+Blank question में केवल number लिखो:
+
+25
+
+"25 Blank" नहीं लिखना है।
+
+"25 Unclear" नहीं लिखना है।
+
+"25 Multiple" नहीं लिखना है।
+
+FINAL VERIFICATION
+
+हर image को independently कम से कम दो बार check करो।
+
+विशेष रूप से verify करो:
+
+1. कोई खाली bubble answer न बन जाए।
+
+2. कोई भरा हुआ bubble छूट न जाए।
+
+3. A/B/C/D की position सही हो।
+
+4. Question number सही हो।
+
+5. दूसरी image का answer इस image में न आए।
+
+6. हर image का output अलग code block में हो।
+
+7. हर code block सीधे copy-paste करने योग्य हो।
+
+FINAL OUTPUT FORMAT — ABSOLUTELY STRICT
+
+अगर 3 images हैं, तो EXACTLY 3 अलग-अलग code blocks दो:
+
+[IMAGE 1 के सभी answers]
+
+[IMAGE 2 के सभी answers]
+
+[IMAGE 3 के सभी answers]
+
+हर code block independent और directly copyable होना चाहिए।
+
+कोई heading नहीं।
+
+कोई explanation नहीं।
+
+कोई numbering जैसे "Answer Sheet 1" नहीं।
+
+कोई extra text नहीं।
+
+अंतिम नियम:
+
+ONE IMAGE = ONE SEPARATE CODE BLOCK
+
+NEVER COMBINE MULTIPLE IMAGES INTO ONE CODE BLOCK.
+
+EACH CODE BLOCK MUST BE DIRECTLY COPY-PASTEABLE.
+
+NEVER GUESS.
+
+NEVER FILL AN EMPTY BUBBLE.
+
+NEVER WRITE BLANK, UNCLEAR OR MULTIPLE.
+
+ALWAYS PRESERVE EVERY QUESTION NUMBER.
+
+OUTPUT ONLY SEPARATE CODE BLOCKS.`;
+
+  function copyChatGptOmrPrompt() {
+    navigator.clipboard.writeText(CHATGPT_OMR_PROMPT).then(() => {
+      alert("✅ Prompt copy ho gaya! Ab ChatGPT (chatgpt.com) mein naya chat kholein, paste karein, aur OMR sheet ki photo(s) attach karke bhej dein.");
+    }).catch(() => {
+      // Clipboard API kabhi-kabhi permission/HTTPS issue se fail hoti hai —
+      // us case mein ek text box dikha do jaha se manually select-copy ho sake.
+      const ta = document.createElement("textarea");
+      ta.value = CHATGPT_OMR_PROMPT;
+      ta.style.cssText = "position:fixed;top:10%;left:10%;width:80%;height:70%;z-index:99999;font-size:12px;";
+      document.body.appendChild(ta);
+      ta.focus(); ta.select();
+      alert("Clipboard access nahi mila — text box khul gaya hai, Ctrl+A phir Ctrl+C karke copy kar lein, phir isi box ko band kar dein.");
+    });
+  }
+  window.copyChatGptOmrPrompt = copyChatGptOmrPrompt;
+
   function parseManualAnswers(text, numQuestions) {
     const answers = {};
     const re = /(\d{1,3})\s*[).:\-]?\s*([abcdABCD]|[xX]|-)/g;

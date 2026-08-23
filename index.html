@@ -1315,6 +1315,20 @@ B"></textarea>
         <!-- Manual Entry -->
         <div id="omr-manual-box" class="hidden">
           <button type="button" class="btn-secondary" onclick="backToOmrHub()" style="margin-bottom:12px;">⬅ OMR par wapas</button>
+
+        <div class="card" style="margin-bottom:16px;border:1.5px solid #7c3aed;">
+          <h3 class="section-title" style="color:#6d28d9;">🤖 Auto-Scan Galat Ho To — ChatGPT Se Answers Nikalwayein</h3>
+          <p class="muted-text">Agar OMR Scanner kisi sheet ke answers galat pakad raha hai (jaise light marking, phone camera ka angle, ya shadow ki wajah se), to us student ki OMR sheet ki photo(s) ChatGPT ko dikha kar sahi answers nikalwaye ja sakte hain — phir neeche "Answers Type Karein" box mein seedha paste karke save kar dein.</p>
+          <button type="button" class="btn-secondary" onclick="copyChatGptOmrPrompt()">📋 ChatGPT Prompt Copy Karein</button>
+          <ol style="margin:10px 0 0;padding-left:20px;font-size:.85rem;color:#475569;line-height:1.7;">
+            <li><a href="https://chatgpt.com" target="_blank" rel="noopener">chatgpt.com</a> par ek naya chat kholein.</li>
+            <li>Upar wala "📋 ChatGPT Prompt Copy Karein" button dabayein, phir wahan paste karein.</li>
+            <li>Us student ki OMR sheet ki photo(s) (ek ya zyada) us hi message mein attach karein aur bhej dein.</li>
+            <li>ChatGPT jo <code>1 A</code> / <code>2</code> / <code>3 C</code> jaisa format wapas dega, use poora copy karein.</li>
+            <li>Neeche "Answers" box mein paste karein aur "Answers Parse Karein" dabayein — jitne answers milenge wo apne aap bhar jayenge, baaki dropdown se check/fix kar lein.</li>
+          </ol>
+        </div>
+
         <div class="card" style="margin-bottom:16px;">
           <h3 class="section-title">✍️ Answers Type Karke Marks Chadhayein</h3>
           <p class="muted-text">Photo ki zaroorat nahi — student ka OMR khud dekh kar answers yahan type karein, jaise: <code>1 c 2 b 3 a 4 d</code> (ek line me ya alag-alag lines me, "x" ya "-" likhne se woh question not-attempted maana jayega).</p>
