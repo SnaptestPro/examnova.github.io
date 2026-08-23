@@ -6,11 +6,7 @@
    2) Admin uploads a photo of the filled sheet → this module detects
       the 4 corner markers, maps every bubble's expected position onto
       the photo (bilinear interpolation between the 4 corners), and
-      measures bubble darkness to guess the marked option. When the AI
-      endpoint is configured, that pixel-darkness reading ALSO cross-
-      checks the AI's reading (two independent methods on the same
-      photo) — questions where they disagree are flagged red for the
-      admin to check by hand, instead of trusting either method blindly.
+      measures bubble darkness to guess the marked option.
    3) Admin reviews/corrects the detected answers, then confirms —
       result is saved via the SAME saveRecordOnline() used by normal
       online tests, so it shows up in Records / Leaderboard normally.
@@ -27,13 +23,9 @@
   // When set, the scanner sends the photo to Claude Vision (via that
   // script, so the API key never touches the browser) and uses its
   // reading as the primary result — far more robust than pixel-darkness
-  // math against lighting, tilt, shadows, and phone-camera quirks. The
-  // local pixel-darkness method still runs alongside it (it's free and
-  // instant) purely to CROSS-CHECK the AI's answers — any question where
-  // the two disagree gets flagged red in the review step so the admin
-  // checks exactly those, not the whole sheet.
+  // math against lighting, tilt, shadows, and phone-camera quirks.
   // When left empty, the scanner automatically falls back to the
-  // original geometric pixel-darkness method below (no AI, no cross-check).
+  // original geometric pixel-darkness method below.
   const OMR_AI_ENDPOINT = ""; // e.g. "https://script.google.com/macros/s/AKfycb.../exec"
 
   const PAGE_W_MM = 210, PAGE_H_MM = 297;   // A4
@@ -559,128 +551,15 @@
     if (!data.ok) throw new Error(data.error || "AI endpoint returned an error");
 
     const letters = ["A", "B", "C", "D"];
-    const validConf = ["high", "medium", "low", "blank"];
     return data.answers.map(r => ({
       q: r.q,
       detected: r.detected ? letters.indexOf(r.detected) : null,
-      // Backend now returns a real per-question confidence (high/medium/
-      // low/blank) instead of a binary marked/null — the AI is told to
-      // still give its best guess even on faint/ambiguous bubbles rather
-      // than silently returning null, so those surface in review instead
-      // of quietly defaulting to "blank".
-      confidence: validConf.includes(r.confidence) ? r.confidence : (r.detected ? "medium" : "blank")
+      // AI doesn't give a numeric confidence, but it's told to return null
+      // instead of guessing on genuinely ambiguous bubbles — so treat every
+      // non-null answer as high confidence and every null as blank/unclear,
+      // still fully editable in the review step either way.
+      confidence: r.detected ? "high" : "blank"
     }));
-  }
-
-  // ── DUAL CROSS-CHECK ─────────────────────────────────────────────
-  // AI (Claude Vision) and the pixel-darkness method are two INDEPENDENT
-  // ways of reading the same photo — one reads it "like a human", the
-  // other measures raw ink darkness against the printed corner markers.
-  // Their mistakes don't share a common cause (AI can misjudge a faint
-  // mark; pixel-method can misjudge from lighting/corner issues), so
-  // when both land on the SAME answer for a question, that agreement is
-  // a much stronger signal than either method's own self-reported
-  // confidence. When they DISAGREE, that disagreement is itself the
-  // most reliable "check this one" flag available — it doesn't depend
-  // on either method correctly knowing when it's wrong. Pixel-method
-  // runs locally (free, instant), so this cross-check costs nothing
-  // extra beyond the AI call itself.
-  function crossCheckAnswers(aiAnswers, pixelAnswers, cornersReliable) {
-    const pixelByQ = {};
-    pixelAnswers.forEach(a => { pixelByQ[a.q] = a; });
-    let mismatchCount = 0;
-    const merged = aiAnswers.map(a => {
-      const px = pixelByQ[a.q];
-      // If the pixel-method's own corner detection was unreliable on
-      // this photo, its opinion isn't trustworthy enough to cross-check
-      // against — trust AI alone here (the cornerWarning banner already
-      // tells the admin to double-check everything in that case).
-      if (!px || !cornersReliable) return { ...a, mismatch: false };
-      if (px.detected === a.detected) {
-        // Two independent methods agreeing is stronger evidence than
-        // either alone — upgrade anything below "high".
-        return { ...a, confidence: "high", mismatch: false };
-      }
-      mismatchCount++;
-      return { ...a, mismatch: true, altGuess: px.detected };
-    });
-    return { answers: merged, mismatchCount };
-  }
-
-  // ── PHOTO QUALITY GATE ─────────────────────────────────────────
-  // Sabse zyada scanning errors (chahe AI ho ya pixel-method) kharab
-  // photo se hi aate hain — dhundhli (out of focus), bahut andheri, ya
-  // flash/glare se bubbles wash-out ho jaana. Koi bhi detection method
-  // aisi photo par bharosemand nahi ho sakta, chahe wo kitna bhi smart
-  // ho. Ye check AI ko photo bhejne se PEHLE hi uski basic quality
-  // (focus, brightness, glare) parakh leta hai — kharab photo turant
-  // pakdi jaati hai (AI credits bhi bachte hain), aur admin ko turant
-  // dobara photo lene ka mauka milta hai — scan hone ke baad galat
-  // result dekh ke pachhtaane ke bajaye.
-  function assessPhotoQuality(gray, w, h) {
-    const issues = [];
-    // Central 80% crop — ignores any dark background/table-edge outside
-    // the sheet itself that a loosely-framed photo might include.
-    const x0 = Math.floor(w * 0.1), x1 = Math.ceil(w * 0.9);
-    const y0 = Math.floor(h * 0.1), y1 = Math.ceil(h * 0.9);
-    const stride = 3;
-
-    let sum = 0, count = 0, brightCount = 0;
-    for (let y = y0; y < y1; y += stride) {
-      for (let x = x0; x < x1; x += stride) {
-        const v = gray[y * w + x];
-        sum += v; count++;
-        if (v > 250) brightCount++;
-      }
-    }
-    const brightness = count ? sum / count : 200;
-    const glarePct = count ? brightCount / count : 0;
-
-    // Blur: variance of a simple Laplacian response — a sharp photo of a
-    // printed sheet has lots of crisp edges (bubble rings, grid lines,
-    // text), so this response varies a lot pixel-to-pixel. A blurry photo
-    // smooths those edges away, so the variance collapses toward zero.
-    const step = 4;
-    let lapSum = 0, lapSumSq = 0, lapCount = 0;
-    for (let y = y0 + step; y < y1 - step; y += step) {
-      for (let x = x0 + step; x < x1 - step; x += step) {
-        const c = gray[y * w + x];
-        const l = 4 * c - gray[y * w + (x - step)] - gray[y * w + (x + step)]
-                         - gray[(y - step) * w + x] - gray[(y + step) * w + x];
-        lapSum += l; lapSumSq += l * l; lapCount++;
-      }
-    }
-    const lapMean = lapCount ? lapSum / lapCount : 0;
-    const blurVariance = lapCount ? (lapSumSq / lapCount) - (lapMean * lapMean) : 999;
-
-    if (blurVariance < 55) issues.push("📷 Photo dhundhli (out of focus) lag rahi hai — camera ko sheet ke seedhe upar sthir rakh ke, focus lock karke dobara photo lein.");
-    if (brightness < 95) issues.push("🌑 Photo bahut andheri hai — zyada roshni mein ja kar, ya flash on karke, dobara photo lein.");
-    if (glarePct > 0.35) issues.push("✨ Flash/roshni ka glare kaafi zyada hai (bada hissa overexposed/safed dikh raha hai) — flash band karke ya angle thoda badal ke dobara lein.");
-
-    return { issues, brightness, blurVariance, glarePct };
-  }
-
-  // Warning panel jab photo quality theek nahi lagti — admin ko dobara
-  // photo lene ka option deta hai, ya (agar wo phir bhi confident hai)
-  // usi photo se aage badhne ka. Kabhi bhi silently block nahi karta.
-  function renderQualityWarning(quality, onProceedAnyway, onRetake) {
-    const container = document.getElementById("omr-review-area");
-    if (!container) { onProceedAnyway(); return; } // no UI to show warning in — don't block silently
-    const list = quality.issues.map(m => `<li style="margin-bottom:4px;">${m}</li>`).join("");
-    container.innerHTML = `
-      <div class="card" style="margin-top:14px;border:1px solid #fecaca;background:#fef2f2;">
-        <h4 style="margin-bottom:6px;color:#b91c1c;">⚠️ Photo Quality Theek Nahi Lag Rahi</h4>
-        <ul style="margin:0 0 10px 18px;padding:0;color:#7f1d1d;font-size:.85rem;">${list}</ul>
-        <p class="muted-text" style="margin-bottom:10px;font-size:.8rem;">Aisi photo par AI aur pixel-method dono ke galat padhne ka chance zyada hai. Sheet ko flat rakh ke, achi roshni mein, seedhe upar se dobara photo lena sabse behtar rahega.</p>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          <button type="button" id="omr-quality-retake-btn" class="btn-secondary">📷 Nayi Photo Chunein</button>
-          <button type="button" id="omr-quality-proceed-btn" class="btn-secondary" style="color:#b91c1c;">⚠️ Isi Photo Se Scan Karein</button>
-        </div>
-      </div>`;
-    const retakeBtn = document.getElementById("omr-quality-retake-btn");
-    const proceedBtn = document.getElementById("omr-quality-proceed-btn");
-    if (retakeBtn) retakeBtn.onclick = () => { container.innerHTML = ""; onRetake(); };
-    if (proceedBtn) proceedBtn.onclick = () => { container.innerHTML = ""; onProceedAnyway(); };
   }
 
   async function scanOMRSheet() {
@@ -732,49 +611,13 @@
         ctx.drawImage(img, 0, 0, w, h);
       }
 
-      // ── Quality gate: check the photo itself BEFORE spending an AI
-      // call or trusting the pixel-method on something blurry/dark/
-      // glared-out — no detection method can read marks reliably off a
-      // bad photo. Skipped only if the admin already chose "scan anyway"
-      // for THIS EXACT file (tracked by name+size+lastModified), so
-      // picking a different photo always re-checks from scratch.
-      const gray = toGrayscale(ctx, w, h);
-      const file = fileInput.files[0];
-      const fileFingerprint = file.name + ":" + file.size + ":" + file.lastModified;
-      if (fileInput.dataset.qualityOverrideFor !== fileFingerprint) {
-        const quality = assessPhotoQuality(gray, w, h);
-        if (quality.issues.length) {
-          if (statusEl) statusEl.textContent = "";
-          if (scanBtn) scanBtn.disabled = false;
-          renderQualityWarning(
-            quality,
-            () => { fileInput.dataset.qualityOverrideFor = fileFingerprint; scanOMRSheet(); },
-            () => { fileInput.value = ""; fileInput.click(); }
-          );
-          return;
-        }
-      }
-
       let usedAI = false;
-      let dualChecked = false;
-      let mismatchCount = 0;
-
-      // Pixel method runs locally — free, instant — so we always compute
-      // it, whether or not AI is configured. When AI succeeds, pixel's
-      // result is used to cross-check it (see crossCheckAnswers above)
-      // instead of just sitting idle as an unused fallback.
-      const pixelResult = detectAnswersByPixels(ctx, w, h, test);
-      const cornersReliable = pixelResult.cornersReliable;
-
+      let cornersReliable = true;
       if (OMR_AI_ENDPOINT) {
         if (statusEl) statusEl.textContent = "⏳ AI se sheet padhi ja rahi hai...";
         try {
-          const aiAnswers = await detectAnswersWithAI(canvas, test.questions.length);
-          const cross = crossCheckAnswers(aiAnswers, pixelResult.answers, cornersReliable);
-          detectedAnswers = cross.answers;
-          mismatchCount = cross.mismatchCount;
+          detectedAnswers = await detectAnswersWithAI(canvas, test.questions.length);
           usedAI = true;
-          dualChecked = cornersReliable;
         } catch (aiErr) {
           console.warn("AI OMR detection failed, falling back to pixel method:", aiErr);
           if (statusEl) statusEl.textContent = "⚠️ AI detection fail hui, pixel-method se try kar rahe hain...";
@@ -782,10 +625,12 @@
       }
 
       if (!usedAI) {
-        detectedAnswers = pixelResult.answers;
+        const result = detectAnswersByPixels(ctx, w, h, test);
+        detectedAnswers = result.answers;
+        cornersReliable = result.cornersReliable;
       }
 
-      renderOMRReview(test, name, mobile, testId, usedAI, cornersReliable, dualChecked, mismatchCount);
+      renderOMRReview(test, name, mobile, testId, usedAI, cornersReliable);
       if (statusEl) {
         statusEl.textContent = cornersReliable
           ? "✅ Scan complete — neeche review karke confirm karein."
@@ -800,61 +645,41 @@
     }
   }
 
-  function renderOMRReview(test, name, mobile, testId, usedAI, cornersReliable, dualChecked, mismatchCount) {
+  function renderOMRReview(test, name, mobile, testId, usedAI, cornersReliable) {
     const container = document.getElementById("omr-review-area");
     if (!container) return;
     const letters = ["A", "B", "C", "D"];
-    let flagCount = 0;
-    // "unclear" (pixel-only wording) and "low" (AI wording) both mean the
-    // same thing — same badge/highlight, kept as two keys just so both
-    // methods' own vocabulary works without translation.
-    const badgeFor = { high: "✅", medium: "🟡", low: "🟠", unclear: "🟠", blank: "⬜" };
+    let unclearCount = 0;
+    const badgeFor = { high: "✅", medium: "🟡", unclear: "⚠️", blank: "⬜" };
     const rows = detectedAnswers.map(r => {
-      const needsReview = r.mismatch || r.confidence === "low" || r.confidence === "unclear";
-      if (needsReview) flagCount++;
-      const badge = r.mismatch ? "🔴" : (badgeFor[r.confidence] || "🟠");
+      if (r.confidence === "unclear") unclearCount++;
+      const badge = badgeFor[r.confidence] || "⚠️";
       const opts = [0, 1, 2, 3].map(o => `<option value="${o}" ${r.detected === o ? "selected" : ""}>${letters[o]}</option>`).join("")
         + `<option value="" ${r.detected === null ? "selected" : ""}>— Blank —</option>`;
-      // Mismatch rows show BOTH methods' guesses side by side, so the
-      // admin doesn't have to re-scan or re-check the photo blind — they
-      // already know exactly which two options to weigh.
-      const altNote = r.mismatch
-        ? `<span style="color:#b91c1c;font-size:.72rem;margin-left:6px;">AI: ${r.detected !== null ? letters[r.detected] : "blank"} · Pixel: ${(r.altGuess !== null && r.altGuess !== undefined) ? letters[r.altGuess] : "blank"}</span>`
-        : "";
       return `
-        <div style="display:flex;align-items:center;gap:8px;padding:5px 8px;border-bottom:1px solid #f1f5f9;font-size:.85rem;${needsReview ? "background:#fef2f2;" : ""}">
+        <div style="display:flex;align-items:center;gap:8px;padding:5px 8px;border-bottom:1px solid #f1f5f9;font-size:.85rem;${r.confidence === "unclear" ? "background:#fffbeb;" : ""}">
           <span style="width:56px;font-weight:700;">${badge} Q${r.q}</span>
           <select data-q="${r.q}" class="omr-answer-select" style="padding:3px 6px;">${opts}</select>
-          ${altNote}
         </div>`;
     }).join("");
 
     const methodNote = usedAI
-      ? (dualChecked
-          ? `<span style="color:#059669;">🤖 AI (Claude Vision) + 📐 Pixel-method — dono se cross-check kiya gaya</span>`
-          : `<span style="color:#059669;">🤖 AI (Claude Vision) se detect kiya gaya</span>`)
+      ? `<span style="color:#059669;">🤖 AI (Claude Vision) se detect kiya gaya</span>`
       : `<span style="color:#64748b;">📐 Pixel-darkness method se detect kiya gaya${OMR_AI_ENDPOINT ? " (AI abhi fail hui, fallback use hua)" : " (AI configure nahi hai)"}</span>`;
 
-    const cornerWarning = (cornersReliable === false)
+    const cornerWarning = (!usedAI && cornersReliable === false)
       ? `<div style="background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;border-radius:8px;padding:8px 10px;margin-bottom:8px;font-size:.82rem;">
            ⚠️ Corner markers (4 kone ke kaale square) photo mein spasht nahi mile — poori sheet ki position galat ho sakti hai.
            Har answer neeche zaroor check karein, ya sheet ko flat rakh ke, achi roshni mein, seedhe upar se dobara photo lekar re-scan karein.
          </div>`
       : "";
 
-    const mismatchNote = mismatchCount
-      ? `<div style="background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;border-radius:8px;padding:8px 10px;margin-bottom:8px;font-size:.82rem;">
-           🔴 ${mismatchCount} question(s) mein AI aur Pixel-method ka answer alag-alag aaya hai — inhe neeche (laal highlight mein) zaroor khud check karein.
-         </div>`
-      : "";
-
     container.innerHTML = `
       <div class="card" style="margin-top:14px;">
-        <h4 style="margin-bottom:6px;">📝 Review Detected Answers ${flagCount ? `<span style="color:#d97706;font-size:.8rem;">(${flagCount} flagged — kripya check karein)</span>` : ""}</h4>
+        <h4 style="margin-bottom:6px;">📝 Review Detected Answers ${unclearCount ? `<span style="color:#d97706;font-size:.8rem;">(${unclearCount} unclear — kripya check karein)</span>` : ""}</h4>
         ${cornerWarning}
-        ${mismatchNote}
         <p class="muted-text" style="margin-bottom:2px;font-size:.8rem;">${methodNote}</p>
-        <p class="muted-text" style="margin-bottom:8px;">✅ high confidence · 🟡 medium · 🟠 low, khud verify karein · ⬜ confidently blank (not attempted) · 🔴 AI/Pixel mismatch — zaroor check karein. Dropdown se koi bhi answer badal sakte hain.</p>
+        <p class="muted-text" style="margin-bottom:8px;">✅ confident marked · 🟡 medium confidence · ⚠️ unclear, verify karein khud · ⬜ confidently blank (not attempted). Dropdown se koi bhi answer badal sakte hain.</p>
         <div style="max-height:340px;overflow-y:auto;border:1px solid #e2e8f0;border-radius:8px;">${rows}</div>
         <button type="button" id="omr-confirm-save-btn" class="btn-primary" style="margin-top:12px;">✅ Confirm & Result Save Karein</button>
       </div>`;
