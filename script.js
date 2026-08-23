@@ -6035,6 +6035,7 @@ async function testFirebaseDelete() {
 }
 
 let testQuestionsCache = {}; // testId -> cached questions array, snapshot re-fires ke beech reuse hota hai
+let syncTestsHasLoadedOnce = false; // pehla snapshot HAR existing test ko "added" dikhata hai — usse publish-notification trigger nahi karna, sirf uske BAAD ke asli naye publishes se
 
 function syncTests() {
   const db = getDB();
@@ -6042,6 +6043,24 @@ function syncTests() {
   db.collection("tests").onSnapshot(async snap => {
     const newRemote = {};
     snap.forEach(d => { newRemote[d.id] = d.data(); });
+
+    // ── Free, no-server "Naya Test Publish Hua" notification ────────
+    // syncTests() already watches every test change in real time — we
+    // just piggyback on that instead of adding a second listener. Skip
+    // the very first snapshot (initial load: every existing test looks
+    // like a "change") and only notify for genuine draft->live flips
+    // that happen AFTER this tab has been open for a while.
+    if (syncTestsHasLoadedOnce && window.SavyaPush && typeof window.SavyaPush.notifyTestPublished === "function") {
+      snap.docChanges().forEach(change => {
+        const id = change.doc.id;
+        const after = newRemote[id];
+        const before = remoteTests[id]; // still the pre-update value at this point
+        const wasDraft = !before || before.isDraft !== false;
+        const isNowLive = after && after.isDraft === false;
+        if (wasDraft && isNowLive) window.SavyaPush.notifyTestPublished(after.title);
+      });
+    }
+    syncTestsHasLoadedOnce = true;
 
     // Sirf naye ya actually badle hue tests ke chunks hi dobara fetch karo.
     // Pehle yahan HAR snapshot event par (jo ek hi write ke liye 2 baar tak

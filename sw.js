@@ -123,35 +123,10 @@ self.addEventListener('fetch', (event) => {
   );
 });
 
-// ── Push Notifications (Firebase Cloud Messaging) ────────────────
-// Handles a push arriving while the app/tab is closed or in the
-// background. When the app is OPEN and in the foreground, Firebase's
-// own firebase-messaging-compat.js delivers it straight to JS instead
-// (no browser popup needed there) — this handler only covers the
-// closed/background case, which is the whole point of a service worker.
-// NOTE: this fires only once push-notifications.js has actually
-// registered a token — see PUSH_NOTIFICATIONS_SETUP.md for the setup
-// this depends on (VAPID key + the Cloud Function that sends pushes).
-self.addEventListener('push', (event) => {
-  let data = {};
-  try { data = event.data ? event.data.json() : {}; } catch (e) { data = { title: 'Savyasachi Coaching', body: event.data ? event.data.text() : '' }; }
-
-  const title = data.title || data.notification?.title || 'Savyasachi Coaching';
-  const body = data.body || data.notification?.body || 'Naya update aaya hai!';
-  const url = data.url || data.data?.url || '/';
-
-  event.waitUntil(
-    self.registration.showNotification(title, {
-      body,
-      icon: '/icon-192.png',
-      badge: '/icon-192.png',
-      data: { url }
-    })
-  );
-});
-
-// Clicking the notification focuses an already-open tab if there is
-// one, otherwise opens a fresh one at the target URL.
+// notificationclick: hamare push-notifications.js ke showNotification()
+// se banayi hui local notification par click hone par (chahe FCM na ho,
+// showNotification() service-worker registration ke through hi kaam
+// karta hai) — already-open tab ko focus karta hai, warna naya kholta hai.
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const url = event.notification.data?.url || '/';

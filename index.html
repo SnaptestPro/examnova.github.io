@@ -378,7 +378,7 @@
 
         <div style="margin-top:16px;padding-top:14px;border-top:1px solid #e2e8f0;">
           <h4 style="margin:0 0 6px;font-size:.92rem;">🔔 Notifications</h4>
-          <p class="muted-text" style="margin-top:0;">Default se ON rehti hain — jaise hi naya test publish hoga, aapke phone/browser par notification aa jaayegi (app khula rakhna zaroori nahi). Nahi chahiye to yahan se off kar sakte hain.</p>
+          <p class="muted-text" style="margin-top:0;">Default se ON rehti hain — jaise hi naya test publish hoga aur aapka app khula ho (background tab bhi chalega), notification turant aa jaayegi. Nahi chahiye to yahan se off kar sakte hain.</p>
           <button type="button" id="push-notify-toggle-btn" class="btn-secondary" onclick="window.SavyaPush && window.SavyaPush.toggle()">🔔 Notifications On Karein</button>
           <p id="push-notify-status" class="muted-text" style="margin-top:8px;font-size:.8rem;"></p>
         </div>
@@ -1525,11 +1525,6 @@ B"></textarea>
 <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-storage-compat.js"></script>
-<!-- Push Notifications (Web Push via FCM) — see PUSH_NOTIFICATIONS_SETUP.md
-     for the one-time setup this depends on (VAPID key + Cloud Function).
-     Safe to load even before that setup: push-notifications.js checks for
-     an empty VAPID key and just shows a "not set up yet" message. -->
-<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-messaging-compat.js"></script>
 <script src="firebase-config.js"></script>
 <!-- Question Banks -->
 <script src="mathematics-question-bank.js"></script>
