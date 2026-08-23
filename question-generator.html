@@ -73,6 +73,18 @@
         <button class="btn btn-xs btn-primary" onclick="addSelectedToPaper()">➕ Add to Paper</button>
         <button class="btn btn-xs btn-sec-toggle" id="toggleSectionBtn" onclick="isSectionMode()?disableSections():initSections()" style="grid-column:span 3">🗂️ Sections OFF</button>
       </div>
+      <div class="bank-autogen" style="margin:8px 0;">
+        <button type="button" class="btn btn-xs btn-outline full" onclick="toggleAutogenBox()">🎯 Difficulty se Auto-Generate</button>
+        <div id="autogenFields" class="hidden" style="margin-top:8px;display:flex;flex-direction:column;gap:6px;padding:8px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;">
+          <div style="font-size:.72rem;color:#64748b;">Upar wale Subject/Chapter filter ke andar se, difficulty-wise kitne MCQ chahiye:</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;">
+            <div><label style="font-size:.7rem;">🟢 Easy</label><input id="agEasy" type="number" min="0" value="0" style="width:100%"/></div>
+            <div><label style="font-size:.7rem;">🟡 Medium</label><input id="agMedium" type="number" min="0" value="0" style="width:100%"/></div>
+            <div><label style="font-size:.7rem;">🔴 Hard</label><input id="agHard" type="number" min="0" value="0" style="width:100%"/></div>
+          </div>
+          <button type="button" class="btn btn-xs btn-primary full" onclick="autoGenerateByDifficulty()">⚡ Auto Add Karein</button>
+        </div>
+      </div>
       <div class="bank-list" id="bankList">
         <div class="bank-loading">Loading questions...</div>
       </div>
@@ -294,6 +306,7 @@ Model Answer: समाजवाद एक आर्थिक व्यवस्
       <button class="btn btn-sm btn-warning" onclick="clearPaper()">🗑️ Clear</button>
       <button class="btn btn-sm btn-primary" onclick="exportToWord()">📄 Download Word</button>
       <button class="btn btn-sm btn-danger" onclick="printPaper()">🖨️ Print</button>
+      <button id="omr-sheet-btn-qgen" class="btn btn-sm btn-outline" style="grid-column: span 2;" onclick="generateOMRSheetForPaper()">🎯 OMR Sheet (Blank)</button>
       <button class="btn btn-sm btn-success" style="grid-column: span 2;" onclick="savePaperAsDraft()">☁️ Save to Drafts</button>
       <button id="send-back-to-admin-btn" class="btn btn-sm btn-success hidden" style="grid-column: span 2;background:linear-gradient(135deg,#8b5cf6,#6d28d9);" onclick="saveAndReturnToAdmin()">✅ Save &amp; Admin ko Bhejein</button>
     </div>
@@ -390,6 +403,12 @@ Model Answer: समाजवाद एक आर्थिक व्यवस्
 <script src="live-theme-effects.js"></script>
 <script src="theme-manager.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.iife.js"></script>
+<!-- omr.js: only used here for its buildOMRSheetDocx() builder (exposed on
+     window), so the "🎯 OMR Sheet (Blank)" button can generate a bubble
+     sheet for the in-progress paper. Its own init() safely no-ops here
+     since #omr-generate-sheet-btn / the `tests` global don't exist on
+     this page. -->
+<script src="omr.js"></script>
 <script>document.write('<script src="qgen-app.js?v=' + Date.now() + '"><\/script>');</script>
 <script>
 function updateQPreview() {

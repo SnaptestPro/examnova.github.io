@@ -1191,6 +1191,19 @@ B"></textarea>
           <div style="margin-top:10px;padding:10px;background:#f0fdf4;border-radius:8px;border:1px solid #bbf7d0;font-size:13px;color:#166534">
             💡 <strong>WhatsApp:</strong> Pehle upar se "Select Test" mein test chunein, phir "Auto-Send WhatsApp" button se us test ke sabhi students ke liye bulk messages generate kar sakte hain.
           </div>
+
+          <!-- Class-wide Weak-Chapter Analytics: same chapter-wise accuracy
+               view students see for themselves after a test, but aggregated
+               across every student's attempt for the test(s) currently in
+               view above — so admin can see which chapters the WHOLE CLASS
+               struggles with, not just one student. Auto-updates whenever
+               "Select Test" changes (see renderClasswideWeakChapters()). -->
+          <div class="card" style="margin-top:16px;border:1.5px solid #6366f1;">
+            <h3 class="section-title" style="color:#4338ca;">📊 Class-wide Weak Chapters</h3>
+            <p class="muted-text" style="margin-top:-6px;">Upar "Select Test" se ek test chunein (ya "Sabhi Tests" par rehne dein poori class ke saare tests ke liye) — neeche har chapter mein poori class ki accuracy dikhegi.</p>
+            <div id="classwide-analytics-box"><p class="muted-text" style="margin:0;">Loading...</p></div>
+          </div>
+
           <div id="records-list" class="records-sheets-wrap"></div>
         </div>
         </div>

@@ -6,7 +6,7 @@
 // ⚠️ SECURITY: This API key is client-side visible. Restrict access
 // via Firebase Security Rules so only authenticated users can read/write.
 const PROJECT_ID = "the-vishnu-sharma-test";
-const API_KEY    = "AIzaSyBTrKAoQ2T9KNB2vcacv4EPehaDboXmUxk";
+const API_KEY    = "AIzaSyBTrkAoQ2T9KNB2vcacv4EPehaDboXmUxk";
 const FIREBASE_URL = `https://firestore.googleapis.com/v1/projects/${PROJECT_ID}/databases/(default)/documents/questionBank`;
 
 window.QUESTION_BANK = []; // Initialize empty bank
@@ -641,7 +641,8 @@ function fetchBankFromFirebase() {
       const qType   = data.qType === 'subjective' ? 'subjective' : 'mcq';
       const marks   = (data.marks !== undefined && data.marks !== null) ? data.marks : null;
       const modelAnswer = data.modelAnswer || '';
-      return [text, options, ans, chapter, d.id, subject, qType, marks, modelAnswer];
+      const difficulty  = (data.difficulty || '').toLowerCase();
+      return [text, options, ans, chapter, d.id, subject, qType, marks, modelAnswer, difficulty];
     });
   }
 
@@ -786,6 +787,67 @@ function buildBankList() {
   chapSel.value = chapters.includes(curChap) ? curChap : '';
 
   filterBankDebounced();
+}
+
+function toggleAutogenBox() {
+  document.getElementById('autogenFields')?.classList.toggle('hidden');
+}
+
+// ── Difficulty-balanced auto-generator ─────────────────────────
+// Randomly picks unused (not already on paper, not a text-duplicate)
+// MCQ questions from the bank matching the current Subject/Chapter
+// filter, split across Easy/Medium/Hard counts, and adds them straight
+// to the paper (or active section, if Section Mode is ON).
+function autoGenerateByDifficulty() {
+  const bank = window.QUESTION_BANK || [];
+  const subj = document.getElementById('bankSubject')?.value || '';
+  const chap = document.getElementById('bankChapter')?.value || '';
+  const counts = {
+    easy:   parseInt(document.getElementById('agEasy')?.value   || '0', 10) || 0,
+    medium: parseInt(document.getElementById('agMedium')?.value || '0', 10) || 0,
+    hard:   parseInt(document.getElementById('agHard')?.value   || '0', 10) || 0
+  };
+  const totalWanted = counts.easy + counts.medium + counts.hard;
+  if (totalWanted <= 0) { toast('⚠️ Kam se kam ek difficulty mein count daalein'); return; }
+
+  const curList = getAllQuestionsFlat();
+  const usedFirestoreIds = new Set(curList.map(p => p.firestoreId).filter(Boolean));
+  const usedTexts = new Set(curList.map(p => normalizeQText(p.text)));
+
+  const pool = bank.filter(q =>
+    (q[6] !== 'subjective') && // MCQ only — an auto-count picker doesn't mix well with subjective marks/format
+    (!subj || getBankSubject(q) === subj) &&
+    (!chap || q[3] === chap) &&
+    !usedFirestoreIds.has(q[4]) &&
+    !usedTexts.has(normalizeQText(q[0]))
+  );
+
+  function pickN(list, n) {
+    const shuffled = list.slice().sort(() => Math.random() - 0.5);
+    return shuffled.slice(0, n);
+  }
+
+  const shortfall = {};
+  let addedCount = 0;
+  ['easy', 'medium', 'hard'].forEach(level => {
+    const need = counts[level];
+    if (!need) return;
+    const levelPool = pool.filter(q => (q[9] || '') === level && !usedFirestoreIds.has(q[4]));
+    const picked = pickN(levelPool, need);
+    picked.forEach(q => {
+      addQFromBank(q, getBankIdx(q));
+      usedFirestoreIds.add(q[4]);
+      usedTexts.add(normalizeQText(q[0]));
+      addedCount++;
+    });
+    if (picked.length < need) shortfall[level] = need - picked.length;
+  });
+
+  buildBankList(); // refresh so just-added / already-used questions re-sort to the bottom
+  const shortMsg = Object.keys(shortfall).length
+    ? ' ⚠️ Kam pade: ' + Object.entries(shortfall).map(([l, n]) => `${n} ${l}`).join(', ') + ' (bank mein itne is difficulty ke nahi hain)'
+    : '';
+  toast(addedCount ? `⚡ ${addedCount} questions auto-add ho gaye!${shortMsg}` : `ℹ️ Filter ke hisaab se koi matching question nahi mila.${shortMsg}`);
 }
 
 function onBankSubjectChange() {
@@ -989,6 +1051,12 @@ function toggleBankCheck(visIdx) {
     reRenderPaper();
     toast('❌ Question hata diya');
   } else {
+    const dup = findDuplicateQuestionInPaper(q[0], q[4]);
+    if (dup) {
+      const preview = (dup.text || '').replace(/\s+/g, ' ').trim().slice(0, 70);
+      const ok = confirm(`⚠️ Milta-julta ek question paper mein pehle se hai:\n\n"${preview}${preview.length === 70 ? '…' : ''}"\n\nPhir bhi ye wala add karein?`);
+      if (!ok) return;
+    }
     const newQ = addQFromBank(q, bankIdx);
     cb.checked = true;
     item.classList.add('selected');
@@ -997,6 +1065,18 @@ function toggleBankCheck(visIdx) {
     scrollToPaperQuestion(newQ.id);
   }
   updateSelectedCount();
+}
+
+// ── Duplicate detection (by normalized question text, across different
+// bank doc IDs) — catches copies that were entered into the bank twice
+// under separate Firestore documents, which the existing bankIdx/
+// firestoreId check in _addToPaperCore/toggleBankCheck can't see since
+// that only stops the SAME doc being added twice.
+function findDuplicateQuestionInPaper(text, excludeFirestoreId) {
+  const norm = normalizeQText(text);
+  if (!norm) return null;
+  const list = getAllQuestionsFlat();
+  return list.find(p => (p.firestoreId || null) !== (excludeFirestoreId || null) && normalizeQText(p.text) === norm) || null;
 }
 
 // Scroll the paper preview panel so a just-added question is visible.
@@ -1107,11 +1187,22 @@ function addSelectedToPaper() {
       newlyAdded.push(q);
     }
   }
+  // Flag (not block) text-duplicates within this bulk batch — a confirm()
+  // popup per row would be unusable for a multi-select add, so instead we
+  // add everything the teacher selected and just call out the count.
+  let dupCount = 0;
+  const seenTexts = new Set(curList.map(p => normalizeQText(p.text)));
+  newlyAdded.forEach(q => {
+    const norm = normalizeQText(q[0]);
+    if (seenTexts.has(norm)) dupCount++;
+    seenTexts.add(norm);
+  });
   const addedQs = newlyAdded.map(q => addQFromBank(q, getBankIdx(q)));
   updateSelectedCount();
   if(newlyAdded.length) {
     const secLabel = isSectionMode() ? ` → ${getActiveSectionObj()?.name}` : '';
-    toast(`✅ ${newlyAdded.length} questions add ho gaye${secLabel}!`);
+    const dupMsg = dupCount ? ` (⚠️ ${dupCount} duplicate lag rahe hain, check karein)` : '';
+    toast(`✅ ${newlyAdded.length} questions add ho gaye${secLabel}!${dupMsg}`);
     scrollToPaperQuestion(addedQs[addedQs.length - 1].id);
   } else toast('ℹ️ Pehle questions select karein');
 }
@@ -2369,6 +2460,43 @@ function goBackFromGenerator() {
 function printPaper() {
   switchMainTab('preview');
   setTimeout(() => window.print(), 350);
+}
+
+// ── OMR Sheet (blank, for the paper currently being built) ──────
+// Reuses omr.js's buildOMRSheetDocx (exposed on window) so the bubble
+// grid is pixel/mm-identical to what the OMR Scanner later expects —
+// but works on the in-progress paper directly, without needing to
+// save/publish it as a test first. Only needs {title, questions.length}.
+async function generateOMRSheetForPaper() {
+  const list = getAllQuestionsFlat().filter(q => q.qType !== 'subjective');
+  if (!list.length) { alert('OMR Sheet ke liye pehle paper mein kam se kam ek MCQ question add karein.'); return; }
+  if (list.length > 100) { alert('OMR sheet abhi max 100 MCQ questions tak support karti hai.'); return; }
+  if (typeof window.buildOMRSheetDocx !== 'function' || !window.docx) {
+    alert('OMR sheet generator load nahi hua — page reload karke dobara try karein.');
+    return;
+  }
+  const title = loadedDraftTitle || document.getElementById('subject')?.value || 'Test';
+  const testIdLabel = editingDraftId || ('draft-' + Date.now());
+  const btn = document.getElementById('omr-sheet-btn-qgen');
+  try {
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Generate ho raha hai...'; }
+    const doc = window.buildOMRSheetDocx({ title, questions: list }, testIdLabel);
+    const blob = await window.docx.Packer.toBlob(doc);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `OMR-Sheet-${String(title).replace(/[^a-z0-9]+/gi, '-')}.docx`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    toast('✅ OMR Sheet (Word) download ho gaya!');
+  } catch (e) {
+    console.error(e);
+    alert('OMR sheet banane mein error: ' + (e.message || e));
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '🎯 OMR Sheet (Blank)'; }
+  }
 }
 
 // ── Utility ───────────────────────────────────

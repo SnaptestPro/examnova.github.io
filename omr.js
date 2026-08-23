@@ -1215,4 +1215,11 @@
 
   document.addEventListener("DOMContentLoaded", init);
 
+  // Exposed so other pages (e.g. the Question Generator) can build a
+  // blank OMR bubble-sheet for an in-progress paper that hasn't been
+  // saved/published as a test yet — same exact grid geometry the
+  // scanner uses (computeOMRLayout), just called directly with a
+  // {title, questions} object instead of a saved `tests[testId]`.
+  window.buildOMRSheetDocx = buildOMRSheetDocx;
+
 })();

@@ -5299,7 +5299,57 @@ function renderRecords() {
       </details>`;
     list.appendChild(waPanel);
   });
+  renderClasswideWeakChapters(tests);
   renderStudentResultPicker();
+}
+
+// ── Class-wide Weak-Chapter Analytics (Admin) ──────────────────────
+// Aggregates chapter-wise correct/wrong across every student's attempt
+// for the test(s) currently shown in the Result Sheets view above
+// (either one selected test, or all tests-with-results combined when
+// nothing is selected) — so admin sees which chapters the WHOLE CLASS
+// is weak in, not just one student. Reuses the same d.chapter/d.status
+// shape already saved on every record's `details` array (same pattern
+// as the per-student chapMap used in the student result screen).
+function renderClasswideWeakChapters(testsList) {
+  const box = document.getElementById('classwide-analytics-box');
+  if (!box) return;
+  const testIds = new Set((testsList || []).map(t => t.testId));
+  const relevantRecords = (records || []).filter(r => testIds.has(r.testId) && Array.isArray(r.details) && r.details.length);
+
+  if (!relevantRecords.length) {
+    box.innerHTML = '<p class="muted-text" style="margin:0;">Chapter-wise class analysis ke liye abhi koi detailed record nahi hai.</p>';
+    return;
+  }
+
+  const chapMap = {};
+  relevantRecords.forEach(r => {
+    r.details.forEach(d => {
+      const ch = d.chapter || d.subject || 'Unknown';
+      if (!chapMap[ch]) chapMap[ch] = { correct: 0, wrong: 0, total: 0 };
+      chapMap[ch].total++;
+      if (d.status === 'Correct') chapMap[ch].correct++;
+      else if (d.status === 'Wrong') chapMap[ch].wrong++;
+    });
+  });
+
+  const sorted = Object.entries(chapMap).sort((a, b) => (a[1].correct / a[1].total) - (b[1].correct / b[1].total));
+
+  box.innerHTML = `<div style="font-size:12px;color:#64748b;margin-bottom:8px;">📈 ${relevantRecords.length} attempts ke aadhar par (poori class)</div>` +
+    sorted.map(([ch, data]) => {
+      const pct = data.total > 0 ? Math.round((data.correct / data.total) * 100) : 0;
+      const color = pct >= 70 ? "#22c55e" : pct >= 40 ? "#f59e0b" : "#ef4444";
+      const label = pct >= 70 ? "✅ Strong" : pct >= 40 ? "⚠️ Average" : "❌ Weak — extra practice dilwayein";
+      return `<div style="margin-bottom:10px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;font-size:.85rem;font-weight:600;">
+          <span>${escHtml(ch)}</span>
+          <span style="color:${color};">${label} — ${pct}% (${data.correct}/${data.total})</span>
+        </div>
+        <div style="background:#e5e7eb;border-radius:20px;height:8px;overflow:hidden;">
+          <div style="width:${pct}%;height:100%;background:${color};border-radius:20px;"></div>
+        </div>
+      </div>`;
+    }).join('');
 }
 
 function renderAdminRecordsForSelectedTest() {
