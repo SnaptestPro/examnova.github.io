@@ -42,8 +42,34 @@
 
   /* ── Shared layout: used by BOTH the sheet generator and the
      scanner, so bubble positions always match exactly.
-     Grid density (columns of 20 rows each) matches the BSEB-style
-     100-question OMR sheet layout. ─────────────────────────────── */
+     Matches the standard printed BSEB-style OMR sheet the coaching
+     center already uses on paper: boxed NAME/EXAM/DATE header, an
+     "Exam Set" (A–E) row, a 2-digit "Roll No" bubble block (rows 0–9,
+     tens+units columns), a "Subject 1 / Section 1" label, then up to
+     4 columns of questions with the "A B C D" option header re-printed
+     above every group of 5 questions. Column 0 carries the Exam
+     Set + Roll No + Subject/Section block above its own questions,
+     exactly like the reference sheet, so it holds fewer questions
+     than columns 2–4. ─────────────────────────────────────────────── */
+
+  // Given R available row-slots in a column, how many questions fit if
+  // an extra "A B C D" header row is inserted before every group of 5?
+  function maxQuestionsForRows(R) {
+    if (R <= 0) return 0;
+    let q = 0;
+    while (q < 200) {
+      const next = q + 1;
+      if (next + Math.ceil(next / 5) > R) break;
+      q = next;
+    }
+    return q;
+  }
+
+  // Column 0 only: "Exam Set" label + letter/bubble row (2) + Roll No
+  // digit rows 0–9 (10) + "Subject 1 / Section 1" label (1) = 13 rows,
+  // reserved above that column's own question rows.
+  const OMR_COL0_PREFIX_ROWS = 13;
+
   function computeOMRLayout(numQuestions) {
     numQuestions = Math.max(1, Math.min(100, numQuestions));
     const corners = {
@@ -53,31 +79,73 @@
       br: { x: PAGE_W_MM - MARGIN_MM - MARKER_MM / 2, y: PAGE_H_MM - MARGIN_MM - MARKER_MM / 2 }
     };
 
-    const gridTop = 76, gridBottom = corners.bl.y - 8;
+    const gridTop = 78, gridBottom = corners.bl.y - 8;
     const gridLeft = corners.tl.x + 6, gridRight = corners.tr.x - 6;
+    const gridHeightMM = gridBottom - gridTop;
+    const prefixRows = OMR_COL0_PREFIX_ROWS;
 
-    // Max 4 columns (25 rows each) — keeps a clear visual gap between one
-    // column's last bubble and the next column's question number, so they
-    // never look like they belong to the same question.
-    const cols = Math.min(4, Math.max(1, Math.ceil(numQuestions / 25)));
-    const rowsPerCol = Math.ceil(numQuestions / cols);
-    const blockWidth = (gridRight - gridLeft) / cols;
-    const rowHeight = Math.min(10.5, (gridBottom - gridTop) / rowsPerCol);
+    // Column width is always a QUARTER of the grid width — the same
+    // compact bubble spacing whether the sheet ends up using 1 column or
+    // 4. Without this, a short test (few columns needed) would stretch
+    // its single column across the FULL page width, spacing option
+    // bubbles absurdly far apart. Unused width on the right (for short
+    // tests) is simply left blank, same as the printed reference sheet
+    // being a fixed template regardless of how many questions a given
+    // test actually has.
+    const blockWidth = (gridRight - gridLeft) / 4;
 
-    const qLabelWidth = 10;   // mm reserved for "001" style label
-    const gapWidth = 7;       // mm clear gap + divider line before next column
+    // Pick the smallest column count (1–4) and smallest rows-per-column
+    // (i.e. the LARGEST row height, for the easiest-to-scan sheet) that
+    // still has enough total capacity for numQuestions, keeping row
+    // height within a sane printable/scan-able range (5mm–10.5mm).
+    let chosen = null;
+    for (let cols = 1; cols <= 4 && !chosen; cols++) {
+      const minRows = Math.ceil(gridHeightMM / 10.5);
+      const maxRows = Math.floor(gridHeightMM / 5.0);
+      for (let rowsPerCol = minRows; rowsPerCol <= maxRows; rowsPerCol++) {
+        let capacity = 0;
+        for (let c = 0; c < cols; c++) {
+          capacity += maxQuestionsForRows(rowsPerCol - (c === 0 ? prefixRows : 0));
+        }
+        if (capacity >= numQuestions) { chosen = { cols, rowsPerCol }; break; }
+      }
+    }
+    if (!chosen) chosen = { cols: 4, rowsPerCol: Math.floor(gridHeightMM / 5.0) };
+
+    const { cols, rowsPerCol } = chosen;
+    const rowHeight = gridHeightMM / rowsPerCol;
+    const qLabelWidth = 9;   // mm reserved for the "001" style label
+    const gapWidth = 6;      // mm clear gap + divider line before next column
     const optSpacing = (blockWidth - qLabelWidth - gapWidth) / 4;
 
     const bubbles = [];
-    for (let i = 0; i < numQuestions; i++) {
-      const col = Math.floor(i / rowsPerCol);
-      const rowInCol = i % rowsPerCol;
-      const colX = gridLeft + col * blockWidth;
-      const rowY = gridTop + rowInCol * rowHeight;
-      const options = [0, 1, 2, 3].map(o => ({
-        opt: o, x: colX + qLabelWidth + o * optSpacing + optSpacing / 2, y: rowY + rowHeight / 2
-      }));
-      bubbles.push({ q: i + 1, qLabelX: colX, qLabelY: rowY + rowHeight / 2, options });
+    const headers = [];   // repeating "A B C D" rows: { col, rowIndex }
+    const colMeta = [];   // per-column row plan, used by the docx builder
+    let qNum = 1;
+    for (let c = 0; c < cols && qNum <= numQuestions; c++) {
+      const prefix = c === 0 ? prefixRows : 0;
+      const capacity = maxQuestionsForRows(rowsPerCol - prefix);
+      const take = Math.min(capacity, numQuestions - qNum + 1);
+      const rows = [];
+      let rowCursor = prefix, localQ = 0;
+      while (localQ < take) {
+        headers.push({ col: c, rowIndex: rowCursor });
+        rows.push({ type: "header", rowIndex: rowCursor });
+        rowCursor++;
+        const groupSize = Math.min(5, take - localQ);
+        for (let g = 0; g < groupSize; g++) {
+          const q = qNum;
+          const colX = gridLeft + c * blockWidth;
+          const rowY = gridTop + rowCursor * rowHeight;
+          const options = [0, 1, 2, 3].map(o => ({
+            opt: o, x: colX + qLabelWidth + o * optSpacing + optSpacing / 2, y: rowY + rowHeight / 2
+          }));
+          bubbles.push({ q, qLabelX: colX, qLabelY: rowY + rowHeight / 2, options });
+          rows.push({ type: "question", q, rowIndex: rowCursor });
+          rowCursor++; qNum++; localQ++;
+        }
+      }
+      colMeta.push({ colIndex: c, prefix, rows, totalRows: rowCursor });
     }
 
     const dividers = [];
@@ -85,15 +153,15 @@
       dividers.push({ x: gridLeft + c * blockWidth - gapWidth / 2, yTop: gridTop - 4, yBottom: gridTop + rowsPerCol * rowHeight });
     }
     return {
-      corners, bubbles, dividers, cols, optSpacing,
+      corners, bubbles, headers, colMeta, dividers, cols, optSpacing,
       // Full geometry exposed so buildOMRSheetDocx can render the grid at the
-      // EXACT same mm coordinates the scanner assumes. Previously the docx
-      // builder had its own hand-rolled table layout (colWidthMM=44, exact
-      // 6.5mm rows, etc.) that had nothing to do with these numbers, so the
-      // "template" the scanner mapped bubbles onto never matched what was
-      // actually printed on paper — that mismatch (not the darkness sampling)
-      // was the main source of wrong-option detections.
-      gridTop, gridBottom, gridLeft, gridRight, blockWidth, rowHeight, rowsPerCol, qLabelWidth, gapWidth
+      // EXACT same mm coordinates the scanner assumes — the docx builder
+      // walks colMeta row-by-row with fixed-height rows, so the printed
+      // position of every row always lands at gridTop + rowIndex*rowHeight,
+      // which is exactly what templateToPixel() assumes when mapping a
+      // scanned photo back onto this template.
+      gridTop, gridBottom, gridLeft, gridRight, blockWidth, rowHeight, rowsPerCol, qLabelWidth, gapWidth,
+      prefixRows
     };
   }
 
@@ -115,39 +183,97 @@
     const D = window.docx;
     const mm = D.convertMillimetersToTwip;
     const n = test.questions.length;
-    const circled = ["Ⓐ", "Ⓑ", "Ⓒ", "Ⓓ"];
     const noBorders = { top: { style: D.BorderStyle.NONE }, bottom: { style: D.BorderStyle.NONE }, left: { style: D.BorderStyle.NONE }, right: { style: D.BorderStyle.NONE } };
+    const thinBox = { top: { style: D.BorderStyle.SINGLE, size: 4 }, bottom: { style: D.BorderStyle.SINGLE, size: 4 }, left: { style: D.BorderStyle.SINGLE, size: 4 }, right: { style: D.BorderStyle.SINGLE, size: 4 } };
+
+    function circleCell(width, size) {
+      return new D.TableCell({
+        width: { size: mm(width), type: D.WidthType.DXA }, verticalAlign: D.VerticalAlign.CENTER, borders: noBorders,
+        children: [new D.Paragraph({ alignment: D.AlignmentType.CENTER, children: [new D.TextRun({ text: "○", size: size || 20 })] })]
+      });
+    }
+    function textCell(width, text, opts) {
+      opts = opts || {};
+      return new D.TableCell({
+        width: { size: mm(width), type: D.WidthType.DXA }, verticalAlign: D.VerticalAlign.CENTER, borders: noBorders,
+        children: [new D.Paragraph({ alignment: opts.align || D.AlignmentType.LEFT, children: [new D.TextRun({ text: text, bold: !!opts.bold, size: opts.size || 16 })] })]
+      });
+    }
 
     // ── Question grid ──────────────────────────────────────────────
-    // CRITICAL: this grid is now built from computeOMRLayout(), the SAME
-    // function the scanner uses to know where every bubble is. Previously
-    // this block had its own independent numbers (colWidthMM=44, exact
-    // 6.5mm rows, its own column count) that had no relationship to the
-    // coordinates the scanner assumed — so the "template" being scanned
-    // never matched what was actually printed. Now both sides read from
-    // one shared source of truth, and the whole grid is FLOATED at an
-    // absolute position on the page (not flowed after the header), so its
-    // position doesn't shift if the header text wraps differently.
+    // Built entirely from computeOMRLayout()'s colMeta, the SAME function
+    // (and the SAME row plan) the scanner uses to know where every bubble
+    // is. Each column's nested table is a plain sequence of fixed-height
+    // rows (D.HeightRule.EXACT) in the order colMeta lays out — header
+    // rows ("A B C D"), question rows, and for column 0 the Exam
+    // Set + Roll No + Subject/Section block first — so the printed
+    // position of every row always lands at exactly gridTop + rowIndex *
+    // rowHeight, matching what templateToPixel() assumes when mapping a
+    // scanned photo back onto this template.
     const layout = computeOMRLayout(n);
-    const { cols, rowsPerCol, blockWidth, rowHeight, qLabelWidth } = layout;
+    const { cols, rowHeight, blockWidth, qLabelWidth, colMeta } = layout;
+    const optW = (blockWidth - qLabelWidth) / 4;
     const outerGridCells = [];
     for (let c = 0; c < cols; c++) {
+      const meta = colMeta[c];
       const innerRows = [];
-      for (let r = 0; r < rowsPerCol; r++) {
-        const qNo = c * rowsPerCol + r + 1;
-        if (qNo > n) continue;
-        const qLabel = String(qNo).padStart(3, "0");
-        const rowCells = [new D.TableCell({
-          width: { size: mm(qLabelWidth), type: D.WidthType.DXA }, verticalAlign: D.VerticalAlign.CENTER, borders: noBorders,
-          children: [new D.Paragraph({ children: [new D.TextRun({ text: qLabel, bold: true, size: 18 })] })]
-        })];
-        const optW = (blockWidth - qLabelWidth) / 4;
-        circled.forEach(ch => rowCells.push(new D.TableCell({
-          width: { size: mm(optW), type: D.WidthType.DXA }, verticalAlign: D.VerticalAlign.CENTER, borders: noBorders,
-          children: [new D.Paragraph({ alignment: D.AlignmentType.CENTER, children: [new D.TextRun({ text: ch, size: 26 })] })]
+
+      if (c === 0) {
+        // Exam Set: label row, then a row of letter+bubble cells (A–E)
+        innerRows.push(new D.TableRow({
+          height: { value: mm(rowHeight), rule: D.HeightRule.EXACT },
+          children: [new D.TableCell({ columnSpan: 5, borders: noBorders, verticalAlign: D.VerticalAlign.CENTER, children: [new D.Paragraph({ children: [new D.TextRun({ text: "Exam Set", bold: true, size: 14 })] })] })]
+        }));
+        const esW = (blockWidth - qLabelWidth) / 5;
+        const esCells = [textCell(qLabelWidth, "", {})];
+        ["A", "B", "C", "D", "E"].forEach(L => esCells.push(new D.TableCell({
+          width: { size: mm(esW), type: D.WidthType.DXA }, verticalAlign: D.VerticalAlign.CENTER, borders: noBorders,
+          children: [
+            new D.Paragraph({ alignment: D.AlignmentType.CENTER, children: [new D.TextRun({ text: L, bold: true, size: 12 })] }),
+            new D.Paragraph({ alignment: D.AlignmentType.CENTER, children: [new D.TextRun({ text: "○", size: 18 })] })
+          ]
         })));
-        innerRows.push(new D.TableRow({ children: rowCells, height: { value: mm(rowHeight), rule: D.HeightRule.EXACT } }));
+        innerRows.push(new D.TableRow({ children: esCells, height: { value: mm(rowHeight), rule: D.HeightRule.EXACT } }));
+
+        // Roll No: label row, then digit rows 0–9 with tens + units bubbles
+        innerRows.push(new D.TableRow({
+          height: { value: mm(rowHeight), rule: D.HeightRule.EXACT },
+          children: [new D.TableCell({ columnSpan: 5, borders: noBorders, verticalAlign: D.VerticalAlign.CENTER, children: [new D.Paragraph({ children: [new D.TextRun({ text: "Roll No.", bold: true, size: 14 })] })] })]
+        }));
+        const rollBubbleW = (blockWidth - qLabelWidth) / 2;
+        for (let d = 0; d <= 9; d++) {
+          innerRows.push(new D.TableRow({
+            height: { value: mm(rowHeight), rule: D.HeightRule.EXACT },
+            children: [textCell(qLabelWidth, String(d), { size: 14, align: D.AlignmentType.CENTER }), circleCell(rollBubbleW, 18), circleCell(rollBubbleW, 18)]
+          }));
+        }
+
+        // Subject / Section label
+        innerRows.push(new D.TableRow({
+          height: { value: mm(rowHeight), rule: D.HeightRule.EXACT },
+          children: [new D.TableCell({
+            columnSpan: 3, borders: noBorders, verticalAlign: D.VerticalAlign.CENTER,
+            children: [
+              new D.Paragraph({ children: [new D.TextRun({ text: "Subject 1", bold: true, size: 14 })] }),
+              new D.Paragraph({ children: [new D.TextRun({ text: "Section 1", bold: true, size: 14 })] })
+            ]
+          })]
+        }));
       }
+
+      meta.rows.forEach(r => {
+        if (r.type === "header") {
+          const cells = [textCell(qLabelWidth, "", {})];
+          ["A", "B", "C", "D"].forEach(L => cells.push(textCell(optW, L, { bold: true, size: 16, align: D.AlignmentType.CENTER })));
+          innerRows.push(new D.TableRow({ children: cells, height: { value: mm(rowHeight), rule: D.HeightRule.EXACT } }));
+        } else {
+          const qLabel = String(r.q).padStart(r.q >= 100 ? 3 : (r.q >= 10 ? 2 : 1), "0");
+          const rowCells = [textCell(qLabelWidth, qLabel, { bold: true, size: 16 })];
+          for (let o = 0; o < 4; o++) rowCells.push(circleCell(optW, 20));
+          innerRows.push(new D.TableRow({ children: rowCells, height: { value: mm(rowHeight), rule: D.HeightRule.EXACT } }));
+        }
+      });
+
       const innerTable = new D.Table({
         width: { size: mm(blockWidth), type: D.WidthType.DXA }, rows: innerRows,
         borders: { ...noBorders, insideHorizontal: { style: D.BorderStyle.NONE }, insideVertical: { style: D.BorderStyle.NONE } }
@@ -174,7 +300,7 @@
     // to fit on one A4 page, plain in-flow placement lands in the same spot
     // without any of the floating-table pagination bugs.
     const gridTable = new D.Table({
-      width: { size: mm(layout.gridRight - layout.gridLeft), type: D.WidthType.DXA },
+      width: { size: mm(layout.blockWidth * layout.cols), type: D.WidthType.DXA },
       rows: [new D.TableRow({ children: outerGridCells })],
       borders: { ...noBorders, insideHorizontal: { style: D.BorderStyle.NONE }, insideVertical: { style: D.BorderStyle.NONE } }
     });
@@ -204,24 +330,22 @@
       });
     });
 
-    // ── Header, candidate photo box, info lines, instructions ──
-    const photoBox = new D.Table({
-      width: { size: mm(28), type: D.WidthType.DXA },
-      rows: [new D.TableRow({ height: { value: mm(34), rule: D.HeightRule.EXACT }, children: [
-        new D.TableCell({ verticalAlign: D.VerticalAlign.CENTER, children: [new D.Paragraph({ alignment: D.AlignmentType.CENTER, children: [new D.TextRun({ text: "Candidate Photo", size: 16, color: "666666" })] })] })
-      ] })],
-      borders: { top: { style: D.BorderStyle.SINGLE, size: 4 }, bottom: { style: D.BorderStyle.SINGLE, size: 4 }, left: { style: D.BorderStyle.SINGLE, size: 4 }, right: { style: D.BorderStyle.SINGLE, size: 4 } }
-    });
-    const infoRow = new D.Table({
+    // ── Header: boxed NAME / EXAM / DATE row (matches the reference
+    // sheet's header exactly), plus a secondary line for the written-out
+    // roll number/mobile (redundant with the Roll No bubble block in
+    // column 0 — same double written+bubbled convention as the paper
+    // reference), and the instructions box. ─────────────────────────
+    const headerBoxRow = new D.Table({
       width: { size: 100, type: D.WidthType.PERCENTAGE },
-      rows: [new D.TableRow({ children: [
-        new D.TableCell({ width: { size: mm(32), type: D.WidthType.DXA }, borders: noBorders, children: [photoBox] }),
-        new D.TableCell({ verticalAlign: D.VerticalAlign.TOP, borders: noBorders, children: [
-          new D.Paragraph({ children: [new D.TextRun("अभ्यर्थी का नाम / Candidate's Name: ________________________________")] }),
-          new D.Paragraph({ spacing: { before: 120 }, children: [new D.TextRun("अनुक्रमांक / Roll Number: ______________   मोबाइल / Mobile: ______________")] }),
-          new D.Paragraph({ spacing: { before: 120 }, children: [new D.TextRun(`Test ID: ${testId}   दिनांक / Date: ____________`)] })
+      rows: [
+        new D.TableRow({ children: [
+          new D.TableCell({ width: { size: mm(110), type: D.WidthType.DXA }, verticalAlign: D.VerticalAlign.CENTER, borders: thinBox, children: [new D.Paragraph({ children: [new D.TextRun("NAME : ")] })] }),
+          new D.TableCell({ verticalAlign: D.VerticalAlign.CENTER, borders: thinBox, children: [new D.Paragraph({ children: [new D.TextRun(`EXAM : ${test.title || "Test"}`)] })] })
+        ] }),
+        new D.TableRow({ children: [
+          new D.TableCell({ columnSpan: 2, verticalAlign: D.VerticalAlign.CENTER, borders: thinBox, children: [new D.Paragraph({ children: [new D.TextRun(`DATE : ____________     Roll Number: ______________   Mobile: ______________   Test ID: ${testId}`)] })] })
         ] })
-      ] })],
+      ],
       borders: noBorders
     });
     const instructions = new D.Table({
@@ -244,9 +368,8 @@
         properties: { page: { size: { width: mm(210), height: mm(297) }, margin: { top: mm(10), bottom: mm(10), left: mm(14), right: mm(14) } } },
         children: [
           new D.Paragraph({ alignment: D.AlignmentType.CENTER, children: [new D.TextRun({ text: "SAVYASACHI COACHING — OMR उत्तर पत्रक", bold: true, size: 32 })] }),
-          new D.Paragraph({ alignment: D.AlignmentType.CENTER, spacing: { before: 60 }, children: [new D.TextRun({ text: `${test.title || "Test"} (OMR Answer Sheet)`, bold: true, size: 22 })] }),
-          new D.Paragraph({ spacing: { before: 150 }, children: [] }),
-          infoRow,
+          new D.Paragraph({ spacing: { before: 100 }, children: [] }),
+          headerBoxRow,
           new D.Paragraph({ spacing: { before: 150 }, children: [] }),
           instructions,
           new D.Paragraph({ spacing: { before: 150 }, children: [] }),
