@@ -298,7 +298,11 @@
     return new Promise((resolve, reject) => {
       const img = new Image();
       img.onload = () => resolve(img);
-      img.onerror = reject;
+      // NOTE: the browser calls onerror with a raw Event object, not an
+      // Error — rejecting with that directly used to make failures show
+      // up to the admin as the useless "[object Event]" (Event's default
+      // toString()). Wrap it in a real Error with a clear message instead.
+      img.onerror = () => reject(new Error("Photo load nahi ho payi — file corrupt hai ya kisi anjaan format mein hai. Doosri photo try karein."));
       img.src = URL.createObjectURL(file);
     });
   }
@@ -794,7 +798,12 @@
     } catch (err) {
       console.error(err);
       if (statusEl) statusEl.textContent = "";
-      alert("Scan karne mein error: " + (err.message || err));
+      // err.message || err, agar err koi plain Error na ho (jaise ek raw
+      // DOM Event ya kisi library ka object), to sirf default toString()
+      // se "[object Event]" jaisa bekaar text ban jaata — isliye yahan
+      // safe fallback hai.
+      const msg = (err && err.message) ? err.message : "Kuch anjaan gadbad ho gayi — dobara try karein.";
+      alert("Scan karne mein error: " + msg);
     } finally {
       if (scanBtn) scanBtn.disabled = false;
     }
