@@ -96,6 +96,13 @@ service cloud.firestore {
       allow read, write: if isAdmin();
     }
 
+    // omrTemplates: admin ne khud "🎯 Naya Sheet Sikhayein" se train ki
+    // hui custom OMR sheet layouts — sirf admin panel scan/train karta
+    // hai, students ka isse koi lena-dena nahi, isliye admin-only.
+    match /omrTemplates/{docId} {
+      allow read, write: if isAdmin();
+    }
+
     // app_settings holds sensitive things like the Groq AI API key —
     // admin-only, full stop.
     match /app_settings/{docId} {

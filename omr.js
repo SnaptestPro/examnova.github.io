@@ -503,18 +503,33 @@
   // bilinear interpolation, measure ink darkness. Kept as an automatic
   // fallback for when the AI endpoint isn't configured or is unreachable
   // (e.g. no internet, Apps Script quota, key not set yet).
-  function detectAnswersByPixels(ctx, w, h, test) {
+  function detectAnswersByPixels(ctx, w, h, test, customTemplate) {
     const gray = toGrayscale(ctx, w, h);
-    const corners = detectCorners(gray, w, h);
-    const layout = computeOMRLayout(test.questions.length);
+    let layout, corners, cornersReliable;
+
+    if (customTemplate) {
+      // Trained (marker-less) template: bubble positions were learned as
+      // FRACTIONS (0–1) of a sample photo's own width/height, so the
+      // photo's own 4 corners (0,0)–(w,h) ARE the reference frame here —
+      // no marker search needed. This only stays accurate if this photo
+      // is framed the same way (whole sheet, edge-to-edge) as the training
+      // photo was, so we don't claim marker-verified reliability; the
+      // review UI shows a distinct note for this case instead.
+      layout = { corners: { tl: { x: 0, y: 0 }, tr: { x: 1, y: 0 }, bl: { x: 0, y: 1 }, br: { x: 1, y: 1 } }, bubbles: customTemplate.bubbles };
+      corners = { tl: { x: 0, y: 0 }, tr: { x: w, y: 0 }, bl: { x: 0, y: h }, br: { x: w, y: h } };
+      cornersReliable = true;
+    } else {
+      corners = detectCorners(gray, w, h);
+      layout = computeOMRLayout(test.questions.length);
+      cornersReliable = ["tl", "tr", "bl", "br"].every(k => corners[k].isolated !== false);
+    }
+
     const radius = Math.max(4, Math.round(Math.min(w, h) * 0.012));
     // Local white-level field instead of one global number — handles a
     // shadow or uneven light falling across the photo (see
     // estimateWhiteLevelField comment for why this matters).
     const whiteField = estimateWhiteLevelField(gray, w, h);
     const MARK_THRESHOLD = 45; // "dark" is measured relative to this bubble's own local paper-white level
-
-    const cornersReliable = ["tl", "tr", "bl", "br"].every(k => corners[k].isolated !== false);
 
     const answers = layout.bubbles.map(b => {
       const scored = b.options.map(o => {
@@ -693,6 +708,8 @@
     const mobileInput = document.getElementById("omr-scan-student-mobile");
     const fileInput = document.getElementById("omr-scan-file-input");
     const statusEl = document.getElementById("omr-scan-status");
+    const templateId = document.getElementById("omr-scan-template-select")?.value || "";
+    const customTemplate = templateId ? customOmrTemplates[templateId] : null;
 
     if (!testId || typeof tests === "undefined" || !tests[testId]) { alert("Pehle test select karein."); return; }
     const test = tests[testId];
@@ -767,13 +784,14 @@
       // it, whether or not AI is configured. When AI succeeds, pixel's
       // result is used to cross-check it (see crossCheckAnswers above)
       // instead of just sitting idle as an unused fallback.
-      const pixelResult = detectAnswersByPixels(ctx, w, h, test);
+      const pixelResult = detectAnswersByPixels(ctx, w, h, test, customTemplate);
       const cornersReliable = pixelResult.cornersReliable;
+      const numQuestionsForScan = customTemplate ? customTemplate.numQuestions : test.questions.length;
 
       if (OMR_AI_ENDPOINT) {
         if (statusEl) statusEl.textContent = "⏳ AI se sheet padhi ja rahi hai...";
         try {
-          const aiAnswers = await detectAnswersWithAI(canvas, test.questions.length);
+          const aiAnswers = await detectAnswersWithAI(canvas, numQuestionsForScan);
           const cross = crossCheckAnswers(aiAnswers, pixelResult.answers, cornersReliable);
           detectedAnswers = cross.answers;
           mismatchCount = cross.mismatchCount;
@@ -789,7 +807,7 @@
         detectedAnswers = pixelResult.answers;
       }
 
-      renderOMRReview(test, name, mobile, testId, usedAI, cornersReliable, dualChecked, mismatchCount);
+      renderOMRReview(test, name, mobile, testId, usedAI, cornersReliable, dualChecked, mismatchCount, customTemplate);
       if (statusEl) {
         statusEl.textContent = cornersReliable
           ? "✅ Scan complete — neeche review karke confirm karein."
@@ -809,7 +827,7 @@
     }
   }
 
-  function renderOMRReview(test, name, mobile, testId, usedAI, cornersReliable, dualChecked, mismatchCount) {
+  function renderOMRReview(test, name, mobile, testId, usedAI, cornersReliable, dualChecked, mismatchCount, customTemplate) {
     const container = document.getElementById("omr-review-area");
     if (!container) return;
     const letters = ["A", "B", "C", "D"];
@@ -849,7 +867,12 @@
            ⚠️ Corner markers (4 kone ke kaale square) photo mein spasht nahi mile — poori sheet ki position galat ho sakti hai.
            Har answer neeche zaroor check karein, ya sheet ko flat rakh ke, achi roshni mein, seedhe upar se dobara photo lekar re-scan karein.
          </div>`
-      : "";
+      : (customTemplate
+        ? `<div style="background:#eff6ff;border:1px solid #bfdbfe;color:#1e40af;border-radius:8px;padding:8px 10px;margin-bottom:8px;font-size:.82rem;">
+             🎯 "${escHtml(customTemplate.name)}" trained template use hui — is mein koi corner marker nahi hota, isliye photo ki apni poori frame ko sheet maana gaya hai.
+             Agar photo mein sheet ke aas-paas zyada background/table aa gaya ho, to positions thodi khisak sakti hain — har answer ek baar zaroor nazar daal lein.
+           </div>`
+        : "");
 
     const mismatchNote = mismatchCount
       ? `<div style="background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;border-radius:8px;padding:8px 10px;margin-bottom:8px;font-size:.82rem;">
@@ -1609,6 +1632,272 @@ OUTPUT ONLY SEPARATE CODE BLOCKS.`;
     });
   }
 
+  /* ── CUSTOM SHEET TEMPLATE TRAINER ────────────────────────────────
+     Har coaching apni khud ki OMR sheet chhapwata hai — kisi ke corner
+     par 4 kaale square honge, kisi ke nahi, columns/questions ki
+     ginti bhi alag ho sakti hai. Is se pehle, aisi kisi bhi custom
+     sheet ko scan karne layak banane ke liye HAR BAAR haath se coordinate
+     nikaal kar code likhna padta tha. Ye section wahi kaam admin khud,
+     bina code likhe, kar sake — bas ek sample photo par 3-4 baar click
+     karke.
+
+     KAAM KAISE KARTA HAI: corner marker squares nahi hote is liye photo
+     ke apne hi 4 corners (poori width/height) ko reference maana jaata
+     hai — isliye scan ke waqt bhi WAISI HI photo zaroori hai jaisi
+     training ke waqt li gayi thi (poori sheet frame mein, edge-to-edge).
+     Admin sirf itna batata hai:
+       1) Q1 ke Option A ka center
+       2) Q1 ke AAKHRI option (D) ka center   → option-to-option spacing
+       3) Q2 (agli row, same column) Option A → row-to-row spacing
+       4) Column 2 ke Q1 Option A (agar cols>1) → column-to-column spacing
+     In 3-4 points + (kul questions, columns) se baaki sab 396+ bubbles
+     ki position seedhe hisaab (linear extrapolation) se nikal aati hai —
+     poora grid uniform hota hai, isliye sirf ek "unit cell" naapni
+     padti hai. Har position photo ki width/height ke FRACTION (0–1) mein
+     save hoti hai, isliye kisi bhi resolution ki photo par kaam karta
+     hai (bas framing consistent honi chahiye). ─────────────────────── */
+
+  let customOmrTemplates = {};     // id -> template doc, Firestore se load hone ke baad cache
+  let trainClicksFrac = [];        // [{x,y} fractions] — ab tak ke clicks
+  let trainImageEl = null;
+  let trainCanvasEl = null, trainCtxEl = null;
+
+  function trainRequiredClicks() {
+    const cols = Math.max(1, parseInt(document.getElementById("omr-train-cols")?.value, 10) || 1);
+    return cols > 1 ? 4 : 3;
+  }
+
+  function trainStepInstruction(stepIdx) {
+    const steps = [
+      "1️⃣ Q1 ke Option A (ⓐ) ke bubble ke theek BEECH mein click karein.",
+      "2️⃣ Ab Q1 ke SABSE AAKHRI option (jaise D) ke bubble ke BEECH click karein.",
+      "3️⃣ Ab Question 2 (seedha Q1 ke NEECHE wala, same column) ke Option A par click karein.",
+      "4️⃣ Ab COLUMN 2 ke PEHLE question ke Option A par click karein."
+    ];
+    return steps[stepIdx] || "";
+  }
+
+  function computeTrainedBubbles(clicks, numQuestions, cols) {
+    const rowsPerCol = Math.ceil(numQuestions / cols);
+    const p0 = clicks[0], p1 = clicks[1], p2 = clicks[2];
+    const p3 = cols > 1 ? clicks[3] : null;
+    const optSpacingX = (p1.x - p0.x) / 3, optSpacingY = (p1.y - p0.y) / 3;
+    const rowStepX = p2.x - p0.x, rowStepY = p2.y - p0.y;
+    const colStepX = p3 ? (p3.x - p0.x) : 0, colStepY = p3 ? (p3.y - p0.y) : 0;
+
+    const bubbles = [];
+    for (let i = 0; i < numQuestions; i++) {
+      const col = Math.floor(i / rowsPerCol);
+      const rowInCol = i % rowsPerCol;
+      const baseX = p0.x + col * colStepX + rowInCol * rowStepX;
+      const baseY = p0.y + col * colStepY + rowInCol * rowStepY;
+      const options = [0, 1, 2, 3].map(o => ({ opt: o, x: baseX + o * optSpacingX, y: baseY + o * optSpacingY }));
+      bubbles.push({ q: i + 1, options });
+    }
+    return bubbles;
+  }
+
+  function redrawTrainCanvas() {
+    if (!trainCtxEl || !trainImageEl) return;
+    trainCtxEl.drawImage(trainImageEl, 0, 0, trainCanvasEl.width, trainCanvasEl.height);
+    // Ab tak ke actual clicks — numbered dots.
+    trainClicksFrac.forEach((p, i) => {
+      const x = p.x * trainCanvasEl.width, y = p.y * trainCanvasEl.height;
+      trainCtxEl.beginPath();
+      trainCtxEl.arc(x, y, 7, 0, Math.PI * 2);
+      trainCtxEl.fillStyle = "rgba(220,38,38,0.85)";
+      trainCtxEl.fill();
+      trainCtxEl.fillStyle = "#fff";
+      trainCtxEl.font = "bold 11px sans-serif";
+      trainCtxEl.textAlign = "center";
+      trainCtxEl.fillText(String(i + 1), x, y + 4);
+    });
+    // Poore clicks ho jaane par — SAARI bubbles ka preview overlay, taaki
+    // admin turant dekh sake ki grid sahi jagah align hui ya nahi.
+    const required = trainRequiredClicks();
+    if (trainClicksFrac.length >= required) {
+      const numQ = Math.max(1, parseInt(document.getElementById("omr-train-numq")?.value, 10) || 1);
+      const cols = Math.max(1, parseInt(document.getElementById("omr-train-cols")?.value, 10) || 1);
+      const bubbles = computeTrainedBubbles(trainClicksFrac, numQ, cols);
+      trainCtxEl.fillStyle = "rgba(37,99,235,0.75)";
+      bubbles.forEach(b => b.options.forEach(o => {
+        trainCtxEl.beginPath();
+        trainCtxEl.arc(o.x * trainCanvasEl.width, o.y * trainCanvasEl.height, 3, 0, Math.PI * 2);
+        trainCtxEl.fill();
+      }));
+    }
+  }
+
+  function updateTrainUI() {
+    const required = trainRequiredClicks();
+    const instrEl = document.getElementById("omr-train-click-instruction");
+    const saveBtn = document.getElementById("omr-train-save-btn");
+    if (trainClicksFrac.length < required) {
+      if (instrEl) instrEl.textContent = trainStepInstruction(trainClicksFrac.length);
+      if (saveBtn) saveBtn.disabled = true;
+    } else {
+      if (instrEl) instrEl.textContent = "✅ Neeche NEELE dots har bubble ke upar align ho rahe hain ya nahi check karein. Sahi lage to save karein, warna \"Clicks Reset Karein\" dabakar dobara try karein.";
+      if (saveBtn) saveBtn.disabled = false;
+    }
+    redrawTrainCanvas();
+  }
+
+  function handleTrainCanvasClick(e) {
+    if (!trainCanvasEl) return;
+    const required = trainRequiredClicks();
+    if (trainClicksFrac.length >= required) return; // already done — reset first
+    const rect = trainCanvasEl.getBoundingClientRect();
+    // Canvas CSS-scaled ho sakta hai (max-width:100%) — client click position
+    // ko canvas ke ASLI (native) pixel grid mein convert karna zaroori hai.
+    const scaleX = trainCanvasEl.width / rect.width;
+    const scaleY = trainCanvasEl.height / rect.height;
+    const x = (e.clientX - rect.left) * scaleX;
+    const y = (e.clientY - rect.top) * scaleY;
+    trainClicksFrac.push({ x: x / trainCanvasEl.width, y: y / trainCanvasEl.height });
+    updateTrainUI();
+  }
+
+  function resetTrainClicks() {
+    trainClicksFrac = [];
+    updateTrainUI();
+  }
+
+  function loadTrainImageFile(file) {
+    loadImageFromFile(file).then(img => {
+      // ORIENTATION FIX: same assumption scanOMRSheet() makes — the
+      // physical sheet is always portrait, so a landscape (wider-than-
+      // tall) photo just means the phone was held sideways. Normalize it
+      // HERE too, or click-fractions recorded during training would be in
+      // a different orientation than a real (auto-rotated) scan photo
+      // later — silently swapping x/y for every future scan.
+      const isLandscape = img.width > img.height * 1.15;
+      let sourceEl = img, natW = img.naturalWidth, natH = img.naturalHeight;
+      if (isLandscape) {
+        const rotated = document.createElement("canvas");
+        rotated.width = img.height; rotated.height = img.width;
+        const rctx = rotated.getContext("2d");
+        rctx.translate(rotated.width, 0);
+        rctx.rotate(Math.PI / 2);
+        rctx.drawImage(img, 0, 0, img.height, img.width);
+        sourceEl = rotated; natW = rotated.width; natH = rotated.height;
+      }
+      trainImageEl = sourceEl;
+      const wrap = document.getElementById("omr-train-canvas-wrap");
+      trainCanvasEl = document.getElementById("omr-train-canvas");
+      if (!trainCanvasEl) return;
+      // Ek reasonable max width par cap karo (bahut badi photo canvas ko
+      // slow kar degi) — click-fraction math resolution-independent hai
+      // isliye ye sirf display/performance ke liye hai, accuracy par asar
+      // nahi padta.
+      const maxW = 1100;
+      const scale = Math.min(1, maxW / natW);
+      trainCanvasEl.width = Math.round(natW * scale);
+      trainCanvasEl.height = Math.round(natH * scale);
+      trainCtxEl = trainCanvasEl.getContext("2d");
+      if (wrap) wrap.classList.remove("hidden");
+      trainClicksFrac = [];
+      updateTrainUI();
+    }).catch(err => {
+      alert("Photo load nahi ho payi: " + (err.message || err));
+    });
+  }
+
+  async function saveOmrTemplate() {
+    const name = (document.getElementById("omr-train-name")?.value || "").trim();
+    const numQuestions = Math.max(1, parseInt(document.getElementById("omr-train-numq")?.value, 10) || 0);
+    const cols = Math.max(1, parseInt(document.getElementById("omr-train-cols")?.value, 10) || 0);
+    const required = trainRequiredClicks();
+    if (!name) { alert("Template ka naam likhein."); return; }
+    if (!numQuestions || !cols) { alert("Questions aur Columns ki sahi ginti bharein."); return; }
+    if (trainClicksFrac.length < required) { alert("Pehle upar diye gaye sabhi clicks poore karein."); return; }
+
+    const db = typeof getDB === "function" ? getDB() : null;
+    if (!db) { alert("Firebase se connect nahi ho paya — internet check karein."); return; }
+
+    const bubbles = computeTrainedBubbles(trainClicksFrac, numQuestions, cols);
+    const rowsPerCol = Math.ceil(numQuestions / cols);
+    const saveBtn = document.getElementById("omr-train-save-btn");
+    if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = "⏳ Save ho raha hai..."; }
+    try {
+      const id = db.collection("omrTemplates").doc().id;
+      await db.collection("omrTemplates").doc(id).set({
+        name, numQuestions, cols, rowsPerCol, optionsPerQ: 4,
+        bubbles,
+        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+      });
+      const statusEl = document.getElementById("omr-train-status");
+      if (statusEl) statusEl.textContent = "✅ \"" + name + "\" template save ho gaya — ab \"Photo Se Scan\" mein select kar sakte hain.";
+      document.getElementById("omr-train-name").value = "";
+      resetTrainClicks();
+      window.loadOmrTemplates();
+    } catch (err) {
+      alert("Template save karne mein error: " + (err.message || err));
+    } finally {
+      if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = "💾 Template Save Karein"; }
+    }
+  }
+
+  async function deleteOmrTemplate(id) {
+    const tpl = customOmrTemplates[id];
+    if (!tpl) return;
+    if (!confirm('"' + tpl.name + '" template delete karein? Ye sirf tab wapas milega jab dobara train karenge.')) return;
+    const db = typeof getDB === "function" ? getDB() : null;
+    if (!db) return;
+    try {
+      await db.collection("omrTemplates").doc(id).delete();
+      window.loadOmrTemplates();
+    } catch (err) {
+      alert("Delete nahi ho paya: " + (err.message || err));
+    }
+  }
+  window.deleteOmrTemplate = deleteOmrTemplate;
+
+  function renderOmrTemplateList() {
+    const listEl = document.getElementById("omr-train-list");
+    if (!listEl) return;
+    const ids = Object.keys(customOmrTemplates);
+    if (!ids.length) { listEl.innerHTML = "Abhi koi template train nahi hui hai."; return; }
+    listEl.innerHTML = ids.map(id => {
+      const t = customOmrTemplates[id];
+      return `<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid #f1f5f9;">
+        <span><strong>${escHtml(t.name)}</strong> — ${t.numQuestions} questions, ${t.cols} columns</span>
+        <button type="button" class="btn-secondary" style="color:#dc2626;" onclick="deleteOmrTemplate('${id}')">🗑️ Delete</button>
+      </div>`;
+    }).join("");
+  }
+
+  function populateOmrTemplateSelect() {
+    const sel = document.getElementById("omr-scan-template-select");
+    if (!sel) return;
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">🤖 System-Generated Sheet (default)</option>';
+    Object.keys(customOmrTemplates).forEach(id => {
+      const t = customOmrTemplates[id];
+      const op = document.createElement("option");
+      op.value = id; op.textContent = "🎯 " + t.name + " (" + t.numQuestions + "Q)";
+      sel.appendChild(op);
+    });
+    if (cur && customOmrTemplates[cur]) sel.value = cur;
+  }
+
+  async function loadOmrTemplates() {
+    const db = typeof getDB === "function" ? getDB() : null;
+    const listEl = document.getElementById("omr-train-list");
+    if (!db) { if (listEl) listEl.textContent = "⚠️ Firebase se connect nahi ho paya."; return; }
+    try {
+      const snap = await db.collection("omrTemplates").get();
+      customOmrTemplates = {};
+      snap.forEach(doc => { customOmrTemplates[doc.id] = doc.data(); });
+      renderOmrTemplateList();
+      populateOmrTemplateSelect();
+    } catch (err) {
+      if (listEl) listEl.textContent = "⚠️ Templates load nahi ho payi: " + (err.message || err);
+    }
+  }
+  window.loadOmrTemplates = loadOmrTemplates;
+
+  /* ── /CUSTOM SHEET TEMPLATE TRAINER ─────────────────────────────── */
+
   /* ── INIT / WIRING ────────────────────────────────────────────── */
 
   let lastTestsKey = "";
@@ -1641,6 +1930,27 @@ OUTPUT ONLY SEPARATE CODE BLOCKS.`;
     if (manualBtn) manualBtn.onclick = parseAndPreviewManual;
     const scanBtn = document.getElementById("omr-scan-btn");
     if (scanBtn) scanBtn.onclick = scanOMRSheet;
+
+    const trainFileInput = document.getElementById("omr-train-file-input");
+    if (trainFileInput) trainFileInput.onchange = () => {
+      if (trainFileInput.files?.length) loadTrainImageFile(trainFileInput.files[0]);
+    };
+    const trainCanvas = document.getElementById("omr-train-canvas");
+    if (trainCanvas) trainCanvas.onclick = handleTrainCanvasClick;
+    const trainResetBtn = document.getElementById("omr-train-reset-btn");
+    if (trainResetBtn) trainResetBtn.onclick = resetTrainClicks;
+    const trainSaveBtn = document.getElementById("omr-train-save-btn");
+    if (trainSaveBtn) trainSaveBtn.onclick = saveOmrTemplate;
+    const trainColsInput = document.getElementById("omr-train-cols");
+    if (trainColsInput) trainColsInput.onchange = resetTrainClicks;
+    const scanTemplateSelect = document.getElementById("omr-scan-template-select");
+    if (scanTemplateSelect) scanTemplateSelect.onchange = () => {
+      const tip = document.getElementById("omr-scan-photo-tip");
+      if (!tip) return;
+      tip.textContent = scanTemplateSelect.value
+        ? "Note: Ye custom-trained sheet hai — photo WAISI HI khinchein jaisi training ke waqt li thi (poori sheet frame mein, edge-to-edge, corner squares ki zaroorat nahi)."
+        : "Note: Sheet ko poori tarah (bina crop kiye, seedhi, achhi light mein) photo kheenchein — corner ke 4 kaale square poori tarah dikhne chahiye.";
+    };
 
     populateOMRTestSelects();
     setInterval(populateOMRTestSelects, 4000);

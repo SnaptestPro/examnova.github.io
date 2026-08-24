@@ -1313,7 +1313,7 @@ window.backToRecordsHub = backToRecordsHub;
 
 // ── OMR sub-hub: "Generate OMR Sheet / Manual Entry" — do alag cards,
 //    ek waqt mein sirf ek. ───────────────────────────────────────────
-const OMR_SUB_BOX_IDS = { generate: "omr-generate-box", scan: "omr-scan-box", manual: "omr-manual-box" };
+const OMR_SUB_BOX_IDS = { generate: "omr-generate-box", scan: "omr-scan-box", train: "omr-train-box", manual: "omr-manual-box" };
 function showOmrSubTab(sub) {
   $("#omr-hub")?.classList.add("hidden");
   Object.entries(OMR_SUB_BOX_IDS).forEach(([s, id]) => {
@@ -1326,6 +1326,7 @@ function showOmrSubTab(sub) {
   // khola to woh cache khaali hoga — yahan pehli baar in tabs par aate hi
   // load kar lo taaki suggestions turant sahi (aur complete) dikhein.
   if ((sub === "manual" || sub === "scan") && !allStudentsCache.length && typeof loadStudentsDirectory === "function") loadStudentsDirectory();
+  if (sub === "train" && typeof window.loadOmrTemplates === "function") window.loadOmrTemplates();
   $(`#${OMR_SUB_BOX_IDS[sub]}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 window.showOmrSubTab = showOmrSubTab;
