@@ -49,8 +49,13 @@ function getApiKey_() {
  *     mimeType: "image/jpeg",
  *     numQuestions: 100
  *   }
- * Response: { ok: true, answers: [ {q:1, detected:"A"}, {q:2, detected:null}, ... ] }
- * detected: "A" | "B" | "C" | "D" | null (blank ya spasht nahi / do options marked)
+ * Response: { ok: true, answers: [ {q:1, detected:"A", confidence:"high"},
+ *                                    {q:2, detected:"C", confidence:"low"},
+ *                                    {q:3, detected:null, confidence:"blank"}, ... ] }
+ * detected:   "A" | "B" | "C" | "D" | null (sirf tab null jab bubble sach mein khaali ho)
+ * confidence: "high" | "medium" | "low" | "blank" — omr.js isko pixel-darkness method ke
+ *             result se cross-check karta hai; "low" ya mismatch wale questions review mein
+ *             highlight ho jaate hain taaki admin sirf unhi ko dobara dekhe, poori sheet nahi.
  */
 function doPost(e) {
   try {
@@ -66,16 +71,24 @@ function doPost(e) {
       " questions hain, question 1 se " + numQuestions + " tak, har ek ke saath 4 gol bubbles " +
       "hain jinke labels A, B, C, D hain (Ⓐ Ⓑ Ⓒ Ⓓ jaise circled letters ho sakte hain), " +
       "blue/black ball pen se pura dark kiya gaya bubble hi 'marked' maana jaata hai.\n\n" +
-      "Har question number ke liye batao kaunsa bubble (A/B/C/D) pura/spasht dark kiya gaya hai. " +
-      "Agar koi bhi bubble dark nahi hai (khali chhoda gaya) ya ek se zyada bubble dark lag rahe hain " +
-      "(spasht nahi kaun sa sahi hai), to us question ke liye detected ko null rakho — guess mat karo.\n\n" +
+      "Har question ke liye DO cheezein batao:\n" +
+      "1) detected: jo bubble sabse zyada dark/marked lag raha hai (A/B/C/D). Bubble bilkul khaali " +
+      "hai (koi bhi marking nahi) to detected null rakho.\n" +
+      "2) confidence: kitna pakka ho apne detected answer se —\n" +
+      "   \"high\" = ek bubble bilkul spasht/poora dark hai, baaki teeno bilkul khaali.\n" +
+      "   \"medium\" = marking halki ya partial hai lekin ek bubble baaki se saaf zyada dark hai.\n" +
+      "   \"low\" = do ya zyada bubbles dark lag rahe hain, ya marking bahut halki/ambiguous hai — " +
+      "is case mein bhi apna best-guess single letter detected mein zaroor do (guess karne se mat " +
+      "hichko), sirf confidence ko \"low\" rakho taaki insaan verify kar le.\n" +
+      "   \"blank\" = bubble mein sach mein koi marking hi nahi (tab detected null hoga).\n\n" +
       "STRICT OUTPUT: Sirf ek valid JSON array return karo, kuch aur text/explanation/markdown fences NAHI. " +
       "Exact format:\n" +
-      "[{\"q\":1,\"detected\":\"A\"},{\"q\":2,\"detected\":null}, ... sabhi " + numQuestions + " questions ke liye]";
+      "[{\"q\":1,\"detected\":\"A\",\"confidence\":\"high\"},{\"q\":2,\"detected\":null,\"confidence\":\"blank\"}, " +
+      "... sabhi " + numQuestions + " questions ke liye]";
 
     var payload = {
       model: CLAUDE_MODEL,
-      max_tokens: Math.min(4000, 200 + numQuestions * 25),
+      max_tokens: Math.min(4000, 200 + numQuestions * 32),
       messages: [{
         role: "user",
         content: [
@@ -115,18 +128,23 @@ function doPost(e) {
     }
     if (!Array.isArray(parsed)) throw new Error("AI response array nahi tha.");
 
-    // Normalize + safety: sirf A/B/C/D/null allow karo, aur sab questions cover ho.
+    // Normalize + safety: sirf A/B/C/D/null allow karo, confidence sirf
+    // high/medium/low/blank allow karo, aur sab questions cover ho.
     var byQ = {};
     parsed.forEach(function (row) {
       var q = Number(row.q);
       var d = row.detected;
       if (typeof d === "string") d = d.trim().toUpperCase();
       if (["A", "B", "C", "D"].indexOf(d) === -1) d = null;
-      if (q >= 1 && q <= numQuestions) byQ[q] = d;
+      var conf = row.confidence;
+      if (typeof conf === "string") conf = conf.trim().toLowerCase();
+      if (["high", "medium", "low", "blank"].indexOf(conf) === -1) conf = d ? "medium" : "blank";
+      if (q >= 1 && q <= numQuestions) byQ[q] = { detected: d, confidence: conf };
     });
     var answers = [];
     for (var q = 1; q <= numQuestions; q++) {
-      answers.push({ q: q, detected: byQ.hasOwnProperty(q) ? byQ[q] : null });
+      var entry = byQ.hasOwnProperty(q) ? byQ[q] : { detected: null, confidence: "blank" };
+      answers.push({ q: q, detected: entry.detected, confidence: entry.confidence });
     }
 
     return ContentService.createTextOutput(JSON.stringify({ ok: true, answers: answers }))
