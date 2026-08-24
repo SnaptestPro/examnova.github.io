@@ -1287,6 +1287,12 @@ B"></textarea>
               <div class="cd-card-sub">Test ke liye printable OMR sheet banayein</div>
               <div class="cd-card-bottom"><span class="cd-arrow-btn">→</span></div>
             </button>
+            <button type="button" class="cd-card cd-blue" onclick="showOmrSubTab('scan')">
+              <div class="cd-card-top"><div class="cd-icon-circle">📷</div><span class="cd-badge">Auto-Scan</span></div>
+              <div class="cd-card-title">Photo Se Scan</div>
+              <div class="cd-card-sub">Photo upload karein, AI turant answers nikaal dega</div>
+              <div class="cd-card-bottom"><span class="cd-arrow-btn">→</span></div>
+            </button>
             <button type="button" class="cd-card cd-orange" onclick="showOmrSubTab('manual')">
               <div class="cd-card-top"><div class="cd-icon-circle">✍️</div><span class="cd-badge">Type</span></div>
               <div class="cd-card-title">Manual Entry</div>
@@ -1311,6 +1317,37 @@ B"></textarea>
         </div>
         </div>
         <!-- /Generate OMR Sheet -->
+
+        <!-- Photo Se Auto-Scan -->
+        <div id="omr-scan-box" class="hidden">
+          <button type="button" class="btn-secondary" onclick="backToOmrHub()" style="margin-bottom:12px;">⬅ OMR par wapas</button>
+
+        <div class="card" style="margin-bottom:16px;">
+          <h3 class="section-title">📷 Photo Se Auto-Scan Karein</h3>
+          <p class="muted-text">OMR sheet ki photo upload karein — AI aur pixel-darkness dono method se sheet padhi jaayegi aur ek dusre se cross-check hogi. Jahan dono ka jawab match na ho ya AI ko confidence kam ho, wahan wo question laal highlight ho kar aapke saamne review ke liye aayega — baaki answers khud-ba-khud bhar jayenge.</p>
+          <div class="field-row">
+            <label>Test Chunein</label>
+            <select id="omr-scan-test-select"></select>
+          </div>
+          <div class="field-row">
+            <label>Student Ka Naam</label>
+            <input id="omr-scan-student-name" type="text" placeholder="Poora naam" />
+          </div>
+          <div class="field-row">
+            <label>WhatsApp Number</label>
+            <input id="omr-scan-student-mobile" type="text" placeholder="10-digit number" maxlength="10" />
+          </div>
+          <div class="field-row">
+            <label>OMR Sheet Ki Photo</label>
+            <input id="omr-scan-file-input" type="file" accept="image/*" capture="environment" />
+          </div>
+          <button type="button" id="omr-scan-btn" class="btn-primary">📷 Scan Karein</button>
+          <p id="omr-scan-status" class="muted-text" style="margin-top:8px;"></p>
+          <div id="omr-review-area"></div>
+          <p class="muted-text" style="margin-top:8px;">Note: Sheet ko poori tarah (bina crop kiye, seedhi, achhi light mein) photo kheenchein — corner ke 4 kaale square poori tarah dikhne chahiye.</p>
+        </div>
+        </div>
+        <!-- /Photo Se Auto-Scan -->
 
         <!-- Manual Entry -->
         <div id="omr-manual-box" class="hidden">

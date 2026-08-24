@@ -1608,7 +1608,7 @@ OUTPUT ONLY SEPARATE CODE BLOCKS.`;
     const key = Object.keys(tests).join("|");
     if (key === lastTestsKey) return;
     lastTestsKey = key;
-    [document.getElementById("omr-sheet-test-select"), document.getElementById("omr-manual-test-select")].forEach(sel => {
+    [document.getElementById("omr-sheet-test-select"), document.getElementById("omr-scan-test-select"), document.getElementById("omr-manual-test-select")].forEach(sel => {
       if (!sel) return;
       const cur = sel.value;
       sel.innerHTML = '<option value="">— Test chunein —</option>';
@@ -1630,6 +1630,8 @@ OUTPUT ONLY SEPARATE CODE BLOCKS.`;
     if (genBtn) genBtn.onclick = generateOMRSheet;
     const manualBtn = document.getElementById("omr-manual-parse-btn");
     if (manualBtn) manualBtn.onclick = parseAndPreviewManual;
+    const scanBtn = document.getElementById("omr-scan-btn");
+    if (scanBtn) scanBtn.onclick = scanOMRSheet;
 
     populateOMRTestSelects();
     setInterval(populateOMRTestSelects, 4000);
@@ -1637,6 +1639,10 @@ OUTPUT ONLY SEPARATE CODE BLOCKS.`;
     enhanceStudentAutocomplete(
       document.getElementById("omr-manual-student-name"),
       document.getElementById("omr-manual-student-mobile")
+    );
+    enhanceStudentAutocomplete(
+      document.getElementById("omr-scan-student-name"),
+      document.getElementById("omr-scan-student-mobile")
     );
   }
 
