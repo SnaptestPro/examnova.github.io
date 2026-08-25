@@ -103,6 +103,13 @@ service cloud.firestore {
       allow read, write: if isAdmin();
     }
 
+    // examManagerExams: OMR hub ke "🗂️ Exam Manager" section ke offline/
+    // paper exams (naam, answer key, scan-count, reports) — sirf admin
+    // banata/manage karta hai, students ka isse koi lena-dena nahi.
+    match /examManagerExams/{docId} {
+      allow read, write: if isAdmin();
+    }
+
     // app_settings holds sensitive things like the Groq AI API key —
     // admin-only, full stop.
     match /app_settings/{docId} {

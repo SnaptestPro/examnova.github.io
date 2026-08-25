@@ -112,6 +112,7 @@
   <link rel="stylesheet" href="styles.css?v=8">
   <link rel="stylesheet" href="theme-picker.css">
   <link rel="stylesheet" href="creative-dashboard.css?v=1">
+  <link rel="stylesheet" href="exam-manager.css?v=1">
   
   <!-- CDNs for Mega Update Features — defer kiya kyunki ye sab (chart,
        excel/pdf/word export, confetti) sirf user ke button-click par
@@ -459,6 +460,156 @@
         <div id="test-analysis-summary" class="test-analysis-summary"></div>
         <div id="test-analysis-chapters"></div>
         <button type="button" id="test-analysis-solution-btn" class="btn-primary hidden" style="width:100%;margin-top:14px;">📖 Solution Dekhein</button>
+      </div>
+    </div>
+
+    <!-- ── EXAM MANAGER OVERLAYS (OMR hub → 🗂️ Exam Manager) ── -->
+
+    <!-- Naya Exam Banayein -->
+    <div id="examgr-add-overlay" class="test-analysis-overlay hidden" onclick="if(event.target===this) examgrCloseAdd()">
+      <div class="test-analysis-sheet">
+        <button type="button" class="test-analysis-close" onclick="examgrCloseAdd()">✕</button>
+        <div class="test-analysis-title">🗂️ Naya Exam Banayein</div>
+        <p class="muted-text">Ye ek offline/paper exam record banayega — question bank se link nahi hota.</p>
+        <div class="field-row">
+          <label>Exam Name</label>
+          <input type="text" id="examgr-add-name" placeholder="jaise: Half Yearly Test">
+        </div>
+        <div class="field-row">
+          <label>Class Name</label>
+          <input type="text" id="examgr-add-class" placeholder="jaise: Class 10">
+        </div>
+        <div class="two-col">
+          <div class="field-row">
+            <label>Date</label>
+            <input type="date" id="examgr-add-date">
+          </div>
+          <div class="field-row">
+            <label>Kitne Questions</label>
+            <input type="number" id="examgr-add-questions" min="1" max="100" value="100">
+          </div>
+        </div>
+        <div class="two-col">
+          <div class="field-row">
+            <label>Kitne Sets</label>
+            <input type="number" id="examgr-add-sets" min="1" max="20" value="1">
+          </div>
+          <div class="field-row">
+            <label>Expected Students</label>
+            <input type="number" id="examgr-add-students" min="0" max="2000" value="10">
+          </div>
+        </div>
+        <p class="muted-text" style="font-size:.78rem;margin-top:-6px;">Note: printable OMR sheet ek fixed 100-question/5-column layout par based hai, isliye questions max 100 tak rakhein.</p>
+        <button type="button" class="btn-primary" id="examgr-add-save-btn" style="width:100%;">💾 Exam Banayein</button>
+      </div>
+    </div>
+
+    <!-- Exam Details -->
+    <div id="examgr-details-overlay" class="test-analysis-overlay hidden" onclick="if(event.target===this) examgrCloseDetails()">
+      <div class="test-analysis-sheet">
+        <button type="button" class="test-analysis-close" onclick="examgrCloseDetails()">✕</button>
+        <div class="examgr-details-head">
+          <div class="examgr-date-badge examgr-date-badge-lg"><span id="examgr-d-month">Jan</span><strong id="examgr-d-day">1</strong></div>
+          <div style="min-width:0;">
+            <div class="test-analysis-title" id="examgr-d-name" style="margin-bottom:2px;padding-right:0;">Exam</div>
+            <div class="test-analysis-meta" id="examgr-d-class" style="margin-bottom:0;">Class</div>
+          </div>
+        </div>
+        <div class="examgr-progress-wrap">
+          <div class="examgr-progress-label" id="examgr-d-scanned-text">0/0 sheets scanned</div>
+          <div class="examgr-progress-track"><div class="examgr-progress-fill" id="examgr-d-progress"></div></div>
+        </div>
+        <div class="examgr-stats-row">
+          <span>📝 <strong id="examgr-d-questions">0</strong> Questions</span>
+          <span>📚 <strong id="examgr-d-sets">1</strong> Sets</span>
+        </div>
+        <p class="examgr-notice" id="examgr-d-notice" hidden></p>
+
+        <div class="examgr-section-label">Exam Management</div>
+        <div class="examgr-actions-grid">
+          <button type="button" class="examgr-action-btn" data-action="answer-key"><span>✅</span>Answer Key</button>
+          <button type="button" class="examgr-action-btn" data-action="scan-sheet"><span>📷</span>Scan Sheet</button>
+          <button type="button" class="examgr-action-btn" data-action="exam-settings"><span>⚙️</span>Settings</button>
+          <button type="button" class="examgr-action-btn" data-action="omr-sheet"><span>🗒️</span>OMR/Bubble Sheet</button>
+          <button type="button" class="examgr-action-btn" data-action="web-features"><span>🔗</span>Web Link</button>
+        </div>
+
+        <div class="examgr-section-label">Reports</div>
+        <div class="examgr-actions-grid">
+          <button type="button" class="examgr-action-btn" data-action="view-reports"><span>📊</span>View Reports</button>
+          <button type="button" class="examgr-action-btn" data-action="download-excel"><span>⬇️</span>Download Excel</button>
+          <button type="button" class="examgr-action-btn" data-action="analysis"><span>📈</span>Analysis</button>
+          <button type="button" class="examgr-action-btn" data-action="publish"><span>🚀</span>Publish</button>
+          <button type="button" class="examgr-action-btn" data-action="absentees"><span>🙈</span>Absentees</button>
+        </div>
+
+        <button type="button" class="btn-danger" id="examgr-delete-btn" style="width:100%;margin-top:16px;">🗑️ Ye Exam Delete Karein</button>
+      </div>
+    </div>
+
+    <!-- Answer Key -->
+    <div id="examgr-akey-overlay" class="test-analysis-overlay hidden" onclick="if(event.target===this) examgrCloseAnswerKey()">
+      <div class="test-analysis-sheet examgr-akey-sheet">
+        <button type="button" class="test-analysis-close" onclick="examgrCloseAnswerKey()">✕</button>
+        <div class="test-analysis-title">✅ Answer Key</div>
+        <p class="muted-text" id="examgr-akey-sub">Har question ke liye sahi option par click karein.</p>
+        <div class="examgr-akey-list" id="examgr-akey-list"></div>
+        <div class="examgr-akey-footer">
+          <button type="button" class="btn-secondary" id="examgr-akey-reset-btn">Reset</button>
+          <button type="button" class="btn-primary" id="examgr-akey-save-btn">💾 Save</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- OMR / Bubble Sheet preview -->
+    <div id="examgr-sheet-overlay" class="test-analysis-overlay hidden" onclick="if(event.target===this) examgrCloseOmrSheet()">
+      <div class="test-analysis-sheet examgr-sheet-modal">
+        <button type="button" class="test-analysis-close" onclick="examgrCloseOmrSheet()">✕</button>
+        <div class="test-analysis-title">🗒️ OMR / Bubble Sheet</div>
+        <p class="muted-text">100-question, 5-column standard layout — print karke seedha use karein. Corner ke 4 kaale square poori tarah dikhne chahiye.</p>
+        <div class="examgr-sheet-preview-wrap"><div class="examgr-sheet-preview" id="examgr-sheet-preview"></div></div>
+        <button type="button" class="btn-primary" id="examgr-sheet-download-btn" style="width:100%;margin-top:14px;">⬇️ OMR Sheet Download Karein</button>
+      </div>
+    </div>
+
+    <!-- Scan Sheet (camera collection-counter, NOT a grader) -->
+    <div id="examgr-scan-overlay" class="test-analysis-overlay hidden" onclick="if(event.target===this) examgrCloseScanner()">
+      <div class="test-analysis-sheet examgr-scan-modal">
+        <button type="button" class="test-analysis-close" onclick="examgrCloseScanner()">✕</button>
+        <div class="test-analysis-title">📷 Scan Sheet</div>
+        <p class="muted-text">Ye grading NAHI karta — corner ke 4 kaale square align hote hi photo capture karke "kitni sheets collect hui" ka count badhata hai. Answers padhne ke liye upar "📷 Photo Se Scan" tool istemal karein.</p>
+        <div class="examgr-scan-stage" id="examgr-scan-stage">
+          <video class="examgr-scan-video" id="examgr-scan-video" autoplay muted playsinline></video>
+          <img class="examgr-scan-capture" id="examgr-scan-capture" alt="Captured OMR scan" hidden>
+          <div class="examgr-scan-overlay-ui" id="examgr-scan-overlay-ui">
+            <div class="examgr-scan-guide">Har kaale square ko blue corner box ke andar align karein</div>
+            <div class="examgr-scan-corner tl" data-marker="top-left"><span class="examgr-scan-dot"></span></div>
+            <div class="examgr-scan-corner tr" data-marker="top-right"><span class="examgr-scan-dot"></span></div>
+            <div class="examgr-scan-corner bl" data-marker="bottom-left"><span class="examgr-scan-dot"></span></div>
+            <div class="examgr-scan-corner br" data-marker="bottom-right"><span class="examgr-scan-dot"></span></div>
+            <div class="examgr-scan-status" id="examgr-scan-status"><span class="examgr-scan-status-dot"></span><span id="examgr-scan-status-text">Kaale OMR squares dhoonde ja rahe hain...</span></div>
+          </div>
+          <div class="examgr-scan-result" id="examgr-scan-result" hidden>
+            <strong>✅ Sheet capture ho gayi</strong>
+            <p id="examgr-scan-result-text">Chaaron corner squares detect ho gaye.</p>
+            <div class="examgr-scan-result-actions">
+              <button type="button" class="btn-secondary" id="examgr-scan-again-btn">Dusri Scan Karein</button>
+              <button type="button" class="btn-primary" id="examgr-scan-done-btn">Done</button>
+            </div>
+          </div>
+          <div class="examgr-scan-permission" id="examgr-scan-permission" hidden>
+            <div class="examgr-scan-permission-panel">
+              <strong>📷 Camera access chahiye</strong>
+              <p id="examgr-scan-permission-msg">Browser ke permission popup mein Camera allow karein, phir dobara try karein.</p>
+              <button type="button" class="btn-primary" id="examgr-scan-enable-btn">Camera Enable Karein</button>
+            </div>
+          </div>
+        </div>
+        <div class="examgr-scan-footer" id="examgr-scan-footer">
+          <span id="examgr-scan-marker-count">0 / 4 markers</span>
+        </div>
+        <canvas id="examgr-scan-analysis-canvas" hidden></canvas>
+        <canvas id="examgr-scan-capture-canvas" hidden></canvas>
       </div>
     </div>
 
@@ -1305,6 +1456,12 @@ B"></textarea>
               <div class="cd-card-sub">Answers type karke marks chadhayein</div>
               <div class="cd-card-bottom"><span class="cd-arrow-btn">→</span></div>
             </button>
+            <button type="button" class="cd-card cd-indigo" onclick="showOmrSubTab('exammgr')">
+              <div class="cd-card-top"><div class="cd-icon-circle">🗂️</div><span class="cd-badge">New</span></div>
+              <div class="cd-card-title">Exam Manager</div>
+              <div class="cd-card-sub">Offline paper exams — answer key, scan-count, reports</div>
+              <div class="cd-card-bottom"><span class="cd-arrow-btn">→</span></div>
+            </button>
           </div>
         </div>
 
@@ -1457,6 +1614,24 @@ B"></textarea>
         </div>
         </div>
         <!-- /Manual Entry -->
+
+        <!-- Exam Manager -->
+        <div id="omr-exammgr-box" class="hidden">
+          <button type="button" class="btn-secondary" onclick="backToOmrHub()" style="margin-bottom:12px;">⬅ OMR par wapas</button>
+
+        <div class="card" style="margin-bottom:16px;">
+          <h3 class="section-title">🗂️ Exam Manager</h3>
+          <p class="muted-text">Apne offline/paper exams yahan manage karein — question bank se link nahi hai, sirf ek halka record hai: answer key, sheets ka collection-count, aur reports jaisi bookkeeping ke liye.</p>
+          <button type="button" class="btn-primary" onclick="examgrOpenAdd()" style="width:100%;">+ Naya Exam Banayein</button>
+        </div>
+
+        <div class="examgr-intro-row">
+          <span class="muted-text" style="margin:0;">Aapke exams</span>
+          <button type="button" class="examgr-sort-btn" id="examgr-sort-btn">⇅ Newest first</button>
+        </div>
+        <div id="examgr-list"></div>
+        </div>
+        <!-- /Exam Manager -->
 
       </div>
 
@@ -1672,6 +1847,7 @@ B"></textarea>
 <script src="whatsapp-poll-export.js"></script>
 <script src="student-features.js"></script>
 <script src="omr.js"></script>
+<script src="exam-manager.js"></script>
 <script src="push-notifications.js"></script>
 <!-- Android/TWA back-button fix: exam ya kisi bhi screen ke beech
      back dabane par app close hone se rokta hai -->

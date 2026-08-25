@@ -1,0 +1,270 @@
+/* ══════════════════════════════════════════════════════════════════
+   EXAM MANAGER — OMR hub ka naya section
+   Sirf isi feature ke liye classes (prefix: examgr-). Baaki sab
+   (.card, .btn-primary, .field-row, .test-analysis-overlay wagera)
+   site ki maujooda styles.css se hi aa rahi hain, isliye ye section
+   design mein alag nahi lagta.
+   ══════════════════════════════════════════════════════════════════ */
+
+/* ---------- intro + list ---------- */
+.examgr-intro-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+.examgr-sort-btn {
+  background: none;
+  border: none;
+  color: var(--blue);
+  font-weight: 700;
+  font-size: .82rem;
+  cursor: pointer;
+  padding: 6px 4px;
+  white-space: nowrap;
+}
+.examgr-empty {
+  text-align: center;
+  color: var(--muted);
+  font-size: .9rem;
+  padding: 30px 12px;
+  border: 1.5px dashed rgba(30,27,75,.15);
+  border-radius: var(--radius);
+}
+.examgr-card {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+  background: #fff;
+  border-radius: 14px;
+  box-shadow: 0 4px 16px rgba(31,38,135,.08);
+  margin-bottom: 12px;
+  overflow: hidden;
+}
+.examgr-card-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  cursor: pointer;
+}
+.examgr-date-badge {
+  flex-shrink: 0;
+  width: 52px;
+  height: 60px;
+  border-radius: 10px;
+  background: var(--soft);
+  color: var(--navy);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  line-height: 1.1;
+}
+.examgr-date-badge span { font-size: .68rem; font-weight: 700; text-transform: uppercase; }
+.examgr-date-badge strong { font-size: 1.25rem; font-weight: 800; }
+.examgr-date-badge-lg { width: 64px; height: 74px; }
+.examgr-card-body { min-width: 0; flex: 1; }
+.examgr-card-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.examgr-card-name {
+  font-weight: 800;
+  color: var(--navy);
+  font-size: .95rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.examgr-pub-badge {
+  font-size: .68rem;
+  font-weight: 700;
+  background: #dcfce7;
+  color: #15803d;
+  padding: 2px 8px;
+  border-radius: 8px;
+  white-space: nowrap;
+}
+.examgr-card-class { display: block; font-size: .78rem; color: var(--muted); margin-top: 1px; }
+.examgr-card-stats {
+  display: flex;
+  gap: 12px;
+  margin-top: 6px;
+  font-size: .78rem;
+  color: var(--muted);
+  flex-wrap: wrap;
+}
+.examgr-delete-btn {
+  flex-shrink: 0;
+  width: 44px;
+  border: none;
+  background: #fef2f2;
+  color: var(--red);
+  font-size: 1.05rem;
+  cursor: pointer;
+}
+.examgr-delete-btn:hover { background: #fee2e2; }
+
+/* ---------- exam details sheet ---------- */
+.examgr-details-head { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
+.examgr-progress-wrap { margin-bottom: 14px; }
+.examgr-progress-label { font-size: .82rem; font-weight: 700; color: var(--navy); margin-bottom: 6px; }
+.examgr-progress-track { height: 8px; border-radius: 6px; background: #eef0f6; overflow: hidden; }
+.examgr-progress-fill { height: 100%; width: 0%; background: linear-gradient(90deg, var(--blue), #7c3aed); border-radius: 6px; transition: width .25s ease; }
+.examgr-stats-row { display: flex; gap: 18px; font-size: .85rem; color: var(--navy); margin-bottom: 10px; }
+.examgr-notice {
+  font-size: .82rem;
+  font-weight: 600;
+  color: #15803d;
+  background: #f0fdf4;
+  border-radius: 10px;
+  padding: 8px 12px;
+  margin: 0 0 14px;
+}
+.examgr-section-label {
+  font-size: .74rem;
+  font-weight: 800;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 16px 0 8px;
+}
+.examgr-actions-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+.examgr-action-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 14px 6px;
+  border-radius: 12px;
+  border: 1.5px solid rgba(30,27,75,.10);
+  background: #fff;
+  color: var(--navy);
+  font-size: .74rem;
+  font-weight: 700;
+  cursor: pointer;
+  text-align: center;
+  line-height: 1.2;
+}
+.examgr-action-btn span { font-size: 1.3rem; }
+.examgr-action-btn:hover { background: var(--soft); border-color: var(--soft); }
+
+/* ---------- answer key sheet ---------- */
+.examgr-akey-sheet { max-width: 460px; }
+.examgr-akey-list { max-height: 52vh; overflow-y: auto; border-top: 1px solid rgba(30,27,75,.08); margin-bottom: 14px; }
+.examgr-akey-row {
+  display: grid;
+  grid-template-columns: 30px repeat(4, 1fr);
+  align-items: center;
+  column-gap: 6px;
+  padding: 11px 6px;
+  border-bottom: 1px solid rgba(30,27,75,.08);
+}
+.examgr-akey-qnum { font-size: .88rem; font-weight: 700; color: var(--navy); }
+.examgr-akey-opt {
+  justify-self: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: none;
+  background: #eef0f6;
+  color: #5a5f78;
+  font-size: .9rem;
+  font-weight: 700;
+  font-family: inherit;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background .12s ease, color .12s ease;
+}
+.examgr-akey-opt:hover { background: var(--soft); }
+.examgr-akey-opt.selected { background: var(--blue); color: #fff; }
+.examgr-akey-opt.selected:hover { background: var(--blue); }
+.examgr-akey-footer { display: flex; gap: 12px; }
+.examgr-akey-footer .btn-primary,
+.examgr-akey-footer .btn-secondary { flex: 1; }
+
+/* ---------- OMR / bubble sheet preview ---------- */
+.examgr-sheet-modal { max-width: 640px; }
+.examgr-sheet-preview-wrap {
+  overflow: auto;
+  max-height: 55vh;
+  border-radius: 10px;
+  border: 1px solid rgba(30,27,75,.12);
+  background: #f4f5fa;
+  padding: 12px;
+}
+.examgr-sheet-preview { transform: scale(.42); transform-origin: top left; width: 1203px; }
+@media (min-width: 640px) {
+  .examgr-sheet-preview { transform: scale(.5); }
+}
+.examgr-omr-sheet { position: relative; background: #fff; color: #000; font-family: Arial, Helvetica, sans-serif; overflow: hidden; }
+.examgr-omr-sheet * { box-sizing: border-box; }
+.examgr-omr-header-box { position: absolute; border: 1.6px solid #333; color: #000; background: #fff; }
+.examgr-omr-header-line { position: absolute; left: 0; right: 0; display: flex; border-bottom: 1.6px solid #333; }
+.examgr-omr-header-line:last-child { border-bottom: none; }
+.examgr-omr-header-cell { flex: 1; padding: 11px 10px 0; font-size: 24px; line-height: 1; color: #000; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.examgr-omr-header-cell + .examgr-omr-header-cell { border-left: 1.6px solid #333; }
+.examgr-omr-marker { position: absolute; width: 20px; height: 20px; background: #000; }
+.examgr-omr-text { position: absolute; color: #111; font-size: 18px; line-height: 1; font-weight: 400; white-space: nowrap; }
+.examgr-omr-small { font-size: 17px; }
+.examgr-omr-center { text-align: center; transform: translateX(-50%); }
+.examgr-omr-roll-title { font-size: 17px; }
+.examgr-omr-roll-digit { position: absolute; width: 30px; height: 30px; border: 2px solid #333; background: #fff; }
+.examgr-omr-bubble { position: absolute; width: 22px; height: 22px; border: 1.7px solid #222; border-radius: 50%; background: #fff; }
+
+/* ---------- scanner (kept dark — a camera view reads best on a dark UI regardless of site theme) ---------- */
+.examgr-scan-modal { max-width: 460px; }
+.examgr-scan-stage {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1203 / 1536;
+  max-height: 58vh;
+  margin: 0 auto;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #0b0c0d;
+}
+.examgr-scan-video, .examgr-scan-capture { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.examgr-scan-capture[hidden] { display: none; }
+.examgr-scan-overlay-ui { position: absolute; inset: 0; pointer-events: none; }
+.examgr-scan-guide {
+  position: absolute; top: 14px; left: 50%; transform: translateX(-50%);
+  max-width: calc(100% - 24px); padding: 7px 12px; border-radius: 8px;
+  background: rgba(0,0,0,.56); color: #fff; font-size: .74rem; text-align: center;
+}
+.examgr-scan-corner { position: absolute; width: 25%; aspect-ratio: 1 / 1; border: 2px solid var(--blue); box-shadow: 0 0 0 1px rgba(255,255,255,.25), 0 0 12px rgba(79,70,229,.4); transition: border-color .12s ease, box-shadow .12s ease; }
+.examgr-scan-corner.tl { top: 9%; left: 7%; }
+.examgr-scan-corner.tr { top: 9%; right: 7%; }
+.examgr-scan-corner.bl { bottom: 5%; left: 7%; }
+.examgr-scan-corner.br { bottom: 5%; right: 7%; }
+.examgr-scan-corner.is-detected { border-color: #18d631; box-shadow: 0 0 0 1px rgba(255,255,255,.35), 0 0 16px rgba(24,214,49,.7); }
+.examgr-scan-dot { position: absolute; top: 50%; left: 50%; width: 6px; height: 6px; border-radius: 50%; background: #18d631; transform: translate(-50%, -50%); opacity: 0; }
+.examgr-scan-corner.is-detected .examgr-scan-dot { opacity: 1; }
+.examgr-scan-status { position: absolute; left: 12px; right: 12px; bottom: 14px; display: flex; align-items: center; justify-content: center; gap: 7px; color: #fff; font-size: .78rem; text-align: center; }
+.examgr-scan-status-dot { width: 8px; height: 8px; border-radius: 50%; background: #ffb300; box-shadow: 0 0 0 3px rgba(255,179,0,.18); }
+.examgr-scan-status.is-ready .examgr-scan-status-dot { background: #18d631; box-shadow: 0 0 0 3px rgba(24,214,49,.18); }
+.examgr-scan-result { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; padding: 22px 16px; background: rgba(0,0,0,.78); text-align: center; }
+.examgr-scan-result[hidden] { display: none; }
+.examgr-scan-result strong { color: #fff; font-size: 1rem; }
+.examgr-scan-result p { margin: 6px 0 16px; color: #e8eaed; font-size: .8rem; }
+.examgr-scan-result-actions { display: flex; gap: 10px; width: 100%; }
+.examgr-scan-result-actions button { flex: 1; }
+.examgr-scan-permission { position: absolute; inset: 0; z-index: 3; display: flex; align-items: center; justify-content: center; padding: 18px; background: rgba(0,0,0,.8); }
+.examgr-scan-permission[hidden] { display: none; }
+.examgr-scan-permission-panel { max-width: 300px; padding: 20px; border-radius: 12px; background: #fff; text-align: center; }
+.examgr-scan-permission-panel strong { display: block; font-size: 1rem; color: var(--navy); }
+.examgr-scan-permission-panel p { margin: 8px 0 16px; color: var(--muted); font-size: .82rem; line-height: 1.45; }
+.examgr-scan-footer { display: flex; align-items: center; justify-content: center; padding: 10px 0 2px; }
+.examgr-scan-footer span { color: var(--muted); font-size: .8rem; }
+
+@media (max-width: 380px) {
+  .examgr-actions-grid { grid-template-columns: repeat(2, 1fr); }
+  .examgr-akey-opt { width: 34px; height: 34px; }
+}

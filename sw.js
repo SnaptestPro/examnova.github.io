@@ -1,4 +1,4 @@
-const CACHE_NAME = 'savyasachi-v71-favicon-20260810';
+const CACHE_NAME = 'savyasachi-v72-exam-manager-20260826';
 
 // App-shell files — sab kuch jo student ko app chalane ke liye chahiye
 // (code + question-bank data + icons). Pehli visit par yeh sab download
@@ -11,11 +11,13 @@ const urlsToCache = [
   '/styles.css',
   '/theme-picker.css',
   '/creative-dashboard.css',
+  '/exam-manager.css',
   '/script.js',
   '/upgrade.js',
   '/whatsapp-poll-export.js',
   '/student-features.js',
   '/omr.js',
+  '/exam-manager.js',
   '/push-notifications.js',
   '/back-button-guard.js',
   '/subject-resolver.js',
