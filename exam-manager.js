@@ -689,8 +689,27 @@
   // jsPDF font sizes are always in pt regardless of document unit.
   const pxFontToPt = px => px * OMR_PX_TO_MM * 2.834645669;
 
-  function examgrBuildSheetPdf(ex) {
-    const { jsPDF } = window.jspdf || {};
+  // Slow/mobile connections sometimes click the button before the
+  // deferred jsPDF <script> tag has finished downloading. Instead of
+  // failing immediately, wait briefly for it to show up.
+  function waitForJsPdf(timeoutMs) {
+    return new Promise(resolve => {
+      if (window.jspdf && window.jspdf.jsPDF) return resolve(window.jspdf.jsPDF);
+      const start = Date.now();
+      const iv = setInterval(() => {
+        if (window.jspdf && window.jspdf.jsPDF) {
+          clearInterval(iv);
+          resolve(window.jspdf.jsPDF);
+        } else if (Date.now() - start > timeoutMs) {
+          clearInterval(iv);
+          resolve(null);
+        }
+      }, 150);
+    });
+  }
+
+  async function examgrBuildSheetPdf(ex) {
+    const jsPDF = await waitForJsPdf(6000);
     if (!jsPDF) throw new Error("PDF library abhi load nahi ho payi — internet check karke page reload karein.");
     const doc = new jsPDF({ unit: "mm", format: "a4", orientation: "portrait" });
     doc.setDrawColor(40, 40, 40);
@@ -757,7 +776,7 @@
     return doc;
   }
 
-  $id("examgr-sheet-pdf-btn")?.addEventListener("click", () => {
+  $id("examgr-sheet-pdf-btn")?.addEventListener("click", async () => {
     const ex = examMgrExams[examMgrSelectedId];
     if (!ex) return;
     const btn = $id("examgr-sheet-pdf-btn");
@@ -765,7 +784,7 @@
     btn.disabled = true;
     btn.textContent = "⏳ PDF Bana Rahe Hain...";
     try {
-      const doc = examgrBuildSheetPdf(ex);
+      const doc = await examgrBuildSheetPdf(ex);
       doc.save(safeFileName(ex.examName || "omr") + "-omr-sheet.pdf");
     } catch (err) {
       alert("PDF banane mein dikkat aayi: " + (err && err.message ? err.message : err));
