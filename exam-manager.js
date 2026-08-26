@@ -733,7 +733,7 @@
     doc.text(`DATE : ${ex.date || ""}     CLASS : ${ex.className || ""}`, mmPos(110), mmPos(123));
 
     doc.setFontSize(pxFontToPt(24));
-    doc.text("SAVYASACHI COACHING — OMR उत्तर पत्रक", mmPos(OMR_CANVAS_SIZE.width / 2), mmPos(30), { align: "center" });
+    doc.text("SAVYASACHI COACHING — OMR ANSWER SHEET", mmPos(OMR_CANVAS_SIZE.width / 2), mmPos(30), { align: "center" });
 
     // Roll No block
     const rollDigits = Math.max(1, Math.min(5, Number(ex.rollDigits) || 5));
