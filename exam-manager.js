@@ -657,6 +657,49 @@
     downloadBlob(doc, "text/html;charset=utf-8", safeFileName(ex.examName || "omr") + "-omr-sheet.html");
   });
 
+  $id("examgr-sheet-pdf-btn")?.addEventListener("click", () => {
+    const ex = examMgrExams[examMgrSelectedId];
+    if (!ex) return;
+    if (typeof html2pdf !== "function") {
+      alert("PDF library abhi load nahi ho payi — internet check karke page reload karein.");
+      return;
+    }
+    const btn = $id("examgr-sheet-pdf-btn");
+    const originalLabel = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "⏳ PDF Bana Rahe Hain...";
+
+    // Preview wala element CSS transform:scale() se chhota dikhaya jaata
+    // hai (list mein fit karne ke liye) — seedha usse capture karne par
+    // PDF ki geometry (corner markers/bubbles) galat scale ho sakti hai.
+    // Isliye ek asli-size (1203x1536), off-screen copy banate hain
+    // sirf PDF capture ke liye.
+    const wrapper = document.createElement("div");
+    wrapper.style.cssText = "position:absolute;left:-99999px;top:0;background:#fff;";
+    wrapper.innerHTML = examgrBuildSheetHtml(ex);
+    document.body.appendChild(wrapper);
+
+    html2pdf().set({
+      margin: 0,
+      filename: safeFileName(ex.examName || "omr") + "-omr-sheet.pdf",
+      image: { type: "jpeg", quality: 0.98 },
+      html2canvas: { scale: 2, useCORS: true, backgroundColor: "#ffffff" },
+      // unit:"px" + exact format taaki PDF page bilkul sheet ke asli
+      // pixel-geometry se match kare — scanner ke corner-detection ke
+      // liye ye precision zaroori hai.
+      jsPDF: { unit: "px", format: [OMR_CANVAS_SIZE.width, OMR_CANVAS_SIZE.height], orientation: "portrait" }
+    }).from(wrapper).save().then(() => {
+      wrapper.remove();
+      btn.disabled = false;
+      btn.textContent = originalLabel;
+    }).catch(err => {
+      wrapper.remove();
+      btn.disabled = false;
+      btn.textContent = originalLabel;
+      alert("PDF banane mein dikkat aayi: " + (err && err.message ? err.message : err));
+    });
+  });
+
   // ────────────────────────────────────────────────────────────────
   // Scan Sheet — camera + 4-corner black-square detection.
   // This is a COLLECTION COUNTER, not a grader: jab chaaron corner ke
