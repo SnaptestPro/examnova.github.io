@@ -657,47 +657,122 @@
     downloadBlob(doc, "text/html;charset=utf-8", safeFileName(ex.examName || "omr") + "-omr-sheet.html");
   });
 
+  /* ── OMR Sheet → real PDF (vector, no html2canvas) ────────────────
+     NOTE: this used to render examgrBuildSheetHtml() into an off-screen
+     div and rasterize it via html2pdf (html2canvas → jsPDF). That
+     pipeline is exactly the "large blank gaps" / unreliable-capture
+     problem already documented and fixed in omr.js's OMR sheet
+     generator — html2canvas has to paint a huge (~2400x3000px at
+     scale:2) off-screen canvas, which silently produces a blank/partial
+     canvas on many phones (low memory → the canvas context allocation
+     fails quietly instead of throwing), and jsPDF's blob-download
+     trick that html2pdf's .save() relies on is unreliable on mobile
+     Safari/Chrome, which is why the download didn't even start there.
+
+     Fix: draw the sheet directly as PDF vector shapes (rects for the
+     header box/markers, circles for bubbles, text for labels) with
+     jsPDF's own drawing API — no HTML, no canvas rasterization, so
+     there is nothing that can render blank and the output file is a
+     few KB instead of a multi-megabyte rasterized image. All layout
+     numbers are reused as-is from OMR_CANVAS_SIZE/OMR_COLUMN_SPECS
+     (same source the on-screen preview and the scanner calibration
+     use), just uniformly scaled from px → mm to fit one A4 page, so
+     corner-marker/bubble geometry stays exactly proportional to what
+     the scanner already expects. ─────────────────────────────────── */
+
+  // Scale the 1203×1536 "px" layout down to fit an A4 page width
+  // (210mm), preserving aspect ratio so bubbles stay circular and the
+  // corner markers keep the same relative geometry the scanner uses.
+  const OMR_PDF_PAGE_MM = { width: 210, height: 297 };
+  const OMR_PX_TO_MM = OMR_PDF_PAGE_MM.width / OMR_CANVAS_SIZE.width;
+  const mmPos = px => px * OMR_PX_TO_MM;
+  // jsPDF font sizes are always in pt regardless of document unit.
+  const pxFontToPt = px => px * OMR_PX_TO_MM * 2.834645669;
+
+  function examgrBuildSheetPdf(ex) {
+    const { jsPDF } = window.jspdf || {};
+    if (!jsPDF) throw new Error("PDF library abhi load nahi ho payi — internet check karke page reload karein.");
+    const doc = new jsPDF({ unit: "mm", format: "a4", orientation: "portrait" });
+    doc.setDrawColor(40, 40, 40);
+    doc.setTextColor(0, 0, 0);
+    doc.setFont("helvetica", "normal");
+
+    // corner-registration markers (solid black squares)
+    doc.setFillColor(0, 0, 0);
+    OMR_MARKER_YS.forEach(y => OMR_MARKER_XS.forEach(x => {
+      doc.rect(mmPos(x), mmPos(y), mmPos(20), mmPos(20), "F");
+    }));
+
+    // header box: NAME / EXAM row + DATE/CLASS row
+    doc.setLineWidth(0.3);
+    doc.rect(mmPos(99), mmPos(49), mmPos(992), mmPos(92)); // outer box
+    doc.line(mmPos(99), mmPos(94), mmPos(1091), mmPos(94)); // row divider
+    doc.line(mmPos(595), mmPos(49), mmPos(595), mmPos(94)); // NAME/EXAM divider
+    doc.setFontSize(pxFontToPt(15));
+    doc.text(`NAME :`, mmPos(110), mmPos(78));
+    doc.text(`EXAM : ${ex.examName || ""}`, mmPos(605), mmPos(78));
+    doc.text(`DATE : ${ex.date || ""}     CLASS : ${ex.className || ""}`, mmPos(110), mmPos(123));
+
+    doc.setFontSize(pxFontToPt(24));
+    doc.text("SAVYASACHI COACHING — OMR उत्तर पत्रक", mmPos(OMR_CANVAS_SIZE.width / 2), mmPos(30), { align: "center" });
+
+    // Roll No block
+    const rollDigits = Math.max(1, Math.min(5, Number(ex.rollDigits) || 5));
+    const rollCenters = [190, 220, 250, 280, 310].slice(0, rollDigits);
+    doc.setFontSize(pxFontToPt(14));
+    doc.text("Roll No", mmPos(250), mmPos(208), { align: "center" });
+    doc.setLineWidth(0.25);
+    for (let i = 0; i < rollDigits; i++) doc.rect(mmPos(175 + i * 30), mmPos(220), mmPos(30), mmPos(30));
+    doc.setFontSize(pxFontToPt(13));
+    for (let d = 0; d <= 9; d++) {
+      const cy = 265 + d * 30;
+      doc.text(String(d), mmPos(166), mmPos(cy + 3), { align: "right" });
+      rollCenters.forEach(cx => doc.circle(mmPos(cx), mmPos(cy), mmPos(11)));
+    }
+
+    // Exam name / class under column 0
+    doc.setFontSize(pxFontToPt(13));
+    doc.text(ex.examName || "Exam", mmPos(OMR_COLUMN_SPECS[0].subjectCenter), mmPos(OMR_COLUMN_SPECS[0].subjectTop + 8), { align: "center" });
+    doc.text(ex.className || "", mmPos(OMR_COLUMN_SPECS[0].subjectCenter), mmPos(OMR_COLUMN_SPECS[0].sectionTop + 8), { align: "center" });
+
+    // Question grid
+    const total = Math.max(1, Math.min(MAX_QUESTIONS, Number(ex.questions) || MAX_QUESTIONS));
+    let itemIndex = 0;
+    OMR_COLUMN_SPECS.forEach(col => {
+      col.groups.forEach(group => {
+        if (itemIndex >= total) return;
+        doc.setFontSize(pxFontToPt(12));
+        OPTION_LETTERS.forEach((label, i) => doc.text(label, mmPos(col.optionCenters[i]), mmPos(group.headerY + 3), { align: "center" }));
+        for (let r = 0; r < group.count && itemIndex < total; r++) {
+          const cy = group.rowStart + r * 30;
+          itemIndex++;
+          doc.setFontSize(pxFontToPt(14));
+          doc.text(String(itemIndex), mmPos(col.qRight), mmPos(cy + 3), { align: "right" });
+          doc.setLineWidth(0.2);
+          OPTION_LETTERS.forEach((_, i) => doc.circle(mmPos(col.optionCenters[i]), mmPos(cy), mmPos(11)));
+        }
+      });
+    });
+
+    return doc;
+  }
+
   $id("examgr-sheet-pdf-btn")?.addEventListener("click", () => {
     const ex = examMgrExams[examMgrSelectedId];
     if (!ex) return;
-    if (typeof html2pdf !== "function") {
-      alert("PDF library abhi load nahi ho payi — internet check karke page reload karein.");
-      return;
-    }
     const btn = $id("examgr-sheet-pdf-btn");
     const originalLabel = btn.textContent;
     btn.disabled = true;
     btn.textContent = "⏳ PDF Bana Rahe Hain...";
-
-    // Preview wala element CSS transform:scale() se chhota dikhaya jaata
-    // hai (list mein fit karne ke liye) — seedha usse capture karne par
-    // PDF ki geometry (corner markers/bubbles) galat scale ho sakti hai.
-    // Isliye ek asli-size (1203x1536), off-screen copy banate hain
-    // sirf PDF capture ke liye.
-    const wrapper = document.createElement("div");
-    wrapper.style.cssText = "position:absolute;left:-99999px;top:0;background:#fff;";
-    wrapper.innerHTML = examgrBuildSheetHtml(ex);
-    document.body.appendChild(wrapper);
-
-    html2pdf().set({
-      margin: 0,
-      filename: safeFileName(ex.examName || "omr") + "-omr-sheet.pdf",
-      image: { type: "jpeg", quality: 0.98 },
-      html2canvas: { scale: 2, useCORS: true, backgroundColor: "#ffffff" },
-      // unit:"px" + exact format taaki PDF page bilkul sheet ke asli
-      // pixel-geometry se match kare — scanner ke corner-detection ke
-      // liye ye precision zaroori hai.
-      jsPDF: { unit: "px", format: [OMR_CANVAS_SIZE.width, OMR_CANVAS_SIZE.height], orientation: "portrait" }
-    }).from(wrapper).save().then(() => {
-      wrapper.remove();
-      btn.disabled = false;
-      btn.textContent = originalLabel;
-    }).catch(err => {
-      wrapper.remove();
-      btn.disabled = false;
-      btn.textContent = originalLabel;
+    try {
+      const doc = examgrBuildSheetPdf(ex);
+      doc.save(safeFileName(ex.examName || "omr") + "-omr-sheet.pdf");
+    } catch (err) {
       alert("PDF banane mein dikkat aayi: " + (err && err.message ? err.message : err));
-    });
+    } finally {
+      btn.disabled = false;
+      btn.textContent = originalLabel;
+    }
   });
 
   // ────────────────────────────────────────────────────────────────

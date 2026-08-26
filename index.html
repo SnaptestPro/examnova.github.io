@@ -124,6 +124,13 @@
   <script defer src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script defer src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <script defer src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+  <!-- Standalone jsPDF (exposes window.jspdf.jsPDF). Used by the Exam
+       Manager's OMR-sheet PDF export to draw the sheet as real PDF vector
+       shapes (rects/circles/text) instead of rasterizing HTML through
+       html2canvas — see the note above examgrBuildSheetPdf() in
+       exam-manager.js for why the old html2canvas route produced blank
+       pages and failed to download on mobile. -->
+  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.2/jspdf.umd.min.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/docx@9.7.1/dist/index.iife.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
   <!-- KaTeX for automatic Math Equation rendering -->
