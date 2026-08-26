@@ -6,6 +6,35 @@
    design mein alag nahi lagta.
    ══════════════════════════════════════════════════════════════════ */
 
+/* ---------- full-screen override ----------
+   Site ke test-analysis-overlay ka default look ek bottom-sheet hai
+   (upar background dikhta rehta hai). Exam Manager ke screens ke liye
+   ye poori screen cover karte hain — jaisa ek native app-screen karta
+   hai — taaki "piche ki screen dikhna" wala confusion na ho. */
+.test-analysis-overlay.examgr-overlay-full {
+  background: #fff;
+  backdrop-filter: none;
+  align-items: stretch;
+  justify-content: stretch;
+  padding: 0;
+}
+.test-analysis-overlay.examgr-overlay-full .test-analysis-sheet {
+  width: 100%;
+  max-width: 100%;
+  height: 100%;
+  max-height: 100%;
+  border-radius: 0;
+  box-shadow: none;
+  padding-top: max(20px, env(safe-area-inset-top, 0px));
+  padding-bottom: max(24px, env(safe-area-inset-bottom, 0px));
+}
+@media (min-width: 640px) {
+  .test-analysis-overlay.examgr-overlay-full .test-analysis-sheet {
+    border-radius: 0;
+    max-height: 100%;
+  }
+}
+
 /* ---------- intro + list ---------- */
 .examgr-intro-row {
   display: flex;

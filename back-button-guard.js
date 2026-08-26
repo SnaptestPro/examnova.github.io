@@ -34,7 +34,16 @@
     { sel: "#bank-edit-modal",    close: function (el) { if (typeof hideBankModal === "function") hideBankModal(); else el.classList.add("hidden"); } },
     { sel: "#move-chapter-modal", close: function (el) { if (typeof closeMoveChapterModal === "function") closeMoveChapterModal(); else el.style.display = "none"; } },
     { sel: "#theme-picker-modal", close: function (el) { if (window.ThemeManager && typeof ThemeManager.hidePicker === "function") ThemeManager.hidePicker(); else el.style.display = "none"; } },
-    { sel: "#app-install-modal",  close: function (el) { el.classList.add("hidden"); } }
+    { sel: "#app-install-modal",  close: function (el) { el.classList.add("hidden"); } },
+    // Exam Manager (OMR hub → 🗂️ Exam Manager) ke full-screen overlays —
+    // in mein se ek waqt par sirf ek hi visible hota hai, isliye har ek
+    // apni "close" call karta hai jo pichli screen (list/Details) khud
+    // wapas dikha deta hai.
+    { sel: "#examgr-add-overlay",     close: function (el) { if (typeof examgrCloseAdd === "function") examgrCloseAdd(); else el.classList.add("hidden"); } },
+    { sel: "#examgr-details-overlay", close: function (el) { if (typeof examgrCloseDetails === "function") examgrCloseDetails(); else el.classList.add("hidden"); } },
+    { sel: "#examgr-akey-overlay",    close: function (el) { if (typeof examgrCloseAnswerKey === "function") examgrCloseAnswerKey(); else el.classList.add("hidden"); } },
+    { sel: "#examgr-sheet-overlay",   close: function (el) { if (typeof examgrCloseOmrSheet === "function") examgrCloseOmrSheet(); else el.classList.add("hidden"); } },
+    { sel: "#examgr-scan-overlay",    close: function (el) { if (typeof examgrCloseScanner === "function") examgrCloseScanner(); else el.classList.add("hidden"); } }
   ];
 
   function isVisible(el) {

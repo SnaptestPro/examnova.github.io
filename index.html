@@ -466,7 +466,7 @@
     <!-- ── EXAM MANAGER OVERLAYS (OMR hub → 🗂️ Exam Manager) ── -->
 
     <!-- Naya Exam Banayein -->
-    <div id="examgr-add-overlay" class="test-analysis-overlay hidden" onclick="if(event.target===this) examgrCloseAdd()">
+    <div id="examgr-add-overlay" class="test-analysis-overlay examgr-overlay-full hidden" onclick="if(event.target===this) examgrCloseAdd()">
       <div class="test-analysis-sheet">
         <button type="button" class="test-analysis-close" onclick="examgrCloseAdd()">✕</button>
         <div class="test-analysis-title">🗂️ Naya Exam Banayein</div>
@@ -505,7 +505,7 @@
     </div>
 
     <!-- Exam Details -->
-    <div id="examgr-details-overlay" class="test-analysis-overlay hidden" onclick="if(event.target===this) examgrCloseDetails()">
+    <div id="examgr-details-overlay" class="test-analysis-overlay examgr-overlay-full hidden" onclick="if(event.target===this) examgrCloseDetails()">
       <div class="test-analysis-sheet">
         <button type="button" class="test-analysis-close" onclick="examgrCloseDetails()">✕</button>
         <div class="examgr-details-head">
@@ -548,7 +548,7 @@
     </div>
 
     <!-- Answer Key -->
-    <div id="examgr-akey-overlay" class="test-analysis-overlay hidden" onclick="if(event.target===this) examgrCloseAnswerKey()">
+    <div id="examgr-akey-overlay" class="test-analysis-overlay examgr-overlay-full hidden" onclick="if(event.target===this) examgrCloseAnswerKey()">
       <div class="test-analysis-sheet examgr-akey-sheet">
         <button type="button" class="test-analysis-close" onclick="examgrCloseAnswerKey()">✕</button>
         <div class="test-analysis-title">✅ Answer Key</div>
@@ -562,7 +562,7 @@
     </div>
 
     <!-- OMR / Bubble Sheet preview -->
-    <div id="examgr-sheet-overlay" class="test-analysis-overlay hidden" onclick="if(event.target===this) examgrCloseOmrSheet()">
+    <div id="examgr-sheet-overlay" class="test-analysis-overlay examgr-overlay-full hidden" onclick="if(event.target===this) examgrCloseOmrSheet()">
       <div class="test-analysis-sheet examgr-sheet-modal">
         <button type="button" class="test-analysis-close" onclick="examgrCloseOmrSheet()">✕</button>
         <div class="test-analysis-title">🗒️ OMR / Bubble Sheet</div>
@@ -573,7 +573,7 @@
     </div>
 
     <!-- Scan Sheet (camera collection-counter, NOT a grader) -->
-    <div id="examgr-scan-overlay" class="test-analysis-overlay hidden" onclick="if(event.target===this) examgrCloseScanner()">
+    <div id="examgr-scan-overlay" class="test-analysis-overlay examgr-overlay-full hidden" onclick="if(event.target===this) examgrCloseScanner()">
       <div class="test-analysis-sheet examgr-scan-modal">
         <button type="button" class="test-analysis-close" onclick="examgrCloseScanner()">✕</button>
         <div class="test-analysis-title">📷 Scan Sheet</div>
