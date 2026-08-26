@@ -621,6 +621,50 @@
   }
 
   let detectedAnswers = [];
+  // Last-scanned photo + per-question bubble pixel positions, kept so the
+  // review screen can draw the "detected answer" overlay circles directly
+  // on top of the student's own OMR photo (see renderOMRPhotoOverlay).
+  let lastScanPhotoDataUrl = null;
+  let lastScanBubblePx = null;
+
+  // Draws the scanned photo into a <canvas> with a colored circle over
+  // every question's DETECTED bubble — green (confident), amber (needs a
+  // look), red (AI/Pixel mismatch), so the admin can visually confirm the
+  // scan at a glance instead of only reading a text list, the same way a
+  // physical OMR scanner marks the sheet it just read.
+  function renderOMRPhotoOverlay(containerEl, rows) {
+    if (!containerEl || !lastScanPhotoDataUrl || !lastScanBubblePx) return;
+    const wrap = document.createElement("div");
+    wrap.style.cssText = "margin-bottom:10px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;max-width:420px;";
+    const canvas = document.createElement("canvas");
+    wrap.appendChild(canvas);
+    containerEl.appendChild(wrap);
+
+    const img = new Image();
+    img.onload = () => {
+      // Cap displayed size (the working photo can be up to 2200px) —
+      // this is just a visual check, not used for any detection math.
+      const dispScale = Math.min(1, 420 / img.width);
+      canvas.width = Math.round(img.width * dispScale);
+      canvas.height = Math.round(img.height * dispScale);
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+      rows.forEach(r => {
+        const optsPx = lastScanBubblePx[r.q];
+        if (!optsPx || r.detected === null || r.detected === undefined) return;
+        const px = optsPx.find(o => o.opt === r.detected);
+        if (!px) return;
+        const color = r.mismatch ? "#dc2626" : (r.confidence === "high" ? "#16a34a" : (r.confidence === "medium" ? "#16a34a" : "#f59e0b"));
+        ctx.beginPath();
+        ctx.arc(px.x * dispScale, px.y * dispScale, 9, 0, Math.PI * 2);
+        ctx.lineWidth = 2.5;
+        ctx.strokeStyle = color;
+        ctx.stroke();
+      });
+    };
+    img.src = lastScanPhotoDataUrl;
+  }
 
   // Original geometric method: find corner markers, map every bubble by
   // bilinear interpolation, measure ink darkness. Kept as an automatic
@@ -668,10 +712,23 @@
       } else {
         confidence = (MARK_THRESHOLD - top.dark > 15) ? "blank" : "unclear";
       }
-      return { q: b.q, detected, confidence };
+      // Pixel position of every option bubble for this question, in the
+      // photo's own pixel grid — kept regardless of which method (AI or
+      // pixel-darkness) ends up supplying the actual "detected" answer,
+      // so the review screen can draw a circle on the exact bubble the
+      // student marked, on top of their own photo (same as the physical-
+      // marker-detection style scanners use), not just show a text list.
+      const optionsPx = b.options.map(o => {
+        const px = templateToPixel(layout, corners, o.x, o.y);
+        return { opt: o.opt, x: px.x, y: px.y };
+      });
+      return { q: b.q, detected, confidence, optionsPx };
     });
 
-    return { answers, cornersReliable };
+    const bubblePx = {};
+    answers.forEach(a => { bubblePx[a.q] = a.optionsPx; });
+
+    return { answers, cornersReliable, bubblePx };
   }
 
   // AI method: sends the photo to Claude Vision (via the Apps Script proxy
@@ -683,7 +740,7 @@
   // mis-cropped photo, which were the main causes of wrong detections in
   // the pixel-based method.
   async function detectAnswersWithAI(canvas, numQuestions) {
-    const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
+    const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
     const commaIdx = dataUrl.indexOf(",");
     const mimeType = dataUrl.slice(5, dataUrl.indexOf(";"));
     const imageBase64 = dataUrl.slice(commaIdx + 1);
@@ -847,7 +904,13 @@
 
     try {
       const img = await loadImageFromFile(fileInput.files[0]);
-      const maxDim = 1400;
+      // Higher working resolution = sharper bubbles for BOTH the pixel
+      // method (darkness sampling) and the AI (image sent as-is to Claude
+      // Vision) → far fewer misreads on small/close-together bubbles.
+      // 1400px was the old cap; raised to 2200px. Still capped (not the
+      // full original photo) purely to keep canvas/AI-upload memory and
+      // upload time sane on slow mobile connections.
+      const maxDim = 2200;
 
       // ORIENTATION FIX: the OMR sheet is always printed A4 portrait, but
       // phones commonly save a sideways photo (held horizontally) without
@@ -930,6 +993,12 @@
         detectedAnswers = pixelResult.answers;
       }
 
+      // Saved (module-level, see just above renderOMRReview) so the
+      // review screen can draw the "which bubble got marked" overlay
+      // directly on the student's own photo.
+      lastScanPhotoDataUrl = canvas.toDataURL("image/jpeg", 0.9);
+      lastScanBubblePx = pixelResult.bubblePx;
+
       renderOMRReview(test, name, mobile, testId, usedAI, cornersReliable, dualChecked, mismatchCount, customTemplate);
       if (statusEl) {
         statusEl.textContent = cornersReliable
@@ -1009,11 +1078,14 @@
         ${cornerWarning}
         ${mismatchNote}
         <p class="muted-text" style="margin-bottom:2px;font-size:.8rem;">${methodNote}</p>
+        <div id="omr-photo-overlay-wrap"></div>
+        <p class="muted-text" style="margin-bottom:2px;font-size:.75rem;">Upar photo par circle = pakda gaya jawab (🟢 sahi lag raha, 🟠 dekh lein, 🔴 AI/Pixel mismatch). Neeche list se koi bhi answer badal sakte hain.</p>
         <p class="muted-text" style="margin-bottom:8px;">✅ high confidence · 🟡 medium · 🟠 low, khud verify karein · ⬜ confidently blank (not attempted) · 🔴 AI/Pixel mismatch — zaroor check karein. Dropdown se koi bhi answer badal sakte hain.</p>
         <div style="max-height:340px;overflow-y:auto;border:1px solid #e2e8f0;border-radius:8px;">${rows}</div>
         <button type="button" id="omr-confirm-save-btn" class="btn-primary" style="margin-top:12px;">✅ Confirm & Result Save Karein</button>
       </div>`;
 
+    renderOMRPhotoOverlay(document.getElementById("omr-photo-overlay-wrap"), detectedAnswers);
     document.getElementById("omr-confirm-save-btn").onclick = () => confirmAndSaveOMR(test, name, mobile, testId);
   }
 
