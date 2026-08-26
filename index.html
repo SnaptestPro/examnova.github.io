@@ -1519,9 +1519,21 @@ B"></textarea>
             <label>OMR Sheet Ki Photo</label>
             <input id="omr-scan-file-input" type="file" accept="image/*" capture="environment" />
           </div>
+          <button type="button" id="omr-live-camera-btn" class="btn-secondary" style="margin-bottom:8px;">🎥 Live Camera Se Scan Karein</button>
           <button type="button" id="omr-scan-btn" class="btn-primary">📷 Scan Karein</button>
           <p id="omr-scan-status" class="muted-text" style="margin-top:8px;"></p>
           <div id="omr-review-area"></div>
+          <div id="omr-live-camera-modal" style="display:none;position:fixed;inset:0;z-index:99999;background:#000;">
+            <video id="omr-live-video" playsinline autoplay muted style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;"></video>
+            <canvas id="omr-live-overlay" style="position:absolute;inset:0;width:100%;height:100%;"></canvas>
+            <div style="position:absolute;top:10px;left:0;right:0;text-align:center;color:#fff;font-size:.85rem;padding:0 16px;">
+              Sheet ko frame ke andar seedha rakhein — kone ke 4 kaale square <span style="color:#22c55e;">green</span> hone par photo apne aap khinchegi.
+            </div>
+            <div style="position:absolute;bottom:18px;left:0;right:0;display:flex;justify-content:center;gap:12px;">
+              <button type="button" id="omr-live-capture-btn" class="btn-primary">📸 Abhi Capture Karein</button>
+              <button type="button" id="omr-live-cancel-btn" class="btn-secondary">✖️ Cancel</button>
+            </div>
+          </div>
           <p id="omr-scan-photo-tip" class="muted-text" style="margin-top:8px;">Note: Sheet ko poori tarah (bina crop kiye, seedhi, achhi light mein) photo kheenchein — corner ke 4 kaale square poori tarah dikhne chahiye.</p>
         </div>
         </div>

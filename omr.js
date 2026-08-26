@@ -628,11 +628,11 @@
   let lastScanBubblePx = null;
 
   // Draws the scanned photo into a <canvas> with a colored circle over
-  // every question's DETECTED bubble — green (confident), amber (needs a
-  // look), red (AI/Pixel mismatch), so the admin can visually confirm the
-  // scan at a glance instead of only reading a text list, the same way a
-  // physical OMR scanner marks the sheet it just read.
-  function renderOMRPhotoOverlay(containerEl, rows) {
+  // every question's DETECTED bubble — green (matches the answer key /
+  // confident), red (wrong per answer key, or AI/Pixel mismatch), amber
+  // (blank/needs a look) — same style as the reference video: correctness
+  // painted straight onto the photo, not just a text list.
+  function renderOMRPhotoOverlay(containerEl, rows, test) {
     if (!containerEl || !lastScanPhotoDataUrl || !lastScanBubblePx) return;
     const wrap = document.createElement("div");
     wrap.style.cssText = "margin-bottom:10px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;max-width:420px;";
@@ -652,10 +652,15 @@
 
       rows.forEach(r => {
         const optsPx = lastScanBubblePx[r.q];
-        if (!optsPx || r.detected === null || r.detected === undefined) return;
+        if (!optsPx) return;
+        const correctOpt = test && test.questions && test.questions[r.q - 1] ? test.questions[r.q - 1].answer : undefined;
+        if (r.detected === null || r.detected === undefined) return;
         const px = optsPx.find(o => o.opt === r.detected);
         if (!px) return;
-        const color = r.mismatch ? "#dc2626" : (r.confidence === "high" ? "#16a34a" : (r.confidence === "medium" ? "#16a34a" : "#f59e0b"));
+        let color;
+        if (r.mismatch) color = "#dc2626";
+        else if (correctOpt !== undefined && correctOpt !== null) color = (r.detected === correctOpt) ? "#16a34a" : "#dc2626";
+        else color = (r.confidence === "high" || r.confidence === "medium") ? "#16a34a" : "#f59e0b";
         ctx.beginPath();
         ctx.arc(px.x * dispScale, px.y * dispScale, 9, 0, Math.PI * 2);
         ctx.lineWidth = 2.5;
@@ -1072,20 +1077,35 @@
          </div>`
       : "";
 
+    // Quick provisional score for the "Marks: X / Y" header (same style
+    // as the reference video) — computed straight from what was DETECTED,
+    // before the admin edits anything below. The real, final score is
+    // recalculated from the dropdowns at Save time (confirmAndSaveOMR).
+    const marksPerQ = getMarks(test), negPerQ = getNeg(test);
+    let provisionalScore = 0, provisionalMax = 0;
+    test.questions.forEach((ques, idx) => {
+      if (ques.qType === "subjective") return;
+      provisionalMax += marksPerQ;
+      const r = detectedAnswers.find(a => a.q === idx + 1);
+      if (!r || r.detected === null || r.detected === undefined) return;
+      provisionalScore += (r.detected === ques.answer) ? marksPerQ : (negPerQ > 0 ? -negPerQ : 0);
+    });
+
     container.innerHTML = `
       <div class="card" style="margin-top:14px;">
-        <h4 style="margin-bottom:6px;">📝 Review Detected Answers ${flagCount ? `<span style="color:#d97706;font-size:.8rem;">(${flagCount} flagged — kripya check karein)</span>` : ""}</h4>
+        <h4 style="margin-bottom:2px;">📝 Review Detected Answers ${flagCount ? `<span style="color:#d97706;font-size:.8rem;">(${flagCount} flagged — kripya check karein)</span>` : ""}</h4>
+        <p style="font-weight:700;font-size:1.05rem;margin-bottom:8px;">Marks (provisional): ${provisionalScore} / ${provisionalMax}</p>
         ${cornerWarning}
         ${mismatchNote}
         <p class="muted-text" style="margin-bottom:2px;font-size:.8rem;">${methodNote}</p>
         <div id="omr-photo-overlay-wrap"></div>
-        <p class="muted-text" style="margin-bottom:2px;font-size:.75rem;">Upar photo par circle = pakda gaya jawab (🟢 sahi lag raha, 🟠 dekh lein, 🔴 AI/Pixel mismatch). Neeche list se koi bhi answer badal sakte hain.</p>
+        <p class="muted-text" style="margin-bottom:2px;font-size:.75rem;">Upar photo par circle = pakda gaya jawab (🟢 sahi jawab, 🔴 galat jawab / mismatch, 🟠 dekh lein). Neeche list se koi bhi answer badal sakte hain — badalne par upar wali photo turant nahi badlegi, sirf final save sahi answer se hoga.</p>
         <p class="muted-text" style="margin-bottom:8px;">✅ high confidence · 🟡 medium · 🟠 low, khud verify karein · ⬜ confidently blank (not attempted) · 🔴 AI/Pixel mismatch — zaroor check karein. Dropdown se koi bhi answer badal sakte hain.</p>
         <div style="max-height:340px;overflow-y:auto;border:1px solid #e2e8f0;border-radius:8px;">${rows}</div>
         <button type="button" id="omr-confirm-save-btn" class="btn-primary" style="margin-top:12px;">✅ Confirm & Result Save Karein</button>
       </div>`;
 
-    renderOMRPhotoOverlay(document.getElementById("omr-photo-overlay-wrap"), detectedAnswers);
+    renderOMRPhotoOverlay(document.getElementById("omr-photo-overlay-wrap"), detectedAnswers, test);
     document.getElementById("omr-confirm-save-btn").onclick = () => confirmAndSaveOMR(test, name, mobile, testId);
   }
 
@@ -2118,6 +2138,98 @@ OUTPUT ONLY SEPARATE CODE BLOCKS.`;
     });
   }
 
+  // ── LIVE CAMERA SCAN (matches the "point camera → corners light up →
+  // auto-capture" flow the admin wants, instead of picking an already-
+  // taken photo) ─────────────────────────────────────────────────────
+  let liveStream = null, liveDetectTimer = null, liveLockCount = 0, liveCaptured = false;
+
+  function stopLiveCamera() {
+    if (liveDetectTimer) { clearInterval(liveDetectTimer); liveDetectTimer = null; }
+    if (liveStream) { liveStream.getTracks().forEach(t => t.stop()); liveStream = null; }
+    const modal = document.getElementById("omr-live-camera-modal");
+    if (modal) modal.style.display = "none";
+    liveLockCount = 0; liveCaptured = false;
+  }
+
+  async function openLiveCamera() {
+    const modal = document.getElementById("omr-live-camera-modal");
+    const video = document.getElementById("omr-live-video");
+    const overlay = document.getElementById("omr-live-overlay");
+    if (!modal || !video || !overlay) return;
+
+    try {
+      liveStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+        audio: false
+      });
+    } catch (err) {
+      alert("Camera khol nahi paaye: " + (err && err.message ? err.message : err) + "\nBrowser ko camera permission dein, ya niche 'OMR Sheet Ki Photo' se seedhi photo lein.");
+      return;
+    }
+
+    video.srcObject = liveStream;
+    modal.style.display = "block";
+    liveLockCount = 0; liveCaptured = false;
+
+    // Small offscreen canvas for running the SAME corner-marker detector
+    // used on a static photo (detectCorners), just at low resolution and
+    // on a timer, so it's cheap enough to run repeatedly on a live feed.
+    const probe = document.createElement("canvas");
+    probe.width = 240; probe.height = 320;
+    const probeCtx = probe.getContext("2d");
+
+    liveDetectTimer = setInterval(() => {
+      if (liveCaptured || !video.videoWidth) return;
+      const vw = video.videoWidth, vh = video.videoHeight;
+      const pw = probe.width, ph = Math.round(pw * vh / vw);
+      probe.height = ph;
+      probeCtx.drawImage(video, 0, 0, pw, ph);
+      const gray = toGrayscale(probeCtx, pw, ph);
+      const corners = detectCorners(gray, pw, ph);
+      const allLocked = ["tl", "tr", "bl", "br"].every(k => corners[k].isolated !== false);
+
+      // Draw overlay boxes scaled to the on-screen video element size.
+      overlay.width = video.clientWidth; overlay.height = video.clientHeight;
+      const octx = overlay.getContext("2d");
+      octx.clearRect(0, 0, overlay.width, overlay.height);
+      const sx = overlay.width / pw, sy = overlay.height / ph;
+      const boxSize = Math.max(overlay.width, overlay.height) * 0.05;
+      ["tl", "tr", "bl", "br"].forEach(k => {
+        const c = corners[k];
+        octx.strokeStyle = c.isolated !== false ? "#22c55e" : "#3b82f6";
+        octx.lineWidth = 3;
+        octx.strokeRect(c.x * sx - boxSize / 2, c.y * sy - boxSize / 2, boxSize, boxSize);
+      });
+
+      // Auto-capture once all 4 corners read "locked" for a few checks in
+      // a row (avoids firing on one lucky/noisy frame).
+      liveLockCount = allLocked ? liveLockCount + 1 : 0;
+      if (liveLockCount >= 3) captureLiveFrame();
+    }, 300);
+
+    document.getElementById("omr-live-capture-btn").onclick = () => captureLiveFrame();
+    document.getElementById("omr-live-cancel-btn").onclick = () => stopLiveCamera();
+  }
+
+  function captureLiveFrame() {
+    if (liveCaptured) return;
+    liveCaptured = true;
+    const video = document.getElementById("omr-live-video");
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+    canvas.getContext("2d").drawImage(video, 0, 0);
+    canvas.toBlob(blob => {
+      stopLiveCamera();
+      if (!blob) { alert("Photo capture nahi ho payi, dobara try karein."); return; }
+      const file = new File([blob], "omr-live-capture.jpg", { type: "image/jpeg" });
+      const dt = new DataTransfer();
+      dt.items.add(file);
+      const fileInput = document.getElementById("omr-scan-file-input");
+      fileInput.files = dt.files;
+      scanOMRSheet();
+    }, "image/jpeg", 0.92);
+  }
+
   function init() {
     const genBtn = document.getElementById("omr-generate-sheet-btn");
     if (genBtn) genBtn.onclick = generateOMRSheet;
@@ -2125,6 +2237,8 @@ OUTPUT ONLY SEPARATE CODE BLOCKS.`;
     if (manualBtn) manualBtn.onclick = parseAndPreviewManual;
     const scanBtn = document.getElementById("omr-scan-btn");
     if (scanBtn) scanBtn.onclick = scanOMRSheet;
+    const liveCameraBtn = document.getElementById("omr-live-camera-btn");
+    if (liveCameraBtn) liveCameraBtn.onclick = openLiveCamera;
 
     const trainFileInput = document.getElementById("omr-train-file-input");
     if (trainFileInput) trainFileInput.onchange = () => {
