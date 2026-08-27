@@ -1892,11 +1892,36 @@ OUTPUT ONLY SEPARATE CODE BLOCKS.`;
     return steps[stepIdx] || "";
   }
 
-  function computeTrainedBubbles(clicks, numQuestions, cols) {
+  // headerEvery: if the physical sheet reprints an "A B C D" header row
+  // before every group of N questions (0 = never, header only printed
+  // once at the very top and not repeated), each such header eats one
+  // extra row-slot that a plain "constant spacing × question index"
+  // model doesn't know about. Left unhandled, every question AFTER the
+  // first header repeat lands progressively lower than its real bubble —
+  // exactly the "aligns fine for Q1-5, drifts further off every group of
+  // 5 after that" pattern that made scanned dots land on the sheet's own
+  // printed row-marker squares instead of the actual option bubbles.
+  // Fix: convert each question's plain index into a "row-unit" count that
+  // also counts the header rows passed so far, THEN multiply by the
+  // measured per-row-unit step (still just Q1→Q2, i.e. one row-unit,
+  // since no header sits between the very first two questions).
+  function rowUnitsForIndex(m, headerEvery) {
+    // m = 0-based question index within its column. Returns how many
+    // row-units of vertical space precede this question's row, counting
+    // one extra unit for every header row reprinted before it.
+    if (!headerEvery || headerEvery <= 0) return m;
+    const groupsBefore = Math.floor(m / headerEvery);
+    return m + groupsBefore + 1; // +1: a header also precedes the very first group
+  }
+
+  function computeTrainedBubbles(clicks, numQuestions, cols, headerEvery) {
     const rowsPerCol = Math.ceil(numQuestions / cols);
     const p0 = clicks[0], p1 = clicks[1], p2 = clicks[2];
     const p3 = cols > 1 ? clicks[3] : null;
     const optSpacingX = (p1.x - p0.x) / 3, optSpacingY = (p1.y - p0.y) / 3;
+    // Q1→Q2 are always adjacent questions with no header between them
+    // (a header only appears before Q1 itself, if headerEvery is set),
+    // so this step is exactly "one row-unit" regardless of headerEvery.
     const rowStepX = p2.x - p0.x, rowStepY = p2.y - p0.y;
     const colStepX = p3 ? (p3.x - p0.x) : 0, colStepY = p3 ? (p3.y - p0.y) : 0;
 
@@ -1904,8 +1929,9 @@ OUTPUT ONLY SEPARATE CODE BLOCKS.`;
     for (let i = 0; i < numQuestions; i++) {
       const col = Math.floor(i / rowsPerCol);
       const rowInCol = i % rowsPerCol;
-      const baseX = p0.x + col * colStepX + rowInCol * rowStepX;
-      const baseY = p0.y + col * colStepY + rowInCol * rowStepY;
+      const rowUnits = rowUnitsForIndex(rowInCol, headerEvery);
+      const baseX = p0.x + col * colStepX + rowUnits * rowStepX;
+      const baseY = p0.y + col * colStepY + rowUnits * rowStepY;
       const options = [0, 1, 2, 3].map(o => ({ opt: o, x: baseX + o * optSpacingX, y: baseY + o * optSpacingY }));
       bubbles.push({ q: i + 1, options });
     }
@@ -1933,7 +1959,8 @@ OUTPUT ONLY SEPARATE CODE BLOCKS.`;
     if (trainClicksFrac.length >= required) {
       const numQ = Math.max(1, parseInt(document.getElementById("omr-train-numq")?.value, 10) || 1);
       const cols = Math.max(1, parseInt(document.getElementById("omr-train-cols")?.value, 10) || 1);
-      const bubbles = computeTrainedBubbles(trainClicksFrac, numQ, cols);
+      const headerEvery = Math.max(0, parseInt(document.getElementById("omr-train-header-every")?.value, 10) || 0);
+      const bubbles = computeTrainedBubbles(trainClicksFrac, numQ, cols, headerEvery);
       trainCtxEl.fillStyle = "rgba(37,99,235,0.75)";
       bubbles.forEach(b => b.options.forEach(o => {
         trainCtxEl.beginPath();
@@ -2021,6 +2048,7 @@ OUTPUT ONLY SEPARATE CODE BLOCKS.`;
     const name = (document.getElementById("omr-train-name")?.value || "").trim();
     const numQuestions = Math.max(1, parseInt(document.getElementById("omr-train-numq")?.value, 10) || 0);
     const cols = Math.max(1, parseInt(document.getElementById("omr-train-cols")?.value, 10) || 0);
+    const headerEvery = Math.max(0, parseInt(document.getElementById("omr-train-header-every")?.value, 10) || 0);
     const required = trainRequiredClicks();
     if (!name) { alert("Template ka naam likhein."); return; }
     if (!numQuestions || !cols) { alert("Questions aur Columns ki sahi ginti bharein."); return; }
@@ -2029,14 +2057,14 @@ OUTPUT ONLY SEPARATE CODE BLOCKS.`;
     const db = typeof getDB === "function" ? getDB() : null;
     if (!db) { alert("Firebase se connect nahi ho paya — internet check karein."); return; }
 
-    const bubbles = computeTrainedBubbles(trainClicksFrac, numQuestions, cols);
+    const bubbles = computeTrainedBubbles(trainClicksFrac, numQuestions, cols, headerEvery);
     const rowsPerCol = Math.ceil(numQuestions / cols);
     const saveBtn = document.getElementById("omr-train-save-btn");
     if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = "⏳ Save ho raha hai..."; }
     try {
       const id = db.collection("omrTemplates").doc().id;
       await db.collection("omrTemplates").doc(id).set({
-        name, numQuestions, cols, rowsPerCol, optionsPerQ: 4,
+        name, numQuestions, cols, rowsPerCol, optionsPerQ: 4, headerEvery,
         bubbles,
         createdAt: firebase.firestore.FieldValue.serverTimestamp()
       });
@@ -2081,6 +2109,18 @@ OUTPUT ONLY SEPARATE CODE BLOCKS.`;
     }).join("");
   }
 
+  // BUG FIX (the actual cause of the "alignment totally different today"
+  // complaint): this select used to reset to "🤖 System-Generated Sheet"
+  // on every page load/reload, with nothing remembering which trained
+  // template the admin picked last. For a coaching center scanning their
+  // OWN externally-printed sheet (not this app's generated one), that
+  // silent reset switches the scanner to a completely different, WRONG
+  // bubble geometry with zero warning — exactly matching the "sab bubbles
+  // galat jagah" symptom (works fine right after training, breaks again
+  // after any reload/new session). We now remember the last-picked
+  // template per browser (localStorage) and restore it automatically.
+  const OMR_LAST_TEMPLATE_KEY = "omrScanLastTemplateId";
+
   function populateOmrTemplateSelect() {
     const sel = document.getElementById("omr-scan-template-select");
     if (!sel) return;
@@ -2092,7 +2132,41 @@ OUTPUT ONLY SEPARATE CODE BLOCKS.`;
       op.value = id; op.textContent = "🎯 " + t.name + " (" + t.numQuestions + "Q)";
       sel.appendChild(op);
     });
-    if (cur && customOmrTemplates[cur]) sel.value = cur;
+    let restored = "";
+    if (cur && customOmrTemplates[cur]) restored = cur;
+    else {
+      // Nothing currently selected (e.g. fresh page load) — fall back to
+      // whatever this browser last used successfully, if that template
+      // still exists.
+      let lastId = "";
+      try { lastId = localStorage.getItem(OMR_LAST_TEMPLATE_KEY) || ""; } catch (e) {}
+      if (lastId && customOmrTemplates[lastId]) restored = lastId;
+    }
+    if (restored) sel.value = restored;
+    updateOmrScanModeUI();
+  }
+
+  // Keeps the file-upload tip text AND the live-camera on-screen banner
+  // in sync with whichever mode (trained template vs system-generated
+  // corner-marker sheet) is actually about to be used — so it's obvious
+  // at a glance if the wrong mode is active, instead of finding out only
+  // after a scan comes back scrambled.
+  function updateOmrScanModeUI() {
+    const sel = document.getElementById("omr-scan-template-select");
+    const tip = document.getElementById("omr-scan-photo-tip");
+    const banner = document.getElementById("omr-live-mode-banner");
+    const hasTemplate = !!(sel && sel.value && customOmrTemplates[sel.value]);
+    const tplName = hasTemplate ? customOmrTemplates[sel.value].name : "";
+    if (tip) {
+      tip.textContent = hasTemplate
+        ? `Note: 🎯 "${tplName}" trained template use ho rahi hai — photo WAISI HI khinchein jaisi training ke waqt li thi (poori sheet frame mein, edge-to-edge, corner squares ki zaroorat nahi).`
+        : "Note: 🤖 System-Generated Sheet mode active hai. Agar aap apni khud ki (bahar se print ki hui) sheet scan kar rahe hain, to pehle upar wo template chunein — warna sab bubbles galat jagah padhi jaayengi.";
+    }
+    if (banner) {
+      banner.innerHTML = hasTemplate
+        ? `🎯 <strong>${escHtml(tplName)}</strong> template active — sheet ko poori frame mein (edge-to-edge) rakhein.`
+        : `⚠️ <strong>System-Generated mode</strong> active — agar ye aapki khud ki print ki hui sheet hai, to pehle Test dropdown ke upar wala "OMR Sheet Ka Design" set karke sahi trained template chunein, warna scan galat hoga.`;
+    }
   }
 
   async function loadOmrTemplates() {
@@ -2170,6 +2244,10 @@ OUTPUT ONLY SEPARATE CODE BLOCKS.`;
     video.srcObject = liveStream;
     modal.style.display = "block";
     liveLockCount = 0; liveCaptured = false;
+    // Show which sheet mode is about to be used BEFORE the admin points
+    // the camera and it auto-captures — catches a wrong/forgotten
+    // template selection right here instead of after a bad scan.
+    updateOmrScanModeUI();
 
     // Small offscreen canvas for running the SAME corner-marker detector
     // used on a static photo (detectCorners), just at low resolution and
@@ -2252,13 +2330,14 @@ OUTPUT ONLY SEPARATE CODE BLOCKS.`;
     if (trainSaveBtn) trainSaveBtn.onclick = saveOmrTemplate;
     const trainColsInput = document.getElementById("omr-train-cols");
     if (trainColsInput) trainColsInput.onchange = resetTrainClicks;
+    const trainHeaderEveryInput = document.getElementById("omr-train-header-every");
+    if (trainHeaderEveryInput) trainHeaderEveryInput.oninput = () => redrawTrainCanvas();
     const scanTemplateSelect = document.getElementById("omr-scan-template-select");
     if (scanTemplateSelect) scanTemplateSelect.onchange = () => {
-      const tip = document.getElementById("omr-scan-photo-tip");
-      if (!tip) return;
-      tip.textContent = scanTemplateSelect.value
-        ? "Note: Ye custom-trained sheet hai — photo WAISI HI khinchein jaisi training ke waqt li thi (poori sheet frame mein, edge-to-edge, corner squares ki zaroorat nahi)."
-        : "Note: Sheet ko poori tarah (bina crop kiye, seedhi, achhi light mein) photo kheenchein — corner ke 4 kaale square poori tarah dikhne chahiye.";
+      // Remember this choice so it survives page reloads/new sessions —
+      // see the OMR_LAST_TEMPLATE_KEY comment above populateOmrTemplateSelect.
+      try { localStorage.setItem(OMR_LAST_TEMPLATE_KEY, scanTemplateSelect.value || ""); } catch (e) {}
+      updateOmrScanModeUI();
     };
 
     populateOMRTestSelects();

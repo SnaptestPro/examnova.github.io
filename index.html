@@ -1573,6 +1573,7 @@ B"></textarea>
             <div style="position:absolute;top:10px;left:0;right:0;text-align:center;color:#fff;font-size:.85rem;padding:0 16px;">
               Sheet ko frame ke andar seedha rakhein — kone ke 4 kaale square <span style="color:#22c55e;">green</span> hone par photo apne aap khinchegi.
             </div>
+            <div id="omr-live-mode-banner" style="position:absolute;top:52px;left:0;right:0;text-align:center;color:#fde047;font-size:.8rem;padding:4px 16px;"></div>
             <div style="position:absolute;bottom:18px;left:0;right:0;display:flex;justify-content:center;gap:12px;">
               <button type="button" id="omr-live-capture-btn" class="btn-primary">📸 Abhi Capture Karein</button>
               <button type="button" id="omr-live-cancel-btn" class="btn-secondary">✖️ Cancel</button>
@@ -1606,6 +1607,12 @@ B"></textarea>
             </div>
           </div>
           <p class="muted-text" style="font-size:.8rem;">Jaise BSEB-style 100-question sheet mein aksar 5 columns hote hain (1-20, 21-40, 41-60, 61-80, 81-100) — apni sheet dekh kar sahi number bharein.</p>
+
+          <div class="field-row">
+            <label>"A B C D" Header Row Har Kitne Questions Ke Baad Dobara Chhapti Hai?</label>
+            <input id="omr-train-header-every" type="number" min="0" max="50" value="0" />
+            <p class="muted-text" style="font-size:.78rem;margin-top:4px;">Agar aapki sheet mein har 5 questions ke baad "A B C D" wali row dobara print hoti hai (jaise is app ki apni generate ki hui sheet mein), yahan <strong>5</strong> bharein. Agar sirf column ke sabse upar EK baar hi chhapti hai, <strong>0</strong> rehne dein. Galat value bharne se neeche wale questions ki position dheere-dheere (row-by-row) drift ho jaati hai.</p>
+          </div>
 
           <div class="field-row">
             <label>Sample Photo Upload Karein</label>
