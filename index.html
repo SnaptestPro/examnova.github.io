@@ -498,15 +498,19 @@
         </div>
         <div class="two-col">
           <div class="field-row">
-            <label>Kitne Sets</label>
-            <input type="number" id="examgr-add-sets" min="1" max="20" value="1">
+            <label>Kitne Sets (A–E)</label>
+            <input type="number" id="examgr-add-sets" min="1" max="5" value="1">
           </div>
           <div class="field-row">
             <label>Expected Students</label>
             <input type="number" id="examgr-add-students" min="0" max="2000" value="10">
           </div>
         </div>
-        <p class="muted-text" style="font-size:.78rem;margin-top:-6px;">Note: printable OMR sheet ek fixed 100-question/5-column layout par based hai, isliye questions max 100 tak rakhein.</p>
+        <div class="field-row">
+          <label>Roll No Digits (sheet par kitne digit bubble columns)</label>
+          <input type="number" id="examgr-add-roll-digits" min="1" max="5" value="2">
+        </div>
+        <p class="muted-text" style="font-size:.78rem;margin-top:-6px;">Note: printable OMR sheet ek fixed 100-question/5-column layout par based hai, isliye questions max 100 tak rakhein. 1 se zyada set ho to har set ki apni answer key Answer Key screen mein alag se bharni hogi.</p>
         <button type="button" class="btn-primary" id="examgr-add-save-btn" style="width:100%;">💾 Exam Banayein</button>
       </div>
     </div>
@@ -560,6 +564,7 @@
         <button type="button" class="test-analysis-close" onclick="examgrCloseAnswerKey()">✕</button>
         <div class="test-analysis-title">✅ Answer Key</div>
         <p class="muted-text" id="examgr-akey-sub">Har question ke liye sahi option par click karein.</p>
+        <div class="examgr-akey-tabs" id="examgr-akey-tabs" hidden></div>
         <div class="examgr-akey-list" id="examgr-akey-list"></div>
         <div class="examgr-akey-footer">
           <button type="button" class="btn-secondary" id="examgr-akey-reset-btn">Reset</button>
@@ -580,12 +585,19 @@
       </div>
     </div>
 
-    <!-- Scan Sheet (camera collection-counter, NOT a grader) -->
+    <!-- Scan Sheet (live auto-capture + AI-style pixel grading against Answer Key) -->
     <div id="examgr-scan-overlay" class="test-analysis-overlay examgr-overlay-full hidden" onclick="if(event.target===this) examgrCloseScanner()">
       <div class="test-analysis-sheet examgr-scan-modal">
         <button type="button" class="test-analysis-close" onclick="examgrCloseScanner()">✕</button>
         <div class="test-analysis-title">📷 Scan Sheet</div>
-        <p class="muted-text">Ye grading NAHI karta — corner ke 4 kaale square align hote hi photo capture karke "kitni sheets collect hui" ka count badhata hai. Answers padhne ke liye upar "📷 Photo Se Scan" tool istemal karein.</p>
+        <p class="muted-text" id="examgr-scan-desc">Sheet ko 4 corner ke kaale square blue box ke andar rakhein — sab align hote hi photo apne aap capture ho kar Answer Key se check ho jaati hai.</p>
+
+        <div class="examgr-scan-graded-head" id="examgr-scan-graded-head" hidden>
+          <span>Roll No <strong id="examgr-scan-g-roll">0</strong></span>
+          <span>Set <strong id="examgr-scan-g-set">None</strong></span>
+          <span>Marks <strong id="examgr-scan-g-marks">0.0</strong></span>
+        </div>
+
         <div class="examgr-scan-stage" id="examgr-scan-stage">
           <video class="examgr-scan-video" id="examgr-scan-video" autoplay muted playsinline></video>
           <img class="examgr-scan-capture" id="examgr-scan-capture" alt="Captured OMR scan" hidden>
@@ -597,14 +609,7 @@
             <div class="examgr-scan-corner br" data-marker="bottom-right"><span class="examgr-scan-dot"></span></div>
             <div class="examgr-scan-status" id="examgr-scan-status"><span class="examgr-scan-status-dot"></span><span id="examgr-scan-status-text">Kaale OMR squares dhoonde ja rahe hain...</span></div>
           </div>
-          <div class="examgr-scan-result" id="examgr-scan-result" hidden>
-            <strong>✅ Sheet capture ho gayi</strong>
-            <p id="examgr-scan-result-text">Chaaron corner squares detect ho gaye.</p>
-            <div class="examgr-scan-result-actions">
-              <button type="button" class="btn-secondary" id="examgr-scan-again-btn">Dusri Scan Karein</button>
-              <button type="button" class="btn-primary" id="examgr-scan-done-btn">Done</button>
-            </div>
-          </div>
+          <div class="examgr-scan-saved-toast" id="examgr-scan-saved-toast" hidden>✅ Saved</div>
           <div class="examgr-scan-permission" id="examgr-scan-permission" hidden>
             <div class="examgr-scan-permission-panel">
               <strong>📷 Camera access chahiye</strong>
@@ -613,12 +618,51 @@
             </div>
           </div>
         </div>
+
+        <div class="examgr-scan-review-footer" id="examgr-scan-review-footer" hidden>
+          <button type="button" class="btn-secondary" id="examgr-scan-cancel-btn">Cancel</button>
+          <button type="button" class="btn-secondary" id="examgr-scan-edit-btn">Edit</button>
+          <button type="button" class="btn-primary" id="examgr-scan-save-btn">Save</button>
+        </div>
         <div class="examgr-scan-footer" id="examgr-scan-footer">
           <span id="examgr-scan-marker-count">0 / 4 markers</span>
+          <button type="button" class="btn-secondary" id="examgr-scan-done-btn">Done</button>
         </div>
         <canvas id="examgr-scan-analysis-canvas" hidden></canvas>
         <canvas id="examgr-scan-capture-canvas" hidden></canvas>
       </div>
+    </div>
+
+    <!-- Scan Sheet: Edit detected reading (Roll No / Set / individual answers) -->
+    <div id="examgr-scan-edit-overlay" class="test-analysis-overlay examgr-overlay-full hidden" onclick="if(event.target===this) examgrCloseEdit()">
+      <div class="test-analysis-sheet examgr-akey-sheet">
+        <button type="button" class="test-analysis-close" onclick="examgrCloseEdit()">✕</button>
+        <div class="test-analysis-title">✏️ Reading Theek Karein</div>
+        <p class="muted-text">Camera ne jo padha usme kahin galti ho to yahan se sahi karein.</p>
+        <div class="examgr-edit-rollset" id="examgr-edit-rollset"></div>
+        <div class="examgr-akey-list" id="examgr-edit-qlist"></div>
+        <div class="examgr-akey-footer">
+          <button type="button" class="btn-primary" id="examgr-edit-apply-btn" style="width:100%;">✅ Apply Karein</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Reports: per-student scanned results -->
+    <div id="examgr-reports-overlay" class="test-analysis-overlay examgr-overlay-full hidden" onclick="if(event.target===this) examgrCloseReports()">
+      <div class="test-analysis-sheet">
+        <button type="button" class="test-analysis-close" onclick="examgrCloseReports()">✕</button>
+        <div class="test-analysis-title" id="examgr-reports-title">📊 Reports</div>
+        <div class="examgr-reports-summary">
+          <div class="examgr-reports-summary-card"><span id="examgr-reports-label-1">Σ Marks</span><strong id="examgr-reports-maxmarks">0</strong></div>
+          <div class="examgr-reports-summary-card"><span id="examgr-reports-label-2">Reports</span><strong id="examgr-reports-count">0</strong></div>
+        </div>
+        <div class="examgr-reports-list" id="examgr-reports-list"></div>
+      </div>
+    </div>
+
+    <!-- Reports: tap a thumbnail to view the full scanned photo -->
+    <div id="examgr-report-photo-overlay" class="test-analysis-overlay hidden" onclick="examgrCloseReportPhoto()">
+      <img id="examgr-report-photo-img" alt="Scanned sheet" style="max-width:92vw;max-height:88vh;border-radius:10px;">
     </div>
 
     <!-- ── ADMIN LOGIN ── -->
@@ -1867,7 +1911,7 @@ B"></textarea>
 <script src="whatsapp-poll-export.js"></script>
 <script src="student-features.js"></script>
 <script src="omr.js?v=2"></script>
-<script src="exam-manager.js?v=2"></script>
+<script src="exam-manager.js?v=3"></script>
 <script src="push-notifications.js"></script>
 <!-- Android/TWA back-button fix: exam ya kisi bhi screen ke beech
      back dabane par app close hone se rokta hai -->

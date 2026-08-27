@@ -279,19 +279,84 @@
 .examgr-scan-status { position: absolute; left: 12px; right: 12px; bottom: 14px; display: flex; align-items: center; justify-content: center; gap: 7px; color: #fff; font-size: .78rem; text-align: center; }
 .examgr-scan-status-dot { width: 8px; height: 8px; border-radius: 50%; background: #ffb300; box-shadow: 0 0 0 3px rgba(255,179,0,.18); }
 .examgr-scan-status.is-ready .examgr-scan-status-dot { background: #18d631; box-shadow: 0 0 0 3px rgba(24,214,49,.18); }
-.examgr-scan-result { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; padding: 22px 16px; background: rgba(0,0,0,.78); text-align: center; }
-.examgr-scan-result[hidden] { display: none; }
-.examgr-scan-result strong { color: #fff; font-size: 1rem; }
-.examgr-scan-result p { margin: 6px 0 16px; color: #e8eaed; font-size: .8rem; }
-.examgr-scan-result-actions { display: flex; gap: 10px; width: 100%; }
-.examgr-scan-result-actions button { flex: 1; }
 .examgr-scan-permission { position: absolute; inset: 0; z-index: 3; display: flex; align-items: center; justify-content: center; padding: 18px; background: rgba(0,0,0,.8); }
 .examgr-scan-permission[hidden] { display: none; }
 .examgr-scan-permission-panel { max-width: 300px; padding: 20px; border-radius: 12px; background: #fff; text-align: center; }
 .examgr-scan-permission-panel strong { display: block; font-size: 1rem; color: var(--navy); }
 .examgr-scan-permission-panel p { margin: 8px 0 16px; color: var(--muted); font-size: .82rem; line-height: 1.45; }
-.examgr-scan-footer { display: flex; align-items: center; justify-content: center; padding: 10px 0 2px; }
+.examgr-scan-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0 2px; }
 .examgr-scan-footer span { color: var(--muted); font-size: .8rem; }
+.examgr-scan-footer button { padding: 6px 16px; font-size: .8rem; }
+
+/* ---------- graded header (Roll No / Set / Marks) ---------- */
+.examgr-scan-graded-head {
+  display: flex; justify-content: space-between; gap: 8px;
+  background: var(--soft); border-radius: 10px; padding: 8px 12px; margin-bottom: 10px;
+  font-size: .8rem; color: var(--navy);
+}
+.examgr-scan-graded-head strong { font-size: .92rem; }
+
+/* ---------- Cancel / Edit / Save review footer ---------- */
+.examgr-scan-review-footer { display: flex; gap: 10px; padding: 10px 0 2px; }
+.examgr-scan-review-footer button { flex: 1; }
+
+/* ---------- "Saved" toast (brief, non-blocking — camera stays live behind it) ---------- */
+.examgr-scan-saved-toast {
+  position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%);
+  background: rgba(16,185,129,.95); color: #fff; font-weight: 700; font-size: .85rem;
+  padding: 8px 18px; border-radius: 20px; box-shadow: 0 6px 18px rgba(16,185,129,.35);
+  z-index: 4;
+}
+.examgr-scan-saved-toast[hidden] { display: none; }
+
+/* ---------- Answer Key: per-Set tabs ---------- */
+.examgr-akey-tabs { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+.examgr-akey-tabs[hidden] { display: none; }
+.examgr-akey-tab {
+  border: 1.5px solid rgba(30,27,75,.15); background: #fff; color: var(--navy);
+  font-weight: 700; font-size: .78rem; padding: 6px 14px; border-radius: 20px; cursor: pointer;
+}
+.examgr-akey-tab.selected { background: var(--blue); border-color: var(--blue); color: #fff; }
+
+/* ---------- Edit (Roll No / Set correction) ---------- */
+.examgr-edit-block { margin-bottom: 14px; }
+.examgr-edit-block label { display: block; font-size: .8rem; font-weight: 700; color: var(--navy); margin-bottom: 6px; }
+.examgr-edit-roll-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.examgr-edit-roll-digit {
+  width: 52px; height: 40px; border-radius: 8px; border: 1.5px solid rgba(30,27,75,.18);
+  text-align: center; font-weight: 700; font-size: .9rem; color: var(--navy); background: #fff;
+}
+.examgr-edit-set-row { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* ---------- Reports / Analysis ---------- */
+.examgr-reports-summary { display: flex; gap: 12px; margin-bottom: 14px; }
+.examgr-reports-summary-card {
+  flex: 1; background: var(--soft); border-radius: 12px; padding: 10px 14px; text-align: center;
+}
+.examgr-reports-summary-card span { display: block; font-size: .72rem; color: var(--muted); font-weight: 700; text-transform: uppercase; }
+.examgr-reports-summary-card strong { font-size: 1.2rem; color: var(--navy); }
+.examgr-reports-list { display: flex; flex-direction: column; gap: 10px; max-height: 62vh; overflow-y: auto; }
+.examgr-report-row {
+  display: flex; align-items: center; gap: 10px; background: #fff; border-radius: 12px;
+  box-shadow: 0 3px 12px rgba(31,38,135,.08); padding: 10px 12px;
+}
+.examgr-report-avatar {
+  flex-shrink: 0; width: 38px; height: 38px; border-radius: 50%; background: var(--soft);
+  display: flex; align-items: center; justify-content: center; font-size: 1.1rem;
+}
+.examgr-report-body { flex: 1; min-width: 0; }
+.examgr-report-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.examgr-report-roll { font-weight: 700; color: var(--navy); font-size: .85rem; }
+.examgr-report-rank { font-size: .78rem; color: var(--muted); }
+.examgr-report-stats { display: flex; gap: 10px; margin-top: 4px; font-size: .78rem; flex-wrap: wrap; }
+.examgr-report-sum { font-weight: 700; color: var(--navy); }
+.examgr-report-ok { color: #15803d; }
+.examgr-report-bad { color: var(--red); }
+.examgr-report-blank { color: var(--muted); }
+.examgr-report-thumb { flex-shrink: 0; width: 40px; height: 52px; object-fit: cover; border-radius: 6px; border: 1px solid rgba(30,27,75,.12); cursor: pointer; }
+
+#examgr-report-photo-overlay { background: rgba(0,0,0,.85); display: flex; align-items: center; justify-content: center; }
+#examgr-report-photo-overlay.hidden { display: none; }
 
 @media (max-width: 380px) {
   .examgr-actions-grid { grid-template-columns: repeat(2, 1fr); }
