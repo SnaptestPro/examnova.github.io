@@ -1369,6 +1369,29 @@
       if (brightness < 68) dark[i] = 1;
     }
 
+    // How dark is a small block right at one of the component's bounding
+    // -box corners. A solid SQUARE marker fills its whole bounding box,
+    // so all 4 corners are dark. A filled CIRCLE (a student's marked
+    // answer bubble) only covers ~79% of its bounding box and leaves the
+    // 4 corners as bare paper — this is the single most reliable square
+    // -vs-circle test, and is what was letting a nearby marked bubble
+    // get mistaken for a registration square before (the loose fill
+    // -ratio/aspect-ratio checks alone can't tell a filled circle from a
+    // filled square, since both are roughly square bounding boxes with a
+    // moderate-to-high fill ratio).
+    function cornerDarkFraction(px, py) {
+      let darkN = 0, total = 0;
+      for (let oy = 0; oy < 3; oy++) {
+        for (let ox = 0; ox < 3; ox++) {
+          const nx = px + ox, ny = py + oy;
+          if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+          total++;
+          if (dark[ny * width + nx]) darkN++;
+        }
+      }
+      return total ? darkN / total : 0;
+    }
+
     let best = null;
     const queue = new Int32Array(count);
     for (let start = 0; start < count; start++) {
@@ -1400,8 +1423,17 @@
       const largestSide = Math.max(componentWidth, componentHeight);
       const smallestSide = Math.min(componentWidth, componentHeight);
       const fillRatio = pixelCount / (componentWidth * componentHeight);
-      const squareEnough = smallestSide >= 4 && largestSide <= Math.min(width, height) * 0.72 && smallestSide / largestSide >= 0.58;
-      if (squareEnough && fillRatio >= 0.38) {
+      // Tightened from 0.72/0.58 — the old bounds were loose enough that
+      // whole clusters of adjacent bubbles/text could still qualify as
+      // "square enough" inside the (now smaller, but still not tiny)
+      // search box.
+      const squareEnough = smallestSide >= 4 && largestSide <= Math.min(width, height) * 0.55 && smallestSide / largestSide >= 0.65;
+      const looksLikeFilledSquare = squareEnough && fillRatio >= 0.6 &&
+        cornerDarkFraction(minX, minY) >= 0.6 &&
+        cornerDarkFraction(Math.max(minX, maxX - 2), minY) >= 0.6 &&
+        cornerDarkFraction(minX, Math.max(minY, maxY - 2)) >= 0.6 &&
+        cornerDarkFraction(Math.max(minX, maxX - 2), Math.max(minY, maxY - 2)) >= 0.6;
+      if (looksLikeFilledSquare) {
         const score = pixelCount * fillRatio;
         if (!best || score > best.score) {
           best = { score, x: x + minX + componentWidth / 2, y: y + minY + componentHeight / 2 };
@@ -1605,7 +1637,7 @@
     const ready = detectedCount === 4;
     scannerStableFrames = ready ? scannerStableFrames + 1 : 0;
     setScannerStatus(ready ? "Sab 4 markers mil gaye. Steady rakhein, auto-scan ho raha hai..." : "Kaale OMR squares ko blue corner box ke andar align karein.", detectedCount, ready);
-    if (ready && scannerStableFrames >= 4) {
+    if (ready && scannerStableFrames >= 6) {
       scannerCapturing = true;
       captureAlignedOmr(detectedMarkers);
     }
