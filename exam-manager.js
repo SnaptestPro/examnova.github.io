@@ -1617,7 +1617,11 @@
     };
   }
 
-  function scanRegionForCorner(corner, mapping, analysisScale) {
+  // v13.1: region is now expressed directly in FULL-RESOLUTION video
+  // pixels (see the note above runScannerDetection for why the old
+  // analysisScale-downscaled version was the actual root cause of the
+  // "scan complete → photo quality ghatiya" bug).
+  function scanRegionForCorner(corner, mapping) {
     const cornerRect = corner.getBoundingClientRect();
     const frameX = cornerRect.left - mapping.stageRect.left;
     const frameY = cornerRect.top - mapping.stageRect.top;
@@ -1627,10 +1631,10 @@
     const videoH = cornerRect.height / mapping.scale;
     return {
       corner, frameX, frameY, frameW: cornerRect.width, frameH: cornerRect.height,
-      x: Math.max(0, Math.round(videoX * analysisScale)),
-      y: Math.max(0, Math.round(videoY * analysisScale)),
-      width: Math.max(1, Math.round(videoW * analysisScale)),
-      height: Math.max(1, Math.round(videoH * analysisScale))
+      x: Math.max(0, Math.round(videoX)),
+      y: Math.max(0, Math.round(videoY)),
+      width: Math.max(1, Math.round(videoW)),
+      height: Math.max(1, Math.round(videoH))
     };
   }
 
@@ -1724,11 +1728,14 @@
     return best;
   }
 
-  function updateScannerCorner(region, candidate, mapping, analysisScale) {
+  function updateScannerCorner(region, candidate, mapping) {
     const corner = region.corner;
     const dot = corner.querySelector(".examgr-scan-dot");
     if (!candidate) { corner.classList.remove("is-detected"); return null; }
-    const videoX = candidate.x / analysisScale, videoY = candidate.y / analysisScale;
+    // v13.1: candidate.x/y already come back in full-resolution video
+    // pixels (the crop is searched at 1:1 scale) — no analysisScale
+    // division, so no quantization step.
+    const videoX = candidate.x, videoY = candidate.y;
     const frameX = videoX * mapping.scale + mapping.offsetX;
     const frameY = videoY * mapping.scale + mapping.offsetY;
     if (dot) {
@@ -2088,27 +2095,54 @@
 
     const mapping = getVideoDisplayMapping();
     if (!mapping) return;
-    // v11: 720→600 — corner search only scans the small boxed regions
-    // around each marker (see scanRegionForCorner), not the whole frame,
-    // so this shaves per-tick cost with negligible effect on corner
-    // precision; the actual captured pixels still come from the
-    // full-resolution raw video frame, not this analysis canvas.
-    const analysisWidth = Math.min(600, mapping.videoWidth);
-    const analysisScale = analysisWidth / mapping.videoWidth;
-    const analysisHeight = Math.max(1, Math.round(mapping.videoHeight * analysisScale));
-    if (scannerAnalysisCanvas.width !== analysisWidth || scannerAnalysisCanvas.height !== analysisHeight) {
-      scannerAnalysisCanvas.width = analysisWidth;
-      scannerAnalysisCanvas.height = analysisHeight;
-    }
-    const analysisContext = scannerAnalysisCanvas.getContext("2d", { willReadFrequently: true });
-    analysisContext.drawImage(scannerVideo, 0, 0, analysisWidth, analysisHeight);
 
+    // v13.1: BUG FIX — root cause of "scan complete → OMR photo quality
+    // ghatiya" + flaky OMR checking (Roll No flickering, stray red dots).
+    //
+    // v11 sped this loop up by drawing the WHOLE video frame downscaled
+    // to a max-600px-wide "analysis canvas" and searching for corners in
+    // that shrunk space. The comment at the time said this had
+    // "negligible effect on corner precision" because the actual
+    // captured pixels still came from the full-resolution video frame —
+    // true on its own, but it missed that the CORNER POSITIONS (used to
+    // warp those full-res pixels) were now quantized to whole pixels of
+    // the 600px image. On a ~2000-2400px-wide phone camera, one analysis
+    // pixel = 3-4 real video pixels, so a corner could only ever land on
+    // one of a handful of positions several pixels apart, even when the
+    // physical marker hadn't moved between frames.
+    //
+    // That quantization jitter then fed straight into v10's multi-frame
+    // averaging (captureAlignedOmr), which warps up to 6 separate video
+    // frames through their OWN per-frame corner quad and averages the
+    // resulting pixels. Quads that jitter by a few pixels between frames
+    // (purely from rounding, not hand movement) make those 6 warps land
+    // slightly offset from each other — averaging misaligned images is
+    // exactly how you get a soft, hazy, low-contrast result: bubble
+    // outlines, filled marks, and Roll No digits all smear across a few
+    // pixels instead of stacking on the same pixel every time. Since
+    // grading and Roll No OCR read off that same blurred/averaged image,
+    // the same root cause explains the checking problems too.
+    //
+    // Fix: search each corner directly in a small crop of the
+    // FULL-RESOLUTION video (1:1 scale, no downscale) instead of a
+    // shrunk whole-frame copy. The crop is just the small boxed region
+    // around one corner — same amount of pixel work as before — so this
+    // is not meaningfully slower; it just does that work at full
+    // precision instead of pre-shrinking the source first.
     const detectedMarkers = {};
     let detectedCount = 0;
     scanCornerEls.forEach(corner => {
-      const region = scanRegionForCorner(corner, mapping, analysisScale);
-      const candidate = findBlackSquare(analysisContext, region, analysisWidth, analysisHeight);
-      const position = updateScannerCorner(region, candidate, mapping, analysisScale);
+      const region = scanRegionForCorner(corner, mapping);
+      const cw = region.width, ch = region.height;
+      if (scannerAnalysisCanvas.width !== cw || scannerAnalysisCanvas.height !== ch) {
+        scannerAnalysisCanvas.width = cw;
+        scannerAnalysisCanvas.height = ch;
+      }
+      const cropContext = scannerAnalysisCanvas.getContext("2d", { willReadFrequently: true });
+      cropContext.drawImage(scannerVideo, region.x, region.y, cw, ch, 0, 0, cw, ch);
+      const candidate = findBlackSquare(cropContext, { x: 0, y: 0, width: cw, height: ch }, cw, ch);
+      if (candidate) { candidate.x += region.x; candidate.y += region.y; } // back to full-frame video coords
+      const position = updateScannerCorner(region, candidate, mapping);
       if (position) { detectedMarkers[corner.dataset.marker] = position; detectedCount++; }
     });
 
