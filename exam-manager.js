@@ -384,6 +384,10 @@
   window.examgrCloseDetails = examgrCloseDetails;
 
   let examgrNoticeTimer = null;
+
+  // ── Reports: full-screen detail for one scanned sheet ──
+  let examgrReportResults = [];    // current exam's results, sorted (mirrors the list) — index = rank - 1
+  let examgrReportDetailIndex = -1;
   function examgrShowNotice(msg) {
     const el = $id("examgr-d-notice");
     if (!el) return;
@@ -1487,12 +1491,16 @@
   // saved on the SAME exam doc, so a full-resolution photo per result is
   // not an option here.
   function examgrMakeThumb(canvas) {
-    const scale = 90 / canvas.width;
+    // Wide enough to still read clearly on the full-screen Report Detail
+    // page (not just as a small list avatar), while staying small enough
+    // that many of these stacking up in one Firestore doc (results array)
+    // doesn't blow the 1MB document limit.
+    const scale = Math.min(1, 640 / canvas.width);
     const t = document.createElement("canvas");
     t.width = Math.round(canvas.width * scale);
     t.height = Math.round(canvas.height * scale);
     t.getContext("2d").drawImage(canvas, 0, 0, t.width, t.height);
-    return t.toDataURL("image/jpeg", 0.45);
+    return t.toDataURL("image/jpeg", 0.55);
   }
 
   // Short synthesized "shutter" beep at the exact auto-capture moment —
@@ -2012,6 +2020,19 @@
       wrong: scannerGraded.wrong,
       blank: scannerGraded.blank,
       answers: scannerGraded.perQuestion.map(pq => pq.detectedLetter || null),
+      // Per-question snapshot for the Report Detail screen's Q-No/Attempted/
+      // Correct/Marks table — saved at scan time so it stays accurate even
+      // if the Answer Key is edited later, and so a genuine multi-mark
+      // (2+ bubbles filled) can still show as e.g. "A, B, C" instead of
+      // collapsing to blank the way the single-letter `answers` field above
+      // does.
+      qDetail: scannerGraded.perQuestion.map(pq => ({
+        a: pq.multiOpts && pq.multiOpts.length > 1
+          ? pq.multiOpts.map(o => OPTION_LETTERS[o]).join(", ")
+          : (pq.detectedLetter || ""),
+        c: pq.correctLetter || "",
+        m: pq.status === "correct" ? 1 : 0
+      })),
       scannedAt: Date.now(),
       thumb: examgrMakeThumb(scannerCaptureCanvas)
     };
@@ -2293,6 +2314,7 @@
     if (!ex) return;
     const results = Array.isArray(ex.results) ? ex.results.slice() : [];
     results.sort((a, b) => (Number(b.marks) || 0) - (Number(a.marks) || 0));
+    examgrReportResults = results; // shared with the Report Detail screen (rank = index + 1)
 
     $id("examgr-reports-title").textContent = "📊 Reports";
     $id("examgr-reports-label-1").textContent = "Σ Marks";
@@ -2303,7 +2325,7 @@
     const listEl = $id("examgr-reports-list");
     if (listEl) {
       listEl.innerHTML = results.length ? results.map((r, i) => `
-        <div class="examgr-report-row">
+        <div class="examgr-report-row" data-idx="${i}">
           <div class="examgr-report-avatar">👤</div>
           <div class="examgr-report-body">
             <div class="examgr-report-top">
@@ -2317,7 +2339,7 @@
               <span class="examgr-report-blank">⭕ ${r.blank || 0}</span>
             </div>
           </div>
-          ${r.thumb ? `<img class="examgr-report-thumb" src="${r.thumb}" data-full="${r.thumb}" alt="Scanned sheet">` : ""}
+          ${r.thumb ? `<img class="examgr-report-thumb" src="${r.thumb}" alt="Scanned sheet">` : ""}
         </div>`).join("")
         : '<div class="examgr-empty">📷 Abhi tak koi sheet scan nahi hui — "Scan Sheet" se shuru karein.</div>';
     }
@@ -2333,17 +2355,151 @@
   window.examgrCloseReports = examgrCloseReports;
 
   $id("examgr-reports-list")?.addEventListener("click", (e) => {
-    const thumb = e.target.closest(".examgr-report-thumb");
-    if (!thumb) return;
-    const img = $id("examgr-report-photo-img");
-    if (img) img.src = thumb.dataset.full;
-    $id("examgr-report-photo-overlay")?.classList.remove("hidden");
+    const row = e.target.closest(".examgr-report-row");
+    if (!row) return;
+    examgrOpenReportDetail(Number(row.dataset.idx));
   });
 
   function examgrCloseReportPhoto() {
     $id("examgr-report-photo-overlay")?.classList.add("hidden");
   }
   window.examgrCloseReportPhoto = examgrCloseReportPhoto;
+
+  // ────────────────────────────────────────────────────────────────
+  // Report Detail — full-screen, single-sheet view opened by tapping a
+  // row in Reports: Name/Class/Exam/Set/Rank, a Subject-wise marks table
+  // (the printed sheet only has one Subject/Section, so those two rows
+  // mirror Total Marks), the scanned photo, a Q-No/Attempted/Correct/
+  // Marks table for every question, and Report i/N prev/next paging
+  // across every OTHER scanned sheet for this exam — all without leaving
+  // the detail screen.
+  // ────────────────────────────────────────────────────────────────
+  function examgrOpenReportDetail(idx) {
+    const ex = examMgrExams[examMgrSelectedId];
+    const r = examgrReportResults[idx];
+    if (!ex || !r) return;
+    examgrReportDetailIndex = idx;
+    const total = examgrReportResults.length;
+
+    $id("examgr-report-detail-title").textContent = `Roll No : ${r.roll || "—"}`;
+    $id("examgr-rd-name").textContent = "—"; // sheet has no name field, only Roll No
+    $id("examgr-rd-class").textContent = ex.className || "—";
+    $id("examgr-rd-exam").textContent = ex.examName || "—";
+    $id("examgr-rd-set").textContent = r.setLetter || "—";
+    $id("examgr-rd-rank").textContent = String(idx + 1);
+
+    const maxMarks = Number(ex.questions) || 0;
+    const marks = Number(r.marks) || 0;
+    const correctCount = Number(r.correct) || 0;
+    const pct = maxMarks ? (marks / maxMarks * 100) : 0;
+    const subjectEl = $id("examgr-rd-subject-table");
+    if (subjectEl) {
+      subjectEl.innerHTML = [["Subject 1", false], ["Section1", false], ["Total Marks", true]]
+        .map(([label, isTotal]) => `
+          <div class="examgr-rd-trow${isTotal ? " examgr-rd-trow-total" : ""}">
+            <span>${escHtml(label)}</span><span>${marks.toFixed(1)}</span><span>${pct.toFixed(1)}%</span><span>${correctCount}</span>
+          </div>`).join("");
+    }
+
+    const photoEl = $id("examgr-rd-photo");
+    if (photoEl) {
+      if (r.thumb) { photoEl.src = r.thumb; photoEl.hidden = false; }
+      else photoEl.hidden = true;
+    }
+
+    const qEl = $id("examgr-rd-qtable");
+    if (qEl) {
+      if (Array.isArray(r.qDetail) && r.qDetail.length) {
+        qEl.innerHTML = r.qDetail.map((qd, i) => `
+          <div class="examgr-rd-qrow">
+            <span>${i + 1}</span><span>${escHtml(qd.a || "")}</span><span>${escHtml(qd.c || "")}</span><span>${(Number(qd.m) || 0).toFixed(1)}</span>
+          </div>`).join("");
+      } else {
+        qEl.innerHTML = '<div class="examgr-empty" style="padding:16px 4px;">Ye scan puraana hai — question-by-question detail is ke liye save nahi hui thi.</div>';
+      }
+    }
+
+    $id("examgr-report-detail-pageinfo").textContent = `Report ${idx + 1}/${total}`;
+    $id("examgr-rd-prev")?.classList.toggle("disabled", idx <= 0);
+    $id("examgr-rd-next")?.classList.toggle("disabled", idx >= total - 1);
+    $id("examgr-rd-body")?.scrollTo({ top: 0 });
+
+    $id("examgr-reports-overlay")?.classList.add("hidden");
+    $id("examgr-report-detail-overlay")?.classList.remove("hidden");
+  }
+  window.examgrOpenReportDetail = examgrOpenReportDetail;
+
+  function examgrCloseReportDetail() {
+    $id("examgr-report-detail-overlay")?.classList.add("hidden");
+    $id("examgr-reports-overlay")?.classList.remove("hidden");
+  }
+  window.examgrCloseReportDetail = examgrCloseReportDetail;
+
+  function examgrReportDetailStep(delta) {
+    const next = examgrReportDetailIndex + delta;
+    if (next < 0 || next >= examgrReportResults.length) return;
+    examgrOpenReportDetail(next);
+  }
+  window.examgrReportDetailStep = examgrReportDetailStep;
+
+  function examgrZoomReportPhoto() {
+    const src = $id("examgr-rd-photo")?.src;
+    if (!src) return;
+    const img = $id("examgr-report-photo-img");
+    if (img) img.src = src;
+    $id("examgr-report-photo-overlay")?.classList.remove("hidden");
+  }
+  window.examgrZoomReportPhoto = examgrZoomReportPhoto;
+
+  async function examgrDeleteReportDetail() {
+    const ex = examMgrExams[examMgrSelectedId];
+    const r = examgrReportResults[examgrReportDetailIndex];
+    if (!ex || !r) return;
+    if (!window.confirm(`Roll No ${r.roll || "—"} ka ye report delete karein? Ye undo nahi ho sakta.`)) return;
+
+    const newResults = (ex.results || []).filter(x => x.id !== r.id);
+    const database = db();
+    if (database) {
+      try {
+        await database.collection(COLLECTION).doc(examMgrSelectedId).update({
+          results: newResults,
+          scanned: newResults.length,
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+      } catch (err) {
+        alert("Delete nahi ho paya: " + (err.message || err));
+        return;
+      }
+    }
+    ex.results = newResults;
+    ex.scanned = newResults.length;
+    examgrCloseReportDetail();
+    examgrOpenReports();
+  }
+  window.examgrDeleteReportDetail = examgrDeleteReportDetail;
+
+  function examgrEditReportDetail() {
+    const r = examgrReportResults[examgrReportDetailIndex];
+    if (!r) return;
+    alert(`Roll No ${r.roll || "—"} ko theek karne ke liye is sheet ko dobara "Scan Sheet" se scan karein — naya scan isi Roll No ke against ek nayi report jod dega.`);
+  }
+  window.examgrEditReportDetail = examgrEditReportDetail;
+
+  function examgrShareReportDetail() {
+    const ex = examMgrExams[examMgrSelectedId];
+    const r = examgrReportResults[examgrReportDetailIndex];
+    if (!ex || !r) return;
+    const maxMarks = Number(ex.questions) || 0;
+    const text = `${ex.examName || "Exam"} — Roll No ${r.roll || "—"}\nRank: ${examgrReportDetailIndex + 1}\nMarks: ${(Number(r.marks) || 0).toFixed(1)} / ${maxMarks.toFixed(1)}\nCorrect: ${r.correct || 0}  Wrong: ${r.wrong || 0}  Blank: ${r.blank || 0}`;
+    if (navigator.share) {
+      navigator.share({ title: "Report", text }).catch(() => {});
+    } else if (navigator.clipboard) {
+      navigator.clipboard.writeText(text).then(() => examgrShowNotice("📋 Report clipboard mein copy ho gayi."));
+    } else {
+      alert(text);
+    }
+  }
+  window.examgrShareReportDetail = examgrShareReportDetail;
 
   // ────────────────────────────────────────────────────────────────
   // Analysis — per-question difficulty across every scanned sheet, so a
