@@ -717,7 +717,6 @@
     let html = egCenterText("Roll No", 250, 199, 100);
     for (let i = 0; i < rollDigits; i++) {
       html += `<span class="examgr-omr-roll-digit" style="${egBoxStyle(175 + i * 30, 220, 30, 30)}"></span>`;
-      html += egCenterText(String(i + 1), 175 + i * 30 + 15, 227, 30);
     }
     for (let d = 0; d <= 9; d++) {
       const cy = 265 + d * 30;
@@ -817,7 +816,14 @@
 
     ctx.fillStyle = "#fff";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.textBaseline = "top";
+    // Alphabetic baseline (same as jsPDF's doc.text default) so the
+    // y-coordinate below is where the text SITS, not its top edge —
+    // matching the already-tuned "+3 / +8 / +9" baseline offsets used
+    // by the old PDF exporter. Using textBaseline:"top" here previously
+    // made every label render lower than intended, which is what made
+    // the tightly-spaced "Exam Set" letters visually collide with the
+    // bubbles right below them.
+    ctx.textBaseline = "alphabetic";
     ctx.fillStyle = "#000";
 
     function bubble(cx, cy) {
@@ -827,24 +833,24 @@
       ctx.arc(px(cx), px(cy), px(11), 0, Math.PI * 2);
       ctx.stroke();
     }
-    function centerText(text, centerX, top, font) {
+    function centerText(text, centerX, baselineY, font) {
       ctx.textAlign = "center";
       ctx.font = font;
-      ctx.fillText(String(text), px(centerX), px(top));
+      ctx.fillText(String(text), px(centerX), px(baselineY));
     }
-    function rightText(text, right, top, font) {
+    function rightText(text, right, baselineY, font) {
       ctx.textAlign = "right";
       ctx.font = font;
-      ctx.fillText(String(text), px(right), px(top));
+      ctx.fillText(String(text), px(right), px(baselineY));
     }
-    function leftText(text, left, top, font) {
+    function leftText(text, left, baselineY, font) {
       ctx.textAlign = "left";
       ctx.font = font;
-      ctx.fillText(String(text), px(left), px(top));
+      ctx.fillText(String(text), px(left), px(baselineY));
     }
 
     // Title
-    centerText("SAVYASACHI COACHING — OMR ANSWER SHEET", OMR_CANVAS_SIZE.width / 2, 12, `bold ${px(24)}px Arial, sans-serif`);
+    centerText("SAVYASACHI COACHING — OMR ANSWER SHEET", OMR_CANVAS_SIZE.width / 2, 30, `bold ${px(24)}px Arial, sans-serif`);
 
     // Corner-registration markers
     ctx.fillStyle = "#000";
@@ -859,34 +865,33 @@
     ctx.beginPath(); ctx.moveTo(px(99), px(94)); ctx.lineTo(px(1091), px(94)); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(px(595), px(49)); ctx.lineTo(px(595), px(94)); ctx.stroke();
     ctx.fillStyle = "#000";
-    leftText("NAME :", 109, 60, `${px(24)}px Arial, sans-serif`);
-    leftText(`EXAM : ${ex.examName || ""}`, 605, 60, `${px(24)}px Arial, sans-serif`);
-    leftText(`DATE : ${ex.date || ""}     CLASS : ${ex.className || ""}`, 109, 105, `${px(24)}px Arial, sans-serif`);
+    leftText("NAME :", 110, 78, `${px(15)}px Arial, sans-serif`);
+    leftText(`EXAM : ${ex.examName || ""}`, 605, 78, `${px(15)}px Arial, sans-serif`);
+    leftText(`DATE : ${ex.date || ""}     CLASS : ${ex.className || ""}`, 110, 123, `${px(15)}px Arial, sans-serif`);
 
     // Exam Set (A–E) row
-    centerText("Exam Set", 235, EXAM_SET_Y.label, `${px(18)}px Arial, sans-serif`);
-    SET_LETTERS.forEach((letter, i) => centerText(letter, EXAM_SET_CENTERS[i], EXAM_SET_Y.header, `${px(17)}px Arial, sans-serif`));
+    centerText("Exam Set", 235, EXAM_SET_Y.label + 8, `${px(14)}px Arial, sans-serif`);
+    SET_LETTERS.forEach((letter, i) => centerText(letter, EXAM_SET_CENTERS[i], EXAM_SET_Y.header + 3, `${px(12)}px Arial, sans-serif`));
     EXAM_SET_CENTERS.forEach(cx => bubble(cx, EXAM_SET_Y.bubble));
 
     // Roll No block
     const rollDigits = Math.max(1, Math.min(5, Number(ex.rollDigits) || 5));
     const rollCenters = [190, 220, 250, 280, 310].slice(0, rollDigits);
-    centerText("Roll No", 250, 199, `${px(18)}px Arial, sans-serif`);
+    centerText("Roll No", 250, 208, `${px(14)}px Arial, sans-serif`);
     ctx.strokeStyle = "#333";
     ctx.lineWidth = px(2);
     for (let i = 0; i < rollDigits; i++) {
       ctx.strokeRect(px(175 + i * 30), px(220), px(30), px(30));
-      centerText(String(i + 1), 175 + i * 30 + 15, 227, `${px(18)}px Arial, sans-serif`);
     }
     for (let d = 0; d <= 9; d++) {
       const cy = 265 + d * 30;
-      rightText(d, 166, cy - 9, `${px(18)}px Arial, sans-serif`);
+      rightText(d, 166, cy + 3, `${px(13)}px Arial, sans-serif`);
       rollCenters.forEach(cx => bubble(cx, cy));
     }
 
     // Exam name / class under column 0
-    centerText(ex.examName || "Exam", OMR_COLUMN_SPECS[0].subjectCenter, OMR_COLUMN_SPECS[0].subjectTop, `${px(18)}px Arial, sans-serif`);
-    centerText(ex.className || "", OMR_COLUMN_SPECS[0].subjectCenter, OMR_COLUMN_SPECS[0].sectionTop, `${px(18)}px Arial, sans-serif`);
+    centerText(ex.examName || "Exam", OMR_COLUMN_SPECS[0].subjectCenter, OMR_COLUMN_SPECS[0].subjectTop + 8, `${px(13)}px Arial, sans-serif`);
+    centerText(ex.className || "", OMR_COLUMN_SPECS[0].subjectCenter, OMR_COLUMN_SPECS[0].sectionTop + 8, `${px(13)}px Arial, sans-serif`);
 
     // Question grid
     const total = Math.max(1, Math.min(MAX_QUESTIONS, Number(ex.questions) || MAX_QUESTIONS));
@@ -894,11 +899,11 @@
     OMR_COLUMN_SPECS.forEach(col => {
       col.groups.forEach(group => {
         if (itemIndex >= total) return;
-        OPTION_LETTERS.forEach((label, i) => centerText(label, col.optionCenters[i], group.headerY, `${px(17)}px Arial, sans-serif`));
+        OPTION_LETTERS.forEach((label, i) => centerText(label, col.optionCenters[i], group.headerY + 3, `${px(12)}px Arial, sans-serif`));
         for (let r = 0; r < group.count && itemIndex < total; r++) {
           const cy = group.rowStart + r * 30;
           itemIndex++;
-          rightText(itemIndex, col.qRight, cy - 9, `${px(18)}px Arial, sans-serif`);
+          rightText(itemIndex, col.qRight, cy + 3, `${px(14)}px Arial, sans-serif`);
           OPTION_LETTERS.forEach((_, i) => bubble(col.optionCenters[i], cy));
         }
       });
