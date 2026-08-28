@@ -78,6 +78,12 @@
   // averaged together at capture time instead of trusting the single last
   // frame, to cancel out hand-tremor jitter in the corner read itself.
   let scannerMarkerHistory = [];
+  // v10: parallel snapshot of the actual video pixels at each "all 4
+  // markers found" tick (not just the marker positions) — see
+  // captureAlignedOmr, where every stored frame gets warped and averaged
+  // together. This is what cancels out camera sensor noise / motion blur
+  // in the bubble ink itself; corner-averaging alone only fixes geometry.
+  let scannerFrameHistory = [];
   let scannerCapturing = false;
   let scannerCameraRequestInProgress = false;
   // Most recent capture's detection + grading result, kept so Edit/Save can
@@ -1264,6 +1270,27 @@
   // px of residual misalignment) while staying under the 15px half-spacing
   // so it can never bleed into a neighbouring bubble.
   const EG_BUBBLE_RADIUS = 10;
+  // v9: a second, TIGHTER sample radius centred on the same bubble. A
+  // student who only puts a small dot/tick in the middle of the circle
+  // (instead of fully shading it) leaves a mark that's genuinely dark at
+  // the centre but covers well under 40% of the wide 10px disk — so the
+  // wide sample alone reads it as blank. The narrow disk sees mostly ink
+  // in that case, so it clears its own (stricter — see
+  // EG_CORE_MARK_THRESHOLD) bar even though the wide sample doesn't.
+  const EG_DOT_RADIUS = 5;
+  // Stricter than EG_MARK_THRESHOLD on purpose: the narrow disk samples
+  // far fewer pixels, so it's more exposed to a single stray fleck/shadow
+  // pixel reading dark by chance. Requiring a bigger gap from local white
+  // keeps it selective for real ink instead of noise.
+  const EG_CORE_MARK_THRESHOLD = 60;
+  // v10: a mark that only just clears its threshold (by less than this
+  // many darkness-units) gets flagged "low confidence" instead of being
+  // shown as an equally-certain read as one that clears it by a mile. No
+  // threshold-based system can be literally 100% certain on every mark —
+  // this makes the genuinely-close calls visible (a thin orange ring, see
+  // examgrPaintOverlay) so they get a human glance during review instead
+  // of silently blending in with the confident reads.
+  const EG_LOW_CONFIDENCE_MARGIN = 8;
   // How far out to blank a bubble from the white-level reference — a
   // little larger than the sample radius so ink that overflows the
   // printed circle can't leak into its own "paper white" baseline either.
@@ -1286,20 +1313,44 @@
     Object.keys(map.questionBubbles).forEach(qStr => {
       map.questionBubbles[qStr].forEach(b => excludePoints.push({ x: b.x, y: b.y }));
     });
-    const whiteField = egWhiteLevelField(gray, w, h, 5, 7, excludePoints, EG_WHITE_EXCLUDE_RADIUS);
+    // v9: bumped from 5×7 to 8×11 bins — a finer grid tracks local
+    // lighting (a shadow, a fold/tear crease, uneven phone-torch glare)
+    // more tightly instead of averaging it away over a big chunk of the
+    // sheet, which is what let a shadowed-but-blank patch of paper read
+    // as "dark enough" against a white-level estimate borrowed from a
+    // brighter neighbouring area.
+    const whiteField = egWhiteLevelField(gray, w, h, 8, 11, excludePoints, EG_WHITE_EXCLUDE_RADIUS);
 
     function darkAt(x, y) {
       return whiteField.at(x, y) - egSampleFillScore(gray, w, h, x, y, EG_BUBBLE_RADIUS);
     }
+    function coreDarkAt(x, y) {
+      return whiteField.at(x, y) - egSampleFillScore(gray, w, h, x, y, EG_DOT_RADIUS);
+    }
+    // Returns EVERY candidate that clears its own mark threshold (wide
+    // fill OR a solid centre dot), darkest first — not just the single
+    // darkest one. This is what makes real multi-mark answers visible:
+    // previously only the single best-scoring bubble was ever looked at,
+    // so a student who filled two options for the same question always
+    // silently became "their darkest bubble", with no record that a
+    // second bubble was also genuinely marked.
     function pickBest(candidates) {
-      let best = null, second = -Infinity;
-      candidates.forEach(c => {
-        const dark = darkAt(c.x, c.y);
-        if (!best || dark > best.dark) { second = best ? best.dark : second; best = { ...c, dark }; }
-        else if (dark > second) { second = dark; }
+      const scored = candidates.map(c => {
+        const wide = darkAt(c.x, c.y);
+        const core = coreDarkAt(c.x, c.y);
+        const wideMargin = wide - EG_MARK_THRESHOLD;
+        const coreMargin = core - EG_CORE_MARK_THRESHOLD;
+        const marked = wideMargin > 0 || coreMargin > 0;
+        return { ...c, dark: Math.max(wide, core), marked, margin: Math.max(wideMargin, coreMargin) };
       });
-      const marked = best && best.dark > EG_MARK_THRESHOLD;
-      return { value: marked ? best : null, margin: best ? best.dark - (second === -Infinity ? 0 : second) : 0 };
+      const above = scored.filter(s => s.marked).sort((a, b) => b.dark - a.dark);
+      const value = above.length === 1 ? above[0] : null;
+      return {
+        value,
+        multiple: above.length > 1,
+        allMarked: above,
+        lowConfidence: value ? value.margin < EG_LOW_CONFIDENCE_MARGIN : false
+      };
     }
 
     const setPick = pickBest(map.setBubbles.map(b => ({ x: b.x, y: b.y, letter: b.letter })));
@@ -1313,13 +1364,17 @@
     const roll = rollKnown ? rollDigitsDetected.join("") : rollDigitsDetected.map(d => d === null ? "?" : d).join("");
 
     const answers = {};
+    const multiOptions = {}; // qNum -> array of opt indices, only when 2+ genuinely marked
+    const lowConfidence = {}; // qNum -> true when the (single) detected mark barely cleared its threshold
     Object.keys(map.questionBubbles).forEach(qStr => {
       const q = Number(qStr);
       const pick = pickBest(map.questionBubbles[q]);
-      answers[q] = pick.value ? pick.value.opt : null; // 0..3 or null (blank)
+      answers[q] = pick.value ? pick.value.opt : null; // 0..3 or null (blank / multiple)
+      multiOptions[q] = pick.multiple ? pick.allMarked.map(m => m.opt) : [];
+      lowConfidence[q] = pick.lowConfidence;
     });
 
-    return { setLetter, roll, rollDigitsDetected, answers, totalQuestions: map.totalQuestions, map };
+    return { setLetter, roll, rollDigitsDetected, answers, multiOptions, lowConfidence, totalQuestions: map.totalQuestions, map };
   }
 
   // Scores a detection against the exam's Answer Key (the key for the
@@ -1332,12 +1387,18 @@
       const detectedOpt = detected.answers[q]; // 0..3 or null
       const detectedLetter = detectedOpt === null || detectedOpt === undefined ? null : OPTION_LETTERS[detectedOpt];
       const correctLetter = keyArr[q - 1] || null;
+      const multiOpts = (detected.multiOptions && detected.multiOptions[q]) || [];
+      const lowConfidence = !!(detected.lowConfidence && detected.lowConfidence[q]);
       let status;
-      if (!correctLetter) { status = "ungraded"; ungraded++; }
+      // A genuine multi-mark (2+ bubbles independently cleared the mark
+      // threshold) is graded wrong, same convention as a real answer
+      // sheet — an OMR machine can't know which one the student "meant".
+      if (multiOpts.length > 1) { status = "multiple"; if (correctLetter) wrong++; else ungraded++; }
+      else if (!correctLetter) { status = "ungraded"; ungraded++; }
       else if (detectedLetter === null) { status = "blank"; blank++; }
       else if (detectedLetter === correctLetter) { status = "correct"; correct++; }
       else { status = "wrong"; wrong++; }
-      perQuestion.push({ q, detectedOpt, detectedLetter, correctLetter, status });
+      perQuestion.push({ q, detectedOpt, detectedLetter, correctLetter, status, multiOpts, lowConfidence });
     }
     const marks = correct; // 1 mark per correct answer, no negative marking (matches printed sheet)
     return { marks, correct, wrong, blank, ungraded, perQuestion, setLetter: detected.setLetter, roll: detected.roll };
@@ -1354,7 +1415,7 @@
     const ctx = canvas.getContext("2d");
     const map = detected.map;
 
-    function dot(x, y, r, fill, withCore) {
+    function dot(x, y, r, fill, withCore, flagged) {
       ctx.beginPath();
       ctx.arc(x, y, r, 0, Math.PI * 2);
       ctx.fillStyle = fill;
@@ -1365,6 +1426,16 @@
         ctx.arc(x, y, Math.max(1.5, r * 0.32), 0, Math.PI * 2);
         ctx.fillStyle = "rgba(30,20,0,.55)";
         ctx.fill();
+      }
+      // v10: a mark that barely cleared its threshold gets a thin orange
+      // outline ring — a visible "double-check this one" cue instead of
+      // looking exactly as certain as an obviously dark, confident mark.
+      if (flagged) {
+        ctx.beginPath();
+        ctx.arc(x, y, r + 3, 0, Math.PI * 2);
+        ctx.strokeStyle = "#ff8c00";
+        ctx.lineWidth = 2;
+        ctx.stroke();
       }
     }
     function paleDot(x, y, r, fill) {
@@ -1381,12 +1452,21 @@
     graded.perQuestion.forEach(pq => {
       const optsPx = map.questionBubbles[pq.q];
       if (!optsPx) return;
-      if (pq.status === "correct") {
+      if (pq.status === "multiple") {
+        // Every bubble that was actually detected as filled gets a red
+        // dot (not just one) — this is the visible signal that the
+        // question was thrown out for having 2+ marks, and which
+        // bubbles specifically triggered it.
+        (pq.multiOpts || []).forEach(optIdx => {
+          const px = optsPx[optIdx];
+          if (px) dot(px.x, px.y, 9, RED, true);
+        });
+      } else if (pq.status === "correct") {
         const px = optsPx[pq.detectedOpt];
-        dot(px.x, px.y, 9, GREEN, true);
+        dot(px.x, px.y, 9, GREEN, true, pq.lowConfidence);
       } else if (pq.status === "wrong") {
         const px = optsPx[pq.detectedOpt];
-        dot(px.x, px.y, 9, RED, true);
+        dot(px.x, px.y, 9, RED, true, pq.lowConfidence);
         if (pq.correctLetter) {
           const correctIdx = OPTION_LETTERS.indexOf(pq.correctLetter);
           const cpx = optsPx[correctIdx];
@@ -1502,6 +1582,7 @@
     scannerCapturing = false;
     scannerStableFrames = 0;
     scannerMarkerHistory = [];
+    scannerFrameHistory = [];
     scannerLastDetectionAt = 0;
     scannerDetected = null;
     scannerGraded = null;
@@ -1685,7 +1766,11 @@
   // not meaningfully lag behind a real, deliberate movement).
   // ────────────────────────────────────────────────────────────────
   const EG_MARKER_KEYS = ["top-left", "top-right", "bottom-left", "bottom-right"];
-  const EG_MARKER_HISTORY_SIZE = 4; // ~4 × 130ms ≈ half a second of averaging
+  const EG_MARKER_HISTORY_SIZE = 6; // v10: bumped 4→6 to match scannerStableFrames's own 6-tick
+  // requirement (~780ms @130ms/tick) — every frame that was already being
+  // held "stable" now also contributes to the pixel average (not just
+  // the last 4 of them), for a bit more noise cancellation at no extra
+  // wait time, since the app was already waiting this long regardless.
 
   function egAverageMarkerFrames(history) {
     const n = history.length || 1;
@@ -1729,6 +1814,51 @@
     return true;
   }
 
+  // v10: ported from the legacy upload-based scanner's proven quality
+  // gate (`assessPhotoQuality` in omr.js) into the live-camera flow.
+  // Almost every OMR misread traces back to a bad SOURCE photo — out of
+  // focus, too dark, or blown-out by flash/glare — no amount of clever
+  // scoring downstream can rescue a photo where the ink itself isn't
+  // legible. Catching that BEFORE grading (instead of quietly grading a
+  // bad photo and hoping the thresholds compensate) is the single
+  // highest-leverage accuracy improvement available.
+  function egAssessPhotoQuality(gray, w, h) {
+    const issues = [];
+    const x0 = Math.floor(w * 0.1), x1 = Math.ceil(w * 0.9);
+    const y0 = Math.floor(h * 0.1), y1 = Math.ceil(h * 0.9);
+    const stride = 3;
+
+    let sum = 0, count = 0, brightCount = 0;
+    for (let y = y0; y < y1; y += stride) {
+      for (let x = x0; x < x1; x += stride) {
+        const v = gray[y * w + x];
+        sum += v; count++;
+        if (v > 250) brightCount++;
+      }
+    }
+    const brightness = count ? sum / count : 200;
+    const glarePct = count ? brightCount / count : 0;
+
+    const step = 4;
+    let lapSum = 0, lapSumSq = 0, lapCount = 0;
+    for (let y = y0 + step; y < y1 - step; y += step) {
+      for (let x = x0 + step; x < x1 - step; x += step) {
+        const c = gray[y * w + x];
+        const l = 4 * c - gray[y * w + (x - step)] - gray[y * w + (x + step)]
+                         - gray[(y - step) * w + x] - gray[(y + step) * w + x];
+        lapSum += l; lapSumSq += l * l; lapCount++;
+      }
+    }
+    const lapMean = lapCount ? lapSum / lapCount : 0;
+    const blurVariance = lapCount ? (lapSumSq / lapCount) - (lapMean * lapMean) : 999;
+
+    if (blurVariance < 55) issues.push("Photo dhundhli (out of focus) hai — sheet ke seedhe upar sthir rakhein.");
+    if (brightness < 95) issues.push("Photo bahut andheri hai — zyada roshni mein aayein.");
+    if (glarePct > 0.35) issues.push("Roshni ka glare bahut zyada hai — angle thoda badlein.");
+
+    return { issues, brightness, blurVariance, glarePct };
+  }
+
   function captureAlignedOmr(detectedMarkers) {
     const id = examMgrSelectedId;
     const ex = examMgrExams[id];
@@ -1743,6 +1873,7 @@
       scannerCapturing = false;
       scannerStableFrames = 0;
       scannerMarkerHistory = [];
+      scannerFrameHistory = [];
       setScannerStatus("Sheet ko poori tarah camera frame ke andar rakhein aur dobara try karein.", 4, false);
       return;
     }
@@ -1752,16 +1883,6 @@
     if (scannerAnimationFrame) { cancelAnimationFrame(scannerAnimationFrame); scannerAnimationFrame = null; }
     examgrPlayShutterSound();
 
-    // Grab the FULL raw frame at native video resolution first — the old
-    // code cropped straight out of <video> with a single rectangle, which
-    // is exactly what a true perspective warp can't do (it needs the
-    // whole frame to sample from, since the 4 markers are rarely an
-    // axis-aligned rectangle on a hand-held shot).
-    if (!scannerRawVideoCanvas) scannerRawVideoCanvas = document.createElement("canvas");
-    scannerRawVideoCanvas.width = videoWidth;
-    scannerRawVideoCanvas.height = videoHeight;
-    scannerRawVideoCanvas.getContext("2d").drawImage(scannerVideo, 0, 0, videoWidth, videoHeight);
-
     // True 4-point perspective correction (see egWarpPerspective above)
     // instead of the old single axis-aligned scale/crop — this is what
     // keeps every bubble on the flattened sheet lined up with the print
@@ -1770,18 +1891,69 @@
       OMR_SCAN_MARKERS["top-left"], OMR_SCAN_MARKERS["top-right"],
       OMR_SCAN_MARKERS["bottom-left"], OMR_SCAN_MARKERS["bottom-right"]
     ];
-    const warped = egWarpPerspective(scannerRawVideoCanvas, videoQuad, templateQuad, OMR_CANVAS_SIZE);
+
+    // v10: MULTI-FRAME AVERAGING. Warp every recently-stored stable frame
+    // (each through its OWN corner quad from that instant, not the
+    // averaged one) into the same template-aligned space, then average
+    // the resulting grayscale pixel values. A single camera frame always
+    // carries some sensor noise / micro motion-blur; averaging several
+    // independent real frames cancels that out the same way a longer
+    // camera exposure would, without needing a longer exposure. This is
+    // in addition to (not a replacement for) the v8 corner-position
+    // averaging above, which only smooths where the corners are, not
+    // what the pixels underneath actually look like.
+    // Falls back to a single freshly-grabbed frame if, for whatever
+    // reason (very fast auto-capture, older browser), no history built up.
+    let framesForAveraging = scannerFrameHistory;
+    if (!framesForAveraging.length) {
+      if (!scannerRawVideoCanvas) scannerRawVideoCanvas = document.createElement("canvas");
+      scannerRawVideoCanvas.width = videoWidth;
+      scannerRawVideoCanvas.height = videoHeight;
+      scannerRawVideoCanvas.getContext("2d").drawImage(scannerVideo, 0, 0, videoWidth, videoHeight);
+      framesForAveraging = [{ quad: videoQuad, canvas: scannerRawVideoCanvas }];
+    }
+
+    let avgGray = null;
+    framesForAveraging.forEach(frame => {
+      const warped = egWarpPerspective(frame.canvas, frame.quad, templateQuad, OMR_CANVAS_SIZE);
+      const wctx = warped.getContext("2d", { willReadFrequently: true });
+      const g = egToGrayscale(wctx, OMR_CANVAS_SIZE.width, OMR_CANVAS_SIZE.height);
+      if (!avgGray) avgGray = g;
+      else for (let i = 0; i < g.length; i++) avgGray[i] += g[i];
+    });
+    const frameCount = framesForAveraging.length;
+    if (frameCount > 1) for (let i = 0; i < avgGray.length; i++) avgGray[i] /= frameCount;
+
+    // v10: quality gate BEFORE committing to this capture — if the photo
+    // itself is too blurry/dark/glared, no amount of downstream scoring
+    // can read it reliably. Reject and keep the live camera loop running
+    // instead of showing a review screen built on unreadable pixels.
+    const quality = egAssessPhotoQuality(avgGray, OMR_CANVAS_SIZE.width, OMR_CANVAS_SIZE.height);
+    if (quality.issues.length) {
+      scannerCapturing = false;
+      scannerStableFrames = 0;
+      scannerMarkerHistory = [];
+      scannerFrameHistory = [];
+      setScannerStatus(quality.issues[0] + " Dobara try karein.", 4, false);
+      if (scannerStream && !scannerAnimationFrame) scannerAnimationFrame = requestAnimationFrame(runScannerDetection);
+      return;
+    }
 
     scannerCaptureCanvas.width = OMR_CANVAS_SIZE.width;
     scannerCaptureCanvas.height = OMR_CANVAS_SIZE.height;
-    scannerCaptureCanvas.getContext("2d").drawImage(warped, 0, 0);
-    // Strip any camera/video colour cast (see egDesaturateCanvas) right
-    // away, on the ONE canvas everything downstream is copied from —
-    // registration squares and bubbles are pure black/white ink, so a
-    // clean grayscale capture here is what stops a blue tint from ever
-    // reaching the raw copy, the grading read, the review photo, or the
-    // saved image.
-    egDesaturateCanvas(scannerCaptureCanvas);
+    // Write the averaged grayscale values straight into the capture
+    // canvas — this is already pure R=G=B luminance by construction, so
+    // it's simultaneously the multi-frame-denoised image AND fully
+    // colour-cast-free (no separate egDesaturateCanvas pass needed).
+    const outCtx = scannerCaptureCanvas.getContext("2d");
+    const outImg = outCtx.createImageData(OMR_CANVAS_SIZE.width, OMR_CANVAS_SIZE.height);
+    for (let p = 0, i = 0; p < avgGray.length; p++, i += 4) {
+      const v = avgGray[p];
+      outImg.data[i] = outImg.data[i + 1] = outImg.data[i + 2] = v;
+      outImg.data[i + 3] = 255;
+    }
+    outCtx.putImageData(outImg, 0, 0);
+
     if (!scannerRawCanvas) scannerRawCanvas = document.createElement("canvas");
     scannerRawCanvas.width = OMR_CANVAS_SIZE.width;
     scannerRawCanvas.height = OMR_CANVAS_SIZE.height;
@@ -1924,8 +2096,25 @@
     if (ready) {
       scannerMarkerHistory.push(detectedMarkers);
       if (scannerMarkerHistory.length > EG_MARKER_HISTORY_SIZE) scannerMarkerHistory.shift();
+      // v10: snapshot the actual full-res video pixels at this tick too,
+      // paired with THIS frame's own corner quad — captureAlignedOmr
+      // warps and averages every stored frame together, which cancels
+      // out per-frame camera noise/motion blur in the bubble ink itself
+      // (corner-averaging above only fixes the geometry, not the pixels).
+      const vw = scannerVideo.videoWidth, vh = scannerVideo.videoHeight;
+      if (vw && vh) {
+        const snap = document.createElement("canvas");
+        snap.width = vw; snap.height = vh;
+        snap.getContext("2d").drawImage(scannerVideo, 0, 0, vw, vh);
+        scannerFrameHistory.push({
+          quad: [detectedMarkers["top-left"], detectedMarkers["top-right"], detectedMarkers["bottom-left"], detectedMarkers["bottom-right"]],
+          canvas: snap
+        });
+        if (scannerFrameHistory.length > EG_MARKER_HISTORY_SIZE) scannerFrameHistory.shift();
+      }
     } else {
       scannerMarkerHistory = [];
+      scannerFrameHistory = [];
     }
     setScannerStatus(ready ? "Sab 4 markers mil gaye. Steady rakhein, auto-scan ho raha hai..." : "Kaale OMR squares ko blue corner box ke andar align karein.", detectedCount, ready);
     if (ready && scannerStableFrames >= 6) {
