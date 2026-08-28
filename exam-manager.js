@@ -1500,7 +1500,7 @@
     t.width = Math.round(canvas.width * scale);
     t.height = Math.round(canvas.height * scale);
     t.getContext("2d").drawImage(canvas, 0, 0, t.width, t.height);
-    return t.toDataURL("image/jpeg", 0.55);
+    return t.toDataURL("image/jpeg", 0.62); // v11: 0.55→0.62 — visibly crisper on the Report Detail photo, still small enough for many results in one Firestore doc
   }
 
   // Short synthesized "shutter" beep at the exact auto-capture moment —
@@ -1986,7 +1986,7 @@
     ctx.clearRect(0, 0, scannerCaptureCanvas.width, scannerCaptureCanvas.height);
     ctx.drawImage(scannerRawCanvas, 0, 0);
     examgrPaintOverlay(scannerCaptureCanvas, ex, detected, graded);
-    scannerCaptureEl.src = scannerCaptureCanvas.toDataURL("image/jpeg", 0.92);
+    scannerCaptureEl.src = scannerCaptureCanvas.toDataURL("image/jpeg", 0.96); // v11: 0.92→0.96, fewer compression artifacts on the review screen
     scannerCaptureEl.hidden = false;
     if (scannerGRoll) scannerGRoll.textContent = detected.roll || "0";
     if (scannerGSet) scannerGSet.textContent = detected.setLetter || "None";
@@ -2076,12 +2076,24 @@
     scannerAnimationFrame = requestAnimationFrame(runScannerDetection);
     if (scannerVideo.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return;
     const now = performance.now();
-    if (now - scannerLastDetectionAt < 130) return;
+    // v11: throttle tightened 130ms→90ms (≈7.7fps→~11fps corner search).
+    // scannerStableFrames still needs the same 6 consecutive ready ticks
+    // before auto-capture fires (unchanged — that's what keeps the
+    // multi-frame averaging quality in captureAlignedOmr intact), so this
+    // alone gets a sheet from "corners visible" to "captured" roughly 30%
+    // faster in wall-clock time without touching how many frames get
+    // averaged into the final photo.
+    if (now - scannerLastDetectionAt < 90) return;
     scannerLastDetectionAt = now;
 
     const mapping = getVideoDisplayMapping();
     if (!mapping) return;
-    const analysisWidth = Math.min(720, mapping.videoWidth);
+    // v11: 720→600 — corner search only scans the small boxed regions
+    // around each marker (see scanRegionForCorner), not the whole frame,
+    // so this shaves per-tick cost with negligible effect on corner
+    // precision; the actual captured pixels still come from the
+    // full-resolution raw video frame, not this analysis canvas.
+    const analysisWidth = Math.min(600, mapping.videoWidth);
     const analysisScale = analysisWidth / mapping.videoWidth;
     const analysisHeight = Math.max(1, Math.round(mapping.videoHeight * analysisScale));
     if (scannerAnalysisCanvas.width !== analysisWidth || scannerAnalysisCanvas.height !== analysisHeight) {
@@ -2151,7 +2163,14 @@
       try {
         scannerStream = await navigator.mediaDevices.getUserMedia({
           audio: false,
-          video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 1920 } }
+          // v11: raised ideal resolution 1280×1920 → 1920×2560 — sharper
+          // source pixels feeding the perspective warp, so the final
+          // captured sheet (and the report photo made from it) looks
+          // crisper on close inspection instead of upscaled/soft. "ideal"
+          // just hints the browser toward the best match a phone's rear
+          // camera actually offers; it degrades gracefully (never errors)
+          // on a camera that can't hit it, unlike { exact: ... } would.
+          video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 2560 } }
         });
       } catch (error) {
         if (!["NotFoundError", "OverconstrainedError"].includes(error && error.name)) throw error;
