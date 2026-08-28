@@ -754,12 +754,13 @@
   const EXAMGR_SHEET_CSS = `
 .examgr-omr-sheet{position:relative;background:#fff;color:#000;font-family:Arial,Helvetica,sans-serif;overflow:hidden;}
 .examgr-omr-sheet *{box-sizing:border-box;}
+.examgr-omr-sheet,.examgr-omr-sheet *{-webkit-print-color-adjust:exact;print-color-adjust:exact;}
 .examgr-omr-header-box{position:absolute;border:1.6px solid #333;color:#000;background:#fff;}
 .examgr-omr-header-line{position:absolute;left:0;right:0;display:flex;border-bottom:1.6px solid #333;}
 .examgr-omr-header-line:last-child{border-bottom:none;}
 .examgr-omr-header-cell{flex:1;padding:11px 10px 0;font-size:24px;line-height:1;color:#000;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .examgr-omr-header-cell + .examgr-omr-header-cell{border-left:1.6px solid #333;}
-.examgr-omr-marker{position:absolute;width:20px;height:20px;background:#000;}
+.examgr-omr-marker{position:absolute;width:20px;height:20px;background:#000;border:1px solid #000;}
 .examgr-omr-text{position:absolute;color:#111;font-size:18px;line-height:1;font-weight:400;white-space:nowrap;}
 .examgr-omr-small{font-size:17px;}
 .examgr-omr-center{text-align:center;transform:translateX(-50%);}
@@ -956,6 +957,36 @@
       gray[p] = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
     }
     return gray;
+  }
+
+  // Desaturates a captured photo IN PLACE (R=G=B=luminance) right after
+  // capture, before anything else ever reads or displays it. An OMR
+  // sheet is pure black/white by design, but phone camera video frames
+  // are YUV 4:2:0 under the hood (colour sampled at 1/4 the resolution
+  // of brightness) — small, ultra-sharp features like the 20px
+  // registration squares are exactly the kind of high-contrast edge
+  // that chroma-subsampling smears a stray blue/purple tint onto, even
+  // though the paper and printed ink are genuinely neutral black. That
+  // shows up as a blue patch on registration squares (and sometimes
+  // bubbles) in the saved/reviewed photo — cosmetic only (grading
+  // already reads darkness via egToGrayscale, unaffected either way)
+  // but it looks like a bug and erodes trust in the scan. Stripping
+  // colour from the pristine raw capture once, up front, guarantees the
+  // review photo, the saved photo, and every re-paint after Edit are
+  // all clean true-grayscale with zero colour cast — the coloured
+  // green/red/gold grading dots are painted AFTER this, on top, so they
+  // stay fully vivid.
+  function egDesaturateCanvas(canvas) {
+    const ctx = canvas.getContext("2d");
+    const w = canvas.width, h = canvas.height;
+    if (!w || !h) return;
+    const imgData = ctx.getImageData(0, 0, w, h);
+    const data = imgData.data;
+    for (let i = 0; i < data.length; i += 4) {
+      const lum = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+      data[i] = data[i + 1] = data[i + 2] = lum;
+    }
+    ctx.putImageData(imgData, 0, 0);
   }
 
   function egLerp(a, b, t) { return a + (b - a) * t; }
@@ -1427,6 +1458,13 @@
     scannerCaptureCanvas.getContext("2d").drawImage(
       scannerVideo, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, OMR_CANVAS_SIZE.width, OMR_CANVAS_SIZE.height
     );
+    // Strip any camera/video colour cast (see egDesaturateCanvas) right
+    // away, on the ONE canvas everything downstream is copied from —
+    // registration squares and bubbles are pure black/white ink, so a
+    // clean grayscale capture here is what stops a blue tint from ever
+    // reaching the raw copy, the grading read, the review photo, or the
+    // saved image.
+    egDesaturateCanvas(scannerCaptureCanvas);
     if (!scannerRawCanvas) scannerRawCanvas = document.createElement("canvas");
     scannerRawCanvas.width = OMR_CANVAS_SIZE.width;
     scannerRawCanvas.height = OMR_CANVAS_SIZE.height;

@@ -235,12 +235,28 @@
 }
 .examgr-omr-sheet { position: relative; background: #fff; color: #000; font-family: Arial, Helvetica, sans-serif; overflow: hidden; }
 .examgr-omr-sheet * { box-sizing: border-box; }
+/* Force every fill/background on the printable sheet to come out at full
+   ink strength. Chrome/Safari/Firefox all skip background-color by
+   default when printing (or exporting print-to-PDF) unless told
+   otherwise — a plain filled div like .examgr-omr-marker has no border,
+   so without this it can print faint/washed-out instead of solid black.
+   A washed-out registration square is exactly what trips "poor print
+   quality for marker square blocks" in scanner apps, so this is applied
+   sheet-wide (matches the same fix already used for board-result-sheet
+   in styles.css and .paper-header in qgen-style.css). */
+.examgr-omr-sheet, .examgr-omr-sheet * {
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
 .examgr-omr-header-box { position: absolute; border: 1.6px solid #333; color: #000; background: #fff; }
 .examgr-omr-header-line { position: absolute; left: 0; right: 0; display: flex; border-bottom: 1.6px solid #333; }
 .examgr-omr-header-line:last-child { border-bottom: none; }
 .examgr-omr-header-cell { flex: 1; padding: 11px 10px 0; font-size: 24px; line-height: 1; color: #000; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .examgr-omr-header-cell + .examgr-omr-header-cell { border-left: 1.6px solid #333; }
-.examgr-omr-marker { position: absolute; width: 20px; height: 20px; background: #000; }
+/* Solid fill AND a matching border: if a print path ever still drops the
+   background fill, the border alone keeps the square visible as a crisp
+   dark outline instead of vanishing to blank white. */
+.examgr-omr-marker { position: absolute; width: 20px; height: 20px; background: #000; border: 1px solid #000; }
 .examgr-omr-text { position: absolute; color: #111; font-size: 18px; line-height: 1; font-weight: 400; white-space: nowrap; }
 .examgr-omr-small { font-size: 17px; }
 .examgr-omr-center { text-align: center; transform: translateX(-50%); }
