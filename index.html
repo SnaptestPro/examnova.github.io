@@ -124,6 +124,13 @@
   <script defer src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script defer src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <script defer src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+  <!-- Standalone jsPDF (exposes window.jspdf.jsPDF). Used by the Exam
+       Manager's OMR-sheet PDF export to draw the sheet as real PDF vector
+       shapes (rects/circles/text) instead of rasterizing HTML through
+       html2canvas — see the note above examgrBuildSheetPdf() in
+       exam-manager.js for why the old html2canvas route produced blank
+       pages and failed to download on mobile. -->
+  <script defer src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/docx@9.7.1/dist/index.iife.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
   <!-- KaTeX for automatic Math Equation rendering -->
@@ -573,7 +580,8 @@
         <div class="test-analysis-title">🗒️ OMR / Bubble Sheet</div>
         <p class="muted-text">100-question, 5-column standard layout — print karke seedha use karein. Corner ke 4 kaale square poori tarah dikhne chahiye.</p>
         <div class="examgr-sheet-preview-wrap"><div class="examgr-sheet-preview" id="examgr-sheet-preview"></div></div>
-        <button type="button" class="btn-primary" id="examgr-sheet-jpg-btn" style="width:100%;margin-top:14px;">🖼️ JPG Download Karein</button>
+        <button type="button" class="btn-primary" id="examgr-sheet-pdf-btn" style="width:100%;margin-top:14px;">📄 PDF Download Karein</button>
+        <button type="button" class="btn-secondary" id="examgr-sheet-download-btn" style="width:100%;margin-top:10px;">🌐 HTML Download Karein</button>
       </div>
     </div>
 
@@ -652,54 +660,9 @@
       </div>
     </div>
 
-    <!-- Reports: tap the photo in Report Detail to view it full-screen -->
+    <!-- Reports: tap a thumbnail to view the full scanned photo -->
     <div id="examgr-report-photo-overlay" class="test-analysis-overlay hidden" onclick="examgrCloseReportPhoto()">
       <img id="examgr-report-photo-img" alt="Scanned sheet" style="max-width:92vw;max-height:88vh;border-radius:10px;">
-    </div>
-
-    <!-- Reports: full detail for ONE scanned sheet — Name/Class/Exam/Set/Rank,
-         Subject-wise table, the scanned photo, per-question table, and
-         Report i/N prev/next paging across the other scanned sheets. -->
-    <div id="examgr-report-detail-overlay" class="test-analysis-overlay examgr-overlay-full hidden">
-      <div class="test-analysis-sheet examgr-rd-sheet">
-        <div class="examgr-rd-topbar">
-          <button type="button" class="examgr-rd-icon-btn examgr-rd-back" onclick="examgrCloseReportDetail()" aria-label="Back">←</button>
-          <div class="examgr-rd-title" id="examgr-report-detail-title">Roll No : —</div>
-          <div class="examgr-rd-icons">
-            <button type="button" class="examgr-rd-icon-btn" onclick="examgrDeleteReportDetail()" aria-label="Delete">🗑️</button>
-            <button type="button" class="examgr-rd-icon-btn" onclick="examgrEditReportDetail()" aria-label="Edit">✏️</button>
-            <button type="button" class="examgr-rd-icon-btn" onclick="examgrShareReportDetail()" aria-label="Share">📤</button>
-          </div>
-        </div>
-
-        <div class="examgr-rd-body" id="examgr-rd-body">
-          <div class="examgr-rd-fields">
-            <div class="examgr-rd-frow"><span>Name</span><strong id="examgr-rd-name">—</strong></div>
-            <div class="examgr-rd-frow"><span>Class</span><strong id="examgr-rd-class">—</strong></div>
-            <div class="examgr-rd-frow"><span>Exam</span><strong id="examgr-rd-exam">—</strong></div>
-            <div class="examgr-rd-frow"><span>Exam Set</span><strong id="examgr-rd-set">—</strong></div>
-            <div class="examgr-rd-frow"><span>Rank</span><strong id="examgr-rd-rank">—</strong></div>
-          </div>
-
-          <div class="examgr-rd-table">
-            <div class="examgr-rd-trow examgr-rd-thead"><span>Subject</span><span>Marks</span><span>Percentage</span><span>Correct Answers</span></div>
-            <div id="examgr-rd-subject-table"></div>
-          </div>
-
-          <img id="examgr-rd-photo" class="examgr-rd-photo" alt="Scanned sheet" onclick="examgrZoomReportPhoto()" hidden>
-
-          <div class="examgr-rd-table examgr-rd-qtable-wrap">
-            <div class="examgr-rd-qrow examgr-rd-thead"><span>Q No</span><span>Attempted</span><span>Correct</span><span>Marks</span></div>
-            <div id="examgr-rd-qtable"></div>
-          </div>
-        </div>
-
-        <div class="examgr-rd-footer">
-          <button type="button" class="examgr-rd-nav" id="examgr-rd-prev" onclick="examgrReportDetailStep(-1)" aria-label="Previous report">‹</button>
-          <span id="examgr-report-detail-pageinfo">Report 1/1</span>
-          <button type="button" class="examgr-rd-nav" id="examgr-rd-next" onclick="examgrReportDetailStep(1)" aria-label="Next report">›</button>
-        </div>
-      </div>
     </div>
 
     <!-- ── ADMIN LOGIN ── -->
@@ -1564,10 +1527,7 @@ B"></textarea>
             <label>Test Chunein</label>
             <select id="omr-sheet-test-select"></select>
           </div>
-          <div style="display:flex; gap:10px; flex-wrap:wrap;">
-            <button type="button" id="omr-generate-sheet-btn" class="btn-primary">🖨️ OMR Sheet Generate Karein (Word)</button>
-            <button type="button" id="omr-generate-sheet-jpg-btn" class="btn-secondary">🖼️ OMR Sheet Generate Karein (JPG)</button>
-          </div>
+          <button type="button" id="omr-generate-sheet-btn" class="btn-primary">🖨️ OMR Sheet Generate Karein (Word)</button>
           <p class="muted-text" style="margin-top:8px;">Note: Sheet ko poori tarah (bina crop kiye, seedhi, achhi light mein) photo kheenchein — corner ke 4 kaale square poori tarah dikhne chahiye.</p>
         </div>
         </div>

@@ -395,215 +395,23 @@
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
-  /* ── 1b) SHEET GENERATOR — JPG image, same exact grid math ─────────
-     Draws the identical sheet (same computeOMRLayout() mm coordinates
-     used by both the docx builder and the scanner) straight onto an
-     HTML canvas and exports it as a JPEG. Rendered at 300 DPI so it's
-     sharp enough to print directly or share on WhatsApp. Because it
-     reuses layout.bubbles/layout.headers (the exact same coordinate
-     data the scanner expects), a printout of this JPG scans exactly
-     like the Word version does. ─────────────────────────────────── */
-
-  function drawOMRBubble(ctx, cx, cy, r) {
-    ctx.beginPath();
-    ctx.arc(cx, cy, r, 0, Math.PI * 2);
-    ctx.strokeStyle = "#000";
-    ctx.lineWidth = Math.max(1, r * 0.15);
-    ctx.stroke();
-  }
-
-  function wrapCanvasText(ctx, text, x, y, maxWidth, lineHeight) {
-    const words = text.split(" ");
-    let line = "", ly = y;
-    for (let i = 0; i < words.length; i++) {
-      const test = line + words[i] + " ";
-      if (ctx.measureText(test).width > maxWidth && line) {
-        ctx.fillText(line, x, ly);
-        line = words[i] + " ";
-        ly += lineHeight;
-      } else {
-        line = test;
-      }
-    }
-    ctx.fillText(line, x, ly);
-  }
-
-  function buildOMRSheetCanvas(test, testId) {
-    const S = 300 / 25.4; // px per mm @ 300 DPI
-    const px = mm => mm * S;
-    const n = test.questions.length;
-    const layout = computeOMRLayout(n);
-    const { blockWidth, rowHeight, qLabelWidth, gridTop, gridLeft, corners, dividers, bubbles, headers, optSpacing } = layout;
-
-    const canvas = document.createElement("canvas");
-    canvas.width = Math.round(PAGE_W_MM * S);
-    canvas.height = Math.round(PAGE_H_MM * S);
-    const ctx = canvas.getContext("2d");
-
-    ctx.fillStyle = "#fff";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = "#000";
-    ctx.textBaseline = "middle";
-
-    // Title
-    ctx.textAlign = "center";
-    ctx.font = `bold ${px(6.5)}px Arial, sans-serif`;
-    ctx.fillText("SAVYASACHI COACHING — OMR उत्तर पत्रक", canvas.width / 2, px(12));
-
-    const leftX = px(MARGIN_MM), rightX = px(PAGE_W_MM - MARGIN_MM), fullW = rightX - leftX;
-    const nameW = px(60);
-
-    function boxRect(x, y, w, h) {
-      ctx.strokeStyle = "#000";
-      ctx.lineWidth = Math.max(1, px(0.25));
-      ctx.strokeRect(x, y, w, h);
-    }
-
-    // NAME / EXAM row
-    const hdrTop = px(18), hdrRowH = px(8);
-    boxRect(leftX, hdrTop, nameW, hdrRowH);
-    boxRect(leftX + nameW, hdrTop, fullW - nameW, hdrRowH);
-    ctx.textAlign = "left";
-    ctx.font = `${px(3.4)}px Arial, sans-serif`;
-    ctx.fillText("NAME : ______________________", leftX + px(2), hdrTop + hdrRowH / 2);
-    ctx.fillText(`EXAM : ${test.title || "Test"}`, leftX + nameW + px(2), hdrTop + hdrRowH / 2);
-
-    // DATE / Roll / Mobile / Test ID row
-    const hdrTop2 = hdrTop + hdrRowH;
-    boxRect(leftX, hdrTop2, fullW, hdrRowH);
-    ctx.font = `${px(3.0)}px Arial, sans-serif`;
-    ctx.fillText(`DATE : ____________     Roll Number: ______________   Mobile: ______________   Test ID: ${testId}`, leftX + px(2), hdrTop2 + hdrRowH / 2);
-
-    // Instructions box
-    const insTop = hdrTop2 + hdrRowH + px(3);
-    const insH = px(10);
-    ctx.fillStyle = "#f7f7f7";
-    ctx.fillRect(leftX, insTop, fullW, insH);
-    boxRect(leftX, insTop, fullW, insH);
-    ctx.fillStyle = "#000";
-    ctx.font = `bold ${px(3.0)}px Arial, sans-serif`;
-    ctx.fillText("निर्देश (Instructions):", leftX + px(2), insTop + px(3.4));
-    ctx.font = `${px(2.8)}px Arial, sans-serif`;
-    wrapCanvasText(ctx, "वस्तुनिष्ठ प्रश्नों के सही उत्तर वाले गोले को नीले/काले बॉल पेन से पूरी तरह गहरा करें। Darken the correct circle completely using a Blue/Black Ball pen only.", leftX + px(2), insTop + px(7), fullW - px(4), px(3.4));
-
-    // Corner alignment markers (scanner's detectCorners() targets)
-    ["tl", "tr", "bl", "br"].forEach(k => {
-      const c = corners[k];
-      ctx.fillStyle = "#000";
-      ctx.fillRect(px(c.x - MARKER_MM / 2), px(c.y - MARKER_MM / 2), px(MARKER_MM), px(MARKER_MM));
-    });
-
-    // Column divider lines
-    ctx.strokeStyle = "#999";
-    ctx.lineWidth = Math.max(1, px(0.2));
-    dividers.forEach(d => {
-      ctx.beginPath();
-      ctx.moveTo(px(d.x), px(d.yTop));
-      ctx.lineTo(px(d.x), px(d.yBottom));
-      ctx.stroke();
-    });
-
-    // ── Column 0 prefix block: Exam Set / Roll No / Subject-Section ──
-    const esW = (blockWidth - qLabelWidth) / 5;
-    const rollBubbleW = (blockWidth - qLabelWidth) / 2;
-    const col0X = gridLeft;
-    let rIdx = 0;
-    ctx.fillStyle = "#000";
-
-    ctx.textAlign = "left";
-    ctx.font = `bold ${px(3.2)}px Arial, sans-serif`;
-    ctx.fillText("Exam Set", px(col0X), px(gridTop + rIdx * rowHeight + rowHeight / 2));
-    rIdx++;
-
-    ["A", "B", "C", "D", "E"].forEach((L, i) => {
-      const cx = col0X + qLabelWidth + i * esW + esW / 2;
-      const cy = gridTop + rIdx * rowHeight;
-      ctx.textAlign = "center";
-      ctx.font = `bold ${px(2.6)}px Arial, sans-serif`;
-      ctx.fillText(L, px(cx), px(cy + rowHeight * 0.28));
-      drawOMRBubble(ctx, px(cx), px(cy + rowHeight * 0.62), px(1.6));
-    });
-    rIdx++;
-
-    ctx.textAlign = "left";
-    ctx.font = `bold ${px(3.2)}px Arial, sans-serif`;
-    ctx.fillText("Roll No.", px(col0X), px(gridTop + rIdx * rowHeight + rowHeight / 2));
-    rIdx++;
-
-    for (let d = 0; d <= 9; d++) {
-      const y = gridTop + rIdx * rowHeight + rowHeight / 2;
-      ctx.textAlign = "left";
-      ctx.font = `${px(2.8)}px Arial, sans-serif`;
-      ctx.fillText(String(d), px(col0X), px(y));
-      drawOMRBubble(ctx, px(col0X + qLabelWidth + rollBubbleW / 2), px(y), px(1.6));
-      drawOMRBubble(ctx, px(col0X + qLabelWidth + rollBubbleW + rollBubbleW / 2), px(y), px(1.6));
-      rIdx++;
-    }
-
-    ctx.font = `bold ${px(2.8)}px Arial, sans-serif`;
-    ctx.fillText("Subject 1", px(col0X), px(gridTop + rIdx * rowHeight + rowHeight * 0.35));
-    ctx.fillText("Section 1", px(col0X), px(gridTop + rIdx * rowHeight + rowHeight * 0.75));
-
-    // ── Repeating "A B C D" option headers (same coords as docx/scanner) ──
-    headers.forEach(h => {
-      const colX = gridLeft + h.col * blockWidth;
-      const y = gridTop + h.rowIndex * rowHeight + rowHeight / 2;
-      ["A", "B", "C", "D"].forEach((L, o) => {
-        const x = colX + qLabelWidth + o * optSpacing + optSpacing / 2;
-        ctx.textAlign = "center";
-        ctx.font = `bold ${px(3.0)}px Arial, sans-serif`;
-        ctx.fillText(L, px(x), px(y));
-      });
-    });
-
-    // ── Question rows: drawn straight from layout.bubbles, the exact
-    //    same list templateToPixel()/the scanner walks. ──
-    bubbles.forEach(b => {
-      ctx.textAlign = "left";
-      ctx.font = `bold ${px(3.0)}px Arial, sans-serif`;
-      const qLabel = String(b.q).padStart(b.q >= 100 ? 3 : (b.q >= 10 ? 2 : 1), "0");
-      ctx.fillText(qLabel, px(b.qLabelX), px(b.qLabelY));
-      b.options.forEach(o => drawOMRBubble(ctx, px(o.x), px(o.y), px(1.8)));
-    });
-
-    return canvas;
-  }
-
-  async function downloadOMRSheetAsJPG(test, testId) {
-    const canvas = buildOMRSheetCanvas(test, testId);
-    const filename = `OMR-Sheet-${(test.title || "test").replace(/[^a-z0-9]+/gi, "-")}.jpg`;
-    const blob = await new Promise(resolve => canvas.toBlob(resolve, "image/jpeg", 0.95));
-    if (!blob) throw new Error("JPG image generate nahi ho payi.");
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  }
-
-  async function generateOMRSheet(format) {
+  async function generateOMRSheet() {
     const testId = document.getElementById("omr-sheet-test-select")?.value;
     if (!testId || typeof tests === "undefined" || !tests[testId]) { alert("Pehle test select karein."); return; }
     const test = tests[testId];
     if (!test.questions || !test.questions.length) { alert("Is test mein questions nahi hain."); return; }
     if (test.questions.length > 100) { alert("OMR sheet abhi max 100 questions tak support karti hai."); return; }
 
-    const isJPG = format === "jpg";
-    const btn = document.getElementById(isJPG ? "omr-generate-sheet-jpg-btn" : "omr-generate-sheet-btn");
-    const origText = btn ? btn.textContent : "";
-    if (btn) { btn.disabled = true; btn.textContent = isJPG ? "⏳ JPG Generate ho raha hai..." : "⏳ Word Doc Generate ho raha hai..."; }
+    const btn = document.getElementById("omr-generate-sheet-btn");
+    if (btn) { btn.disabled = true; btn.textContent = "⏳ Word Doc Generate ho raha hai..."; }
 
     try {
-      if (isJPG) await downloadOMRSheetAsJPG(test, testId);
-      else await downloadOMRSheetAsWord(test, testId);
+      await downloadOMRSheetAsWord(test, testId);
     } catch (e) {
       console.error(e);
-      alert((isJPG ? "JPG" : "Word Doc") + " generate karne mein error: " + (e.message || e));
+      alert("Word Doc generate karne mein error: " + (e.message || e));
     } finally {
-      if (btn) { btn.disabled = false; btn.textContent = origText; }
+      if (btn) { btn.disabled = false; btn.textContent = "🖨️ OMR Sheet Generate Karein (Word)"; }
     }
   }
 
@@ -2502,9 +2310,7 @@ OUTPUT ONLY SEPARATE CODE BLOCKS.`;
 
   function init() {
     const genBtn = document.getElementById("omr-generate-sheet-btn");
-    if (genBtn) genBtn.onclick = () => generateOMRSheet("docx");
-    const genJpgBtn = document.getElementById("omr-generate-sheet-jpg-btn");
-    if (genJpgBtn) genJpgBtn.onclick = () => generateOMRSheet("jpg");
+    if (genBtn) genBtn.onclick = generateOMRSheet;
     const manualBtn = document.getElementById("omr-manual-parse-btn");
     if (manualBtn) manualBtn.onclick = parseAndPreviewManual;
     const scanBtn = document.getElementById("omr-scan-btn");

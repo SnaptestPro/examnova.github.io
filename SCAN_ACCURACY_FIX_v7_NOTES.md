@@ -110,6 +110,61 @@ This is a reduction in error, not a mathematical elimination of it —
 tremor is still there, just averaged down. It stacks with, not replaces,
 the v7 perspective fix.
 
+## v9 update (from a captured scan screenshot, 14272.jpg)
+
+Three more things noticed on a real captured sheet after v8:
+
+1. **A completely blank bubble (Q94) got a gold "detected" dot.** The
+   broad 40th-percentile coverage check (radius 9) was apparently
+   triggered by something OTHER than a real fill covering a chunk of the
+   sample disk — possibly the printed ring's own edge under a bit of
+   residual misalignment, bleed from a nearby label, a shadow. The exact
+   source is hard to pin down from a screenshot, but the true bubble
+   centre was untouched paper.
+2. **A light dot/tick mark instead of full shading (Q20/21/23) wasn't
+   detected at all.** The 40th-percentile check needs ~40%+ of the
+   bubble's area to be dark; a small centred dot never gets there, so it
+   scores almost identically to a genuinely empty bubble.
+3. **Two options both solidly filled for the same question** (a real
+   multiple-answer mistake) — the app silently picked whichever was
+   darker, with nothing on the photo to show a teacher this needs a
+   second look.
+
+**Fix — `pickBest` now does three things instead of one:**
+- A confident mark now requires BOTH the existing broad-coverage check
+  AND a small inner "core" sample (radius 4) to be genuinely dark. A
+  real pencil/pen fill darkens the centre every time; something covering
+  the disk's edge/outer area without touching the centre (ring edge,
+  nearby text, shadow, dust) no longer passes as "marked".
+- If nothing passes the broad check, a fallback pass checks that same
+  small core in isolation with a higher, stricter threshold — this is
+  what catches a genuine light dot/tick that never covered enough of the
+  full bubble. Anything picked up this way is flagged `"faint"`.
+- If two or more options both pass the confident check, the question is
+  flagged `"multi"` instead of silently resolving to the darker one.
+- Sample radius also nudged 10 → 9, for a little extra headroom against
+  the printed ring's own ink (22px bubble, 1.7px stroke → ring ink starts
+  at radius ~10.15).
+
+Both flags are painted straight onto the reviewed photo as a **blue
+outline ring** around the relevant bubble(s) — drawn on top of, never
+instead of, the normal green/red/gold grading dot — so a teacher spots
+"double-check this one" at a glance during Save, instead of the app
+silently guessing (or silently missing it) either way.
+
+Verified in `test_faint_multi_marks.js`: a normal full mark still reads
+normally; a small dot mark is now caught and flagged faint; two filled
+options are flagged multi with both captured; and a synthetic
+"broad-triggers-but-centre-is-blank" bubble (standing in for whatever
+caused the Q94 misread) is correctly kept blank once the core check is
+added, whereas the old broad-only logic would have called it marked.
+
+**Honesty note (same spirit as v7/v8):** the "faint" and "multi" flags
+are a review aid, not a mind-reader — they turn a silent
+guess-or-miss into a visible "look at this one," which is the safest
+thing the app can do when a mark is genuinely ambiguous even to a human
+glancing at it quickly.
+
 ## Honesty note
 
 No camera-based OMR pipeline can be mathematically guaranteed 100% under
@@ -128,5 +183,7 @@ tilted ones, before treating this as final.
 - `test_detection_algo.js` — old vs new detection scoring comparison.
 - `test_temporal_smoothing.js` — v8: single-last-frame vs averaged-last-4
   -frames corner error comparison under simulated hand tremor.
+- `test_faint_multi_marks.js` — v9: faint-mark fallback, multi-mark
+  flagging, and the core-confirmation gate against a false-positive.
 
 Run any of them with plain `node <file>.js`.
