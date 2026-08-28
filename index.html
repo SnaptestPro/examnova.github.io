@@ -124,13 +124,6 @@
   <script defer src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script defer src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <script defer src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
-  <!-- Standalone jsPDF (exposes window.jspdf.jsPDF). Used by the Exam
-       Manager's OMR-sheet PDF export to draw the sheet as real PDF vector
-       shapes (rects/circles/text) instead of rasterizing HTML through
-       html2canvas — see the note above examgrBuildSheetPdf() in
-       exam-manager.js for why the old html2canvas route produced blank
-       pages and failed to download on mobile. -->
-  <script defer src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/docx@9.7.1/dist/index.iife.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
   <!-- KaTeX for automatic Math Equation rendering -->
@@ -580,8 +573,7 @@
         <div class="test-analysis-title">🗒️ OMR / Bubble Sheet</div>
         <p class="muted-text">100-question, 5-column standard layout — print karke seedha use karein. Corner ke 4 kaale square poori tarah dikhne chahiye.</p>
         <div class="examgr-sheet-preview-wrap"><div class="examgr-sheet-preview" id="examgr-sheet-preview"></div></div>
-        <button type="button" class="btn-primary" id="examgr-sheet-pdf-btn" style="width:100%;margin-top:14px;">📄 PDF Download Karein</button>
-        <button type="button" class="btn-secondary" id="examgr-sheet-download-btn" style="width:100%;margin-top:10px;">🌐 HTML Download Karein</button>
+        <button type="button" class="btn-primary" id="examgr-sheet-jpg-btn" style="width:100%;margin-top:14px;">🖼️ JPG Download Karein</button>
       </div>
     </div>
 
@@ -1527,7 +1519,10 @@ B"></textarea>
             <label>Test Chunein</label>
             <select id="omr-sheet-test-select"></select>
           </div>
-          <button type="button" id="omr-generate-sheet-btn" class="btn-primary">🖨️ OMR Sheet Generate Karein (Word)</button>
+          <div style="display:flex; gap:10px; flex-wrap:wrap;">
+            <button type="button" id="omr-generate-sheet-btn" class="btn-primary">🖨️ OMR Sheet Generate Karein (Word)</button>
+            <button type="button" id="omr-generate-sheet-jpg-btn" class="btn-secondary">🖼️ OMR Sheet Generate Karein (JPG)</button>
+          </div>
           <p class="muted-text" style="margin-top:8px;">Note: Sheet ko poori tarah (bina crop kiye, seedhi, achhi light mein) photo kheenchein — corner ke 4 kaale square poori tarah dikhne chahiye.</p>
         </div>
         </div>

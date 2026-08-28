@@ -796,122 +796,97 @@
   }
   window.examgrCloseOmrSheet = examgrCloseOmrSheet;
 
-  $id("examgr-sheet-download-btn")?.addEventListener("click", () => {
-    const ex = examMgrExams[examMgrSelectedId];
-    if (!ex) return;
-    const sheetHtml = examgrBuildSheetHtml(ex);
-    const doc = `<!DOCTYPE html><html lang="hi"><head><meta charset="UTF-8"><meta name="viewport" content="width=${OMR_CANVAS_SIZE.width}, initial-scale=1.0"><title>${escHtml(ex.examName || "OMR Sheet")}</title><style>body{margin:0;background:#fff;}${EXAMGR_SHEET_CSS}</style></head><body>${sheetHtml}</body></html>`;
-    downloadBlob(doc, "text/html;charset=utf-8", safeFileName(ex.examName || "omr") + "-omr-sheet.html");
-  });
+  /* ── OMR Sheet → JPG image (canvas, no html2canvas) ────────────────
+     Draws the sheet directly onto a <canvas> using the exact same px
+     coordinates (OMR_CANVAS_SIZE / OMR_MARKER_XS/YS / EXAM_SET_Y /
+     OMR_COLUMN_SPECS) that examgrBuildSheetHtml() and the scanner's
+     calibration both already use — no html2canvas rasterization step
+     (that pipeline was unreliable on mobile, see notes above), so
+     nothing can render blank/partial. Rendered at 2x resolution so the
+     downloaded JPG stays crisp enough to print or read on a phone. ──*/
 
-  /* ── OMR Sheet → real PDF (vector, no html2canvas) ────────────────
-     NOTE: this used to render examgrBuildSheetHtml() into an off-screen
-     div and rasterize it via html2pdf (html2canvas → jsPDF). That
-     pipeline is exactly the "large blank gaps" / unreliable-capture
-     problem already documented and fixed in omr.js's OMR sheet
-     generator — html2canvas has to paint a huge (~2400x3000px at
-     scale:2) off-screen canvas, which silently produces a blank/partial
-     canvas on many phones (low memory → the canvas context allocation
-     fails quietly instead of throwing), and jsPDF's blob-download
-     trick that html2pdf's .save() relies on is unreliable on mobile
-     Safari/Chrome, which is why the download didn't even start there.
+  const OMR_JPG_SCALE = 2;
 
-     Fix: draw the sheet directly as PDF vector shapes (rects for the
-     header box/markers, circles for bubbles, text for labels) with
-     jsPDF's own drawing API — no HTML, no canvas rasterization, so
-     there is nothing that can render blank and the output file is a
-     few KB instead of a multi-megabyte rasterized image. All layout
-     numbers are reused as-is from OMR_CANVAS_SIZE/OMR_COLUMN_SPECS
-     (same source the on-screen preview and the scanner calibration
-     use), just uniformly scaled from px → mm to fit one A4 page, so
-     corner-marker/bubble geometry stays exactly proportional to what
-     the scanner already expects. ─────────────────────────────────── */
+  function examgrBuildSheetCanvas(ex) {
+    const S = OMR_JPG_SCALE;
+    const px = v => v * S;
+    const canvas = document.createElement("canvas");
+    canvas.width = px(OMR_CANVAS_SIZE.width);
+    canvas.height = px(OMR_CANVAS_SIZE.height);
+    const ctx = canvas.getContext("2d");
 
-  // Scale the 1203×1536 "px" layout down to fit an A4 page width
-  // (210mm), preserving aspect ratio so bubbles stay circular and the
-  // corner markers keep the same relative geometry the scanner uses.
-  const OMR_PDF_PAGE_MM = { width: 210, height: 297 };
-  const OMR_PX_TO_MM = OMR_PDF_PAGE_MM.width / OMR_CANVAS_SIZE.width;
-  const mmPos = px => px * OMR_PX_TO_MM;
-  // jsPDF font sizes are always in pt regardless of document unit.
-  const pxFontToPt = px => px * OMR_PX_TO_MM * 2.834645669;
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.textBaseline = "top";
+    ctx.fillStyle = "#000";
 
-  // Slow/mobile connections sometimes click the button before the
-  // deferred jsPDF <script> tag has finished downloading. Instead of
-  // failing immediately, wait briefly for it to show up.
-  function waitForJsPdf(timeoutMs) {
-    return new Promise(resolve => {
-      if (window.jspdf && window.jspdf.jsPDF) return resolve(window.jspdf.jsPDF);
-      const start = Date.now();
-      const iv = setInterval(() => {
-        if (window.jspdf && window.jspdf.jsPDF) {
-          clearInterval(iv);
-          resolve(window.jspdf.jsPDF);
-        } else if (Date.now() - start > timeoutMs) {
-          clearInterval(iv);
-          resolve(null);
-        }
-      }, 150);
-    });
-  }
+    function bubble(cx, cy) {
+      ctx.strokeStyle = "#222";
+      ctx.lineWidth = px(1.7);
+      ctx.beginPath();
+      ctx.arc(px(cx), px(cy), px(11), 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    function centerText(text, centerX, top, font) {
+      ctx.textAlign = "center";
+      ctx.font = font;
+      ctx.fillText(String(text), px(centerX), px(top));
+    }
+    function rightText(text, right, top, font) {
+      ctx.textAlign = "right";
+      ctx.font = font;
+      ctx.fillText(String(text), px(right), px(top));
+    }
+    function leftText(text, left, top, font) {
+      ctx.textAlign = "left";
+      ctx.font = font;
+      ctx.fillText(String(text), px(left), px(top));
+    }
 
-  async function examgrBuildSheetPdf(ex) {
-    const jsPDF = await waitForJsPdf(6000);
-    if (!jsPDF) throw new Error("PDF library abhi load nahi ho payi — internet check karke page reload karein.");
-    const doc = new jsPDF({ unit: "mm", format: "a4", orientation: "portrait" });
-    doc.setDrawColor(40, 40, 40);
-    doc.setTextColor(0, 0, 0);
-    doc.setFont("helvetica", "normal");
+    // Title
+    centerText("SAVYASACHI COACHING — OMR ANSWER SHEET", OMR_CANVAS_SIZE.width / 2, 12, `bold ${px(24)}px Arial, sans-serif`);
 
-    // corner-registration markers (solid black squares)
-    doc.setFillColor(0, 0, 0);
+    // Corner-registration markers
+    ctx.fillStyle = "#000";
     OMR_MARKER_YS.forEach(y => OMR_MARKER_XS.forEach(x => {
-      doc.rect(mmPos(x), mmPos(y), mmPos(20), mmPos(20), "F");
+      ctx.fillRect(px(x), px(y), px(20), px(20));
     }));
 
-    // header box: NAME / EXAM row + DATE/CLASS row
-    doc.setLineWidth(0.3);
-    doc.rect(mmPos(99), mmPos(49), mmPos(992), mmPos(92)); // outer box
-    doc.line(mmPos(99), mmPos(94), mmPos(1091), mmPos(94)); // row divider
-    doc.line(mmPos(595), mmPos(49), mmPos(595), mmPos(94)); // NAME/EXAM divider
-    doc.setFontSize(pxFontToPt(15));
-    doc.text(`NAME :`, mmPos(110), mmPos(78));
-    doc.text(`EXAM : ${ex.examName || ""}`, mmPos(605), mmPos(78));
-    doc.text(`DATE : ${ex.date || ""}     CLASS : ${ex.className || ""}`, mmPos(110), mmPos(123));
-
-    doc.setFontSize(pxFontToPt(24));
-    doc.text("SAVYASACHI COACHING — OMR ANSWER SHEET", mmPos(OMR_CANVAS_SIZE.width / 2), mmPos(30), { align: "center" });
+    // Header box: NAME / EXAM row + DATE/CLASS row
+    ctx.strokeStyle = "#333";
+    ctx.lineWidth = px(1.6);
+    ctx.strokeRect(px(99), px(49), px(992), px(92));
+    ctx.beginPath(); ctx.moveTo(px(99), px(94)); ctx.lineTo(px(1091), px(94)); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(px(595), px(49)); ctx.lineTo(px(595), px(94)); ctx.stroke();
+    ctx.fillStyle = "#000";
+    leftText("NAME :", 109, 60, `${px(24)}px Arial, sans-serif`);
+    leftText(`EXAM : ${ex.examName || ""}`, 605, 60, `${px(24)}px Arial, sans-serif`);
+    leftText(`DATE : ${ex.date || ""}     CLASS : ${ex.className || ""}`, 109, 105, `${px(24)}px Arial, sans-serif`);
 
     // Exam Set (A–E) row
-    doc.setFontSize(pxFontToPt(14));
-    doc.text("Exam Set", mmPos(235), mmPos(EXAM_SET_Y.label + 8), { align: "center" });
-    doc.setFontSize(pxFontToPt(12));
-    SET_LETTERS.forEach((letter, i) => doc.text(letter, mmPos(EXAM_SET_CENTERS[i]), mmPos(EXAM_SET_Y.header + 3), { align: "center" }));
-    doc.setLineWidth(0.2);
-    EXAM_SET_CENTERS.forEach(cx => doc.circle(mmPos(cx), mmPos(EXAM_SET_Y.bubble), mmPos(11)));
+    centerText("Exam Set", 235, EXAM_SET_Y.label, `${px(18)}px Arial, sans-serif`);
+    SET_LETTERS.forEach((letter, i) => centerText(letter, EXAM_SET_CENTERS[i], EXAM_SET_Y.header, `${px(17)}px Arial, sans-serif`));
+    EXAM_SET_CENTERS.forEach(cx => bubble(cx, EXAM_SET_Y.bubble));
 
     // Roll No block
     const rollDigits = Math.max(1, Math.min(5, Number(ex.rollDigits) || 5));
     const rollCenters = [190, 220, 250, 280, 310].slice(0, rollDigits);
-    doc.setFontSize(pxFontToPt(14));
-    doc.text("Roll No", mmPos(250), mmPos(208), { align: "center" });
-    doc.setLineWidth(0.25);
+    centerText("Roll No", 250, 199, `${px(18)}px Arial, sans-serif`);
+    ctx.strokeStyle = "#333";
+    ctx.lineWidth = px(2);
     for (let i = 0; i < rollDigits; i++) {
-      doc.rect(mmPos(175 + i * 30), mmPos(220), mmPos(30), mmPos(30));
-      doc.setFontSize(pxFontToPt(12));
-      doc.text(String(i + 1), mmPos(175 + i * 30 + 15), mmPos(220 + 19), { align: "center" });
+      ctx.strokeRect(px(175 + i * 30), px(220), px(30), px(30));
+      centerText(String(i + 1), 175 + i * 30 + 15, 227, `${px(18)}px Arial, sans-serif`);
     }
-    doc.setFontSize(pxFontToPt(13));
     for (let d = 0; d <= 9; d++) {
       const cy = 265 + d * 30;
-      doc.text(String(d), mmPos(166), mmPos(cy + 3), { align: "right" });
-      rollCenters.forEach(cx => doc.circle(mmPos(cx), mmPos(cy), mmPos(11)));
+      rightText(d, 166, cy - 9, `${px(18)}px Arial, sans-serif`);
+      rollCenters.forEach(cx => bubble(cx, cy));
     }
 
     // Exam name / class under column 0
-    doc.setFontSize(pxFontToPt(13));
-    doc.text(ex.examName || "Exam", mmPos(OMR_COLUMN_SPECS[0].subjectCenter), mmPos(OMR_COLUMN_SPECS[0].subjectTop + 8), { align: "center" });
-    doc.text(ex.className || "", mmPos(OMR_COLUMN_SPECS[0].subjectCenter), mmPos(OMR_COLUMN_SPECS[0].sectionTop + 8), { align: "center" });
+    centerText(ex.examName || "Exam", OMR_COLUMN_SPECS[0].subjectCenter, OMR_COLUMN_SPECS[0].subjectTop, `${px(18)}px Arial, sans-serif`);
+    centerText(ex.className || "", OMR_COLUMN_SPECS[0].subjectCenter, OMR_COLUMN_SPECS[0].sectionTop, `${px(18)}px Arial, sans-serif`);
 
     // Question grid
     const total = Math.max(1, Math.min(MAX_QUESTIONS, Number(ex.questions) || MAX_QUESTIONS));
@@ -919,37 +894,45 @@
     OMR_COLUMN_SPECS.forEach(col => {
       col.groups.forEach(group => {
         if (itemIndex >= total) return;
-        doc.setFontSize(pxFontToPt(12));
-        OPTION_LETTERS.forEach((label, i) => doc.text(label, mmPos(col.optionCenters[i]), mmPos(group.headerY + 3), { align: "center" }));
+        OPTION_LETTERS.forEach((label, i) => centerText(label, col.optionCenters[i], group.headerY, `${px(17)}px Arial, sans-serif`));
         for (let r = 0; r < group.count && itemIndex < total; r++) {
           const cy = group.rowStart + r * 30;
           itemIndex++;
-          doc.setFontSize(pxFontToPt(14));
-          doc.text(String(itemIndex), mmPos(col.qRight), mmPos(cy + 3), { align: "right" });
-          doc.setLineWidth(0.2);
-          OPTION_LETTERS.forEach((_, i) => doc.circle(mmPos(col.optionCenters[i]), mmPos(cy), mmPos(11)));
+          rightText(itemIndex, col.qRight, cy - 9, `${px(18)}px Arial, sans-serif`);
+          OPTION_LETTERS.forEach((_, i) => bubble(col.optionCenters[i], cy));
         }
       });
     });
 
-    return doc;
+    return canvas;
   }
 
-  $id("examgr-sheet-pdf-btn")?.addEventListener("click", async () => {
+  $id("examgr-sheet-jpg-btn")?.addEventListener("click", () => {
     const ex = examMgrExams[examMgrSelectedId];
     if (!ex) return;
-    const btn = $id("examgr-sheet-pdf-btn");
+    const btn = $id("examgr-sheet-jpg-btn");
     const originalLabel = btn.textContent;
     btn.disabled = true;
-    btn.textContent = "⏳ PDF Bana Rahe Hain...";
+    btn.textContent = "⏳ JPG Bana Rahe Hain...";
     try {
-      const doc = await examgrBuildSheetPdf(ex);
-      doc.save(safeFileName(ex.examName || "omr") + "-omr-sheet.pdf");
+      const canvas = examgrBuildSheetCanvas(ex);
+      canvas.toBlob(blob => {
+        btn.disabled = false;
+        btn.textContent = originalLabel;
+        if (!blob) { alert("JPG banane mein dikkat aayi."); return; }
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = safeFileName(ex.examName || "omr") + "-omr-sheet.jpg";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      }, "image/jpeg", 0.95);
     } catch (err) {
-      alert("PDF banane mein dikkat aayi: " + (err && err.message ? err.message : err));
-    } finally {
       btn.disabled = false;
       btn.textContent = originalLabel;
+      alert("JPG banane mein dikkat aayi: " + (err && err.message ? err.message : err));
     }
   });
 
