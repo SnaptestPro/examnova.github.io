@@ -73,6 +73,11 @@
   let scannerAnimationFrame = null;
   let scannerLastDetectionAt = 0;
   let scannerStableFrames = 0;
+  // Rolling window of the last few "all-4-markers-found" frames' corner
+  // positions (see EG_MARKER_HISTORY_SIZE / egAverageMarkerFrames below) —
+  // averaged together at capture time instead of trusting the single last
+  // frame, to cancel out hand-tremor jitter in the corner read itself.
+  let scannerMarkerHistory = [];
   let scannerCapturing = false;
   let scannerCameraRequestInProgress = false;
   // Most recent capture's detection + grading result, kept so Edit/Save can
@@ -83,6 +88,9 @@
   // Pristine (no colored dots) copy of the last capture, so Edit can
   // re-paint from scratch instead of drawing new dots over old ones.
   let scannerRawCanvas = null;
+  // Scratch canvas holding the untouched, full-resolution video frame at
+  // the instant of capture — input to the perspective warp below.
+  let scannerRawVideoCanvas = null;
 
   function $id(id) { return document.getElementById(id); }
   function db() { return typeof getDB === "function" ? getDB() : null; }
@@ -991,12 +999,154 @@
 
   function egLerp(a, b, t) { return a + (b - a) * t; }
 
+  // ────────────────────────────────────────────────────────────────
+  // PERSPECTIVE CORRECTION (homography)
+  //
+  // A hand-held phone is almost never held perfectly parallel to the
+  // sheet. Even a small tilt makes one edge of the paper sit further from
+  // the camera than the other ("keystoning"), so the 4 printed corner
+  // markers form a skewed quadrilateral in the video frame — never a
+  // clean rectangle. Averaging the 4 corners into one rectangle and doing
+  // a single axis-aligned scale/crop (the old approach) is only correct
+  // when the phone is dead flat; with any real tilt it quietly shifts
+  // every bubble's true pixel position, by an amount that grows with
+  // distance from the corners. That's why the same physical sheet could
+  // read a different Roll No / miss a different option on every attempt
+  // in testing — each hand-held attempt has a slightly different tilt, so
+  // a different set of bubbles drifts far enough to fall outside its
+  // sampling circle.
+  //
+  // Fix: solve the full 3×3 projective transform (homography) from the 4
+  // marker correspondences, then warp the whole frame through it. This
+  // makes every bubble land at (very close to) the exact pixel the print
+  // template expects, regardless of camera tilt/rotation/keystone.
+  // ────────────────────────────────────────────────────────────────
+
+  // Solves H (3x3, row-major, h[8]=1) such that H·[x,y,1]ᵀ ≈ w·[X,Y,1]ᵀ for
+  // 4 point correspondences src_i → dst_i. Straightforward 8-unknown
+  // linear system (Gaussian elimination, partial pivoting) — exact for 4
+  // non-degenerate points, no least-squares needed.
+  function egSolveLinear8(A, b) {
+    const n = 8;
+    const M = A.map((row, i) => row.concat([b[i]]));
+    for (let col = 0; col < n; col++) {
+      let pivot = col;
+      for (let r = col + 1; r < n; r++) { if (Math.abs(M[r][col]) > Math.abs(M[pivot][col])) pivot = r; }
+      if (pivot !== col) { const tmp = M[col]; M[col] = M[pivot]; M[pivot] = tmp; }
+      const pv = M[col][col];
+      if (Math.abs(pv) < 1e-9) return null; // degenerate marker layout — caller falls back
+      for (let r = 0; r < n; r++) {
+        if (r === col) continue;
+        const factor = M[r][col] / pv;
+        if (factor === 0) continue;
+        for (let c = col; c <= n; c++) M[r][c] -= factor * M[col][c];
+      }
+    }
+    return M.map((row, i) => row[n] / row[i]);
+  }
+
+  function egComputeHomography(src, dst) {
+    const A = [], b = [];
+    for (let i = 0; i < 4; i++) {
+      const { x, y } = src[i], X = dst[i].x, Y = dst[i].y;
+      A.push([x, y, 1, 0, 0, 0, -x * X, -y * X]); b.push(X);
+      A.push([0, 0, 0, x, y, 1, -x * Y, -y * Y]); b.push(Y);
+    }
+    const h = egSolveLinear8(A, b);
+    return h ? [h[0], h[1], h[2], h[3], h[4], h[5], h[6], h[7], 1] : null;
+  }
+
+  function egApplyHomography(H, x, y) {
+    const w = H[6] * x + H[7] * y + H[8];
+    return { x: (H[0] * x + H[1] * y + H[2]) / w, y: (H[3] * x + H[4] * y + H[5]) / w };
+  }
+
+  // Warps sourceCanvas onto a new dstSize canvas using the homography
+  // that maps templateQuad → videoQuad (both [top-left, top-right,
+  // bottom-left, bottom-right]). Walks the OUTPUT pixel-by-pixel
+  // (backward mapping, so there are no holes) and bilinearly samples the
+  // source — smooth edges matter here because the darkness sampling
+  // downstream is sensitive to jagged/aliased ink edges.
+  // Falls back to a plain non-perspective (best-fit affine-ish) copy if
+  // the 4 markers are degenerate (near-collinear) so a capture never hard
+  // fails just because the homography solve couldn't run.
+  function egWarpPerspective(sourceCanvas, videoQuad, templateQuad, dstSize) {
+    const sw = sourceCanvas.width, sh = sourceCanvas.height;
+    const sctx = sourceCanvas.getContext("2d", { willReadFrequently: true });
+    const srcData = sctx.getImageData(0, 0, sw, sh).data;
+
+    const H = egComputeHomography(templateQuad, videoQuad);
+    const out = document.createElement("canvas");
+    out.width = dstSize.width; out.height = dstSize.height;
+    const octx = out.getContext("2d");
+
+    if (!H) {
+      // Degenerate fallback: same simple rectangle scale as before, better
+      // than throwing the capture away entirely.
+      const left = (videoQuad[0].x + videoQuad[2].x) / 2, right = (videoQuad[1].x + videoQuad[3].x) / 2;
+      const top = (videoQuad[0].y + videoQuad[1].y) / 2, bottom = (videoQuad[2].y + videoQuad[3].y) / 2;
+      const scaleX = (right - left) / (templateQuad[1].x - templateQuad[0].x);
+      const scaleY = (bottom - top) / (templateQuad[2].y - templateQuad[0].y);
+      const sx0 = left - templateQuad[0].x * scaleX, sy0 = top - templateQuad[0].y * scaleY;
+      octx.drawImage(sourceCanvas, sx0, sy0, dstSize.width * scaleX, dstSize.height * scaleY, 0, 0, dstSize.width, dstSize.height);
+      return out;
+    }
+
+    // Homography math inlined (not via egApplyHomography) and no
+    // per-pixel object allocation — this loop runs ~1.85M times for a
+    // full-resolution sheet, and avoiding GC churn here keeps a single
+    // capture's processing pause well under a second on a mid-range phone.
+    const [h0, h1, h2, h3, h4, h5, h6, h7, h8] = H;
+    const outImg = octx.createImageData(dstSize.width, dstSize.height);
+    const outData = outImg.data;
+    let di = 0;
+    for (let Y = 0; Y < dstSize.height; Y++) {
+      for (let X = 0; X < dstSize.width; X++, di += 4) {
+        const wDen = h6 * X + h7 * Y + h8;
+        const sx = (h0 * X + h1 * Y + h2) / wDen;
+        const sy = (h3 * X + h4 * Y + h5) / wDen;
+        if (sx < 0 || sy < 0 || sx >= sw - 1 || sy >= sh - 1) {
+          outData[di] = outData[di + 1] = outData[di + 2] = 255; outData[di + 3] = 255;
+          continue;
+        }
+        const x0 = sx | 0, y0 = sy | 0;
+        const fx = sx - x0, fy = sy - y0;
+        const i00 = (y0 * sw + x0) * 4, i10 = i00 + 4;
+        const i01 = i00 + sw * 4, i11 = i01 + 4;
+        const ifx = 1 - fx, ify = 1 - fy;
+        outData[di]     = (srcData[i00]     * ifx + srcData[i10]     * fx) * ify + (srcData[i01]     * ifx + srcData[i11]     * fx) * fy;
+        outData[di + 1] = (srcData[i00 + 1] * ifx + srcData[i10 + 1] * fx) * ify + (srcData[i01 + 1] * ifx + srcData[i11 + 1] * fx) * fy;
+        outData[di + 2] = (srcData[i00 + 2] * ifx + srcData[i10 + 2] * fx) * ify + (srcData[i01 + 2] * ifx + srcData[i11 + 2] * fx) * fy;
+        outData[di + 3] = 255;
+      }
+    }
+    octx.putImageData(outImg, 0, 0);
+    return out;
+  }
+
   // Coarse grid of LOCAL white levels across the photo (handles a shadow
   // or angled light making one side of the sheet darker than the other),
   // bilinear-interpolated so any bubble can look up its own nearby
   // paper-white value instead of one number for the whole sheet.
-  function egWhiteLevelField(gray, w, h, binsX, binsY) {
+  //
+  // excludePoints (optional): every registered bubble centre. WHY: the
+  // old version estimated "paper white" straight from raw pixels with no
+  // idea where bubbles are. A bin that happens to contain several bold or
+  // enlarged filled bubbles close together (e.g. Exam Set + Roll No +
+  // Q1-4, which all sit in the same top-left bin on this layout) feeds
+  // its own extra dark pixels into its OWN white estimate, pulling that
+  // bin's "white" down. Every bubble judged against that bin then reads
+  // less dark than it really is — and the biggest, boldest mark in the
+  // bin contributes the most extra dark pixels, so it's the one most
+  // likely to sabotage its own reference and get read as blank. Skipping
+  // a small disk around every known bubble centre while building the
+  // percentile keeps the estimate anchored to actual blank paper,
+  // independent of how big or dark any one mark is.
+  function egWhiteLevelField(gray, w, h, binsX, binsY, excludePoints, excludeRadius) {
     binsX = binsX || 5; binsY = binsY || 7;
+    excludePoints = excludePoints || [];
+    excludeRadius = excludeRadius || 0;
+    const exR2 = excludeRadius * excludeRadius;
     const field = [];
     const binW = Math.ceil(w / binsX), binH = Math.ceil(h / binsY);
     for (let by = 0; by < binsY; by++) {
@@ -1004,8 +1154,27 @@
       for (let bx = 0; bx < binsX; bx++) {
         const x0 = bx * binW, x1 = Math.min(w, x0 + binW);
         const y0 = by * binH, y1 = Math.min(h, y0 + binH);
+        // Only the bubbles that could possibly fall in (or near) THIS bin
+        // need checking per sample — keeps this from being an O(samples ×
+        // all bubbles) scan on a sheet with hundreds of bubbles.
+        const localExcludes = excludePoints.length ? excludePoints.filter(p =>
+          p.x >= x0 - excludeRadius && p.x <= x1 + excludeRadius &&
+          p.y >= y0 - excludeRadius && p.y <= y1 + excludeRadius
+        ) : [];
         const samples = [];
-        for (let y = y0; y < y1; y += 3) for (let x = x0; x < x1; x += 3) samples.push(gray[y * w + x]);
+        for (let y = y0; y < y1; y += 3) {
+          for (let x = x0; x < x1; x += 3) {
+            if (localExcludes.length) {
+              let skip = false;
+              for (let i = 0; i < localExcludes.length; i++) {
+                const dx = x - localExcludes[i].x, dy = y - localExcludes[i].y;
+                if (dx * dx + dy * dy <= exR2) { skip = true; break; }
+              }
+              if (skip) continue;
+            }
+            samples.push(gray[y * w + x]);
+          }
+        }
         samples.sort((a, b) => a - b);
         row.push(samples.length ? samples[Math.floor(samples.length * 0.85)] : 200);
       }
@@ -1025,9 +1194,21 @@
     };
   }
 
-  function egSampleDarkness(gray, w, h, cx, cy, radius) {
-    let sum = 0, cnt = 0;
+  // Robust "how dark is this bubble" measure — takes a PERCENTILE of the
+  // sampled disk's pixel values, not the mean. WHY: a plain mean gets
+  // diluted the moment the sample circle isn't perfectly centred on the
+  // ink (a few pixels of drift is normal even after perspective
+  // correction) or when the mark is bigger/bolder than the printed circle
+  // and only partially overlaps a small fixed sample disk — exactly the
+  // pattern behind bold, clearly-filled bubbles intermittently reading as
+  // blank. The 40th percentile is forgiving: as long as roughly 40% of
+  // the sampled disk sits on ink, the score reads fully dark, regardless
+  // of where the "extra" ink from a bold/oversized mark spills over to.
+  // A genuinely blank bubble has ~0% ink in the disk either way, so this
+  // doesn't introduce false positives.
+  function egSampleFillScore(gray, w, h, cx, cy, radius) {
     const r2 = radius * radius;
+    const vals = [];
     for (let dy = -radius; dy <= radius; dy++) {
       const yy = Math.round(cy + dy);
       if (yy < 0 || yy >= h) continue;
@@ -1035,10 +1216,12 @@
         if (dx * dx + dy * dy > r2) continue;
         const xx = Math.round(cx + dx);
         if (xx < 0 || xx >= w) continue;
-        sum += gray[yy * w + xx]; cnt++;
+        vals.push(gray[yy * w + xx]);
       }
     }
-    return cnt ? sum / cnt : 255;
+    if (!vals.length) return 255;
+    vals.sort((a, b) => a - b);
+    return vals[Math.floor(vals.length * 0.40)];
   }
 
   // Every bubble this sheet layout can have, in the SAME 1203×1536 pixel
@@ -1074,7 +1257,17 @@
   }
 
   const EG_MARK_THRESHOLD = 42;   // "dark enough to count as marked", relative to local white
-  const EG_BUBBLE_RADIUS = 8;     // px — bubbles are drawn ~22px wide, sample safely inside the ring
+  // Printed bubbles are ~22px wide (radius 11 — see the `doc.circle(...,
+  // mmPos(11))` in the PDF export above), spaced 30px apart. Sample
+  // radius bumped from the old 8 → 10: close to the true printed radius
+  // (more tolerant of a mark that's bigger than the circle, or a few
+  // px of residual misalignment) while staying under the 15px half-spacing
+  // so it can never bleed into a neighbouring bubble.
+  const EG_BUBBLE_RADIUS = 10;
+  // How far out to blank a bubble from the white-level reference — a
+  // little larger than the sample radius so ink that overflows the
+  // printed circle can't leak into its own "paper white" baseline either.
+  const EG_WHITE_EXCLUDE_RADIUS = 13;
 
   // Reads every registered bubble off the captured canvas and returns the
   // raw detection (no right/wrong judgement yet — that's examgrGradeSheet).
@@ -1082,11 +1275,21 @@
     const w = canvas.width, h = canvas.height;
     const ctx = canvas.getContext("2d", { willReadFrequently: true });
     const gray = egToGrayscale(ctx, w, h);
-    const whiteField = egWhiteLevelField(gray, w, h);
     const map = examgrBubbleMap(ex);
 
+    // Flatten every registered bubble centre so the white-level field can
+    // avoid sampling "paper white" from inside a mark (see
+    // egWhiteLevelField's comment for why that matters).
+    const excludePoints = [];
+    map.setBubbles.forEach(b => excludePoints.push({ x: b.x, y: b.y }));
+    map.rollColumns.forEach(col => col.forEach(b => excludePoints.push({ x: b.x, y: b.y })));
+    Object.keys(map.questionBubbles).forEach(qStr => {
+      map.questionBubbles[qStr].forEach(b => excludePoints.push({ x: b.x, y: b.y }));
+    });
+    const whiteField = egWhiteLevelField(gray, w, h, 5, 7, excludePoints, EG_WHITE_EXCLUDE_RADIUS);
+
     function darkAt(x, y) {
-      return whiteField.at(x, y) - egSampleDarkness(gray, w, h, x, y, EG_BUBBLE_RADIUS);
+      return whiteField.at(x, y) - egSampleFillScore(gray, w, h, x, y, EG_BUBBLE_RADIUS);
     }
     function pickBest(candidates) {
       let best = null, second = -Infinity;
@@ -1298,6 +1501,7 @@
   function resetScannerForLivePreview() {
     scannerCapturing = false;
     scannerStableFrames = 0;
+    scannerMarkerHistory = [];
     scannerLastDetectionAt = 0;
     scannerDetected = null;
     scannerGraded = null;
@@ -1458,24 +1662,87 @@
     return { x: videoX, y: videoY };
   }
 
+  // ────────────────────────────────────────────────────────────────
+  // v8: TEMPORAL SMOOTHING OF CORNER POSITIONS
+  //
+  // v7 fixed the WARP MATH (true 4-point homography instead of an
+  // axis-aligned rectangle). But the homography is only as accurate as
+  // the 4 corner points fed into it, and the old capture logic fed it a
+  // single video frame's worth of corner detection — grabbed the instant
+  // scannerStableFrames first hit 6. A hand held "steady" still has a few
+  // pixels of tremor from frame to frame (confirmed in the review
+  // screenshots: the gold "detected" ring — drawn at the exact fixed
+  // template pixel every bubble is supposed to warp to — sits visibly
+  // off-centre from the real printed bubble even after the v7 fix, by an
+  // amount that's different on every attempt). A perfect homography built
+  // from one noisy frame still produces a noisy warp.
+  //
+  // Fix: keep a short rolling window of the last few consecutive
+  // "all-4-found" frames' corner positions and AVERAGE them at capture
+  // time instead of using just the last frame. Random per-frame tremor
+  // partly cancels out in the average; a genuinely mis-held sheet still
+  // reads as mis-held (averaging a few hundred ms of a steady hold does
+  // not meaningfully lag behind a real, deliberate movement).
+  // ────────────────────────────────────────────────────────────────
+  const EG_MARKER_KEYS = ["top-left", "top-right", "bottom-left", "bottom-right"];
+  const EG_MARKER_HISTORY_SIZE = 4; // ~4 × 130ms ≈ half a second of averaging
+
+  function egAverageMarkerFrames(history) {
+    const n = history.length || 1;
+    const avg = {};
+    EG_MARKER_KEYS.forEach(key => {
+      let sx = 0, sy = 0;
+      history.forEach(frame => { sx += frame[key].x; sy += frame[key].y; });
+      avg[key] = { x: sx / n, y: sy / n };
+    });
+    return avg;
+  }
+
+  // [top-left, top-right, bottom-left, bottom-right] should form a
+  // reasonably large, correctly-ordered quad fully inside the video
+  // frame. Runs before the homography solve so a bad/garbled marker read
+  // (a corner just outside frame, two corners collapsed onto each other,
+  // slots swapped) gets caught with a clear message instead of silently
+  // producing a garbage warp.
+  function egQuadIsSane(quad, videoWidth, videoHeight) {
+    const [tl, tr, bl, br] = quad;
+    for (const p of quad) {
+      if (!p || !isFinite(p.x) || !isFinite(p.y)) return false;
+      if (p.x < -2 || p.y < -2 || p.x > videoWidth + 2 || p.y > videoHeight + 2) return false;
+    }
+    // Each side should span a meaningful chunk of the frame in the
+    // expected direction — catches corners detected in the wrong slot.
+    if (tr.x - tl.x < videoWidth * 0.15) return false;
+    if (br.x - bl.x < videoWidth * 0.15) return false;
+    if (bl.y - tl.y < videoHeight * 0.15) return false;
+    if (br.y - tr.y < videoHeight * 0.15) return false;
+    // Shoelace area (perimeter order tl→tr→br→bl) — must be a real
+    // fraction of the frame, not a sliver from near-collinear points that
+    // would still pass the per-side checks above.
+    const area = Math.abs(
+      tl.x * tr.y - tr.x * tl.y +
+      tr.x * br.y - br.x * tr.y +
+      br.x * bl.y - bl.x * br.y +
+      bl.x * tl.y - tl.x * bl.y
+    ) / 2;
+    if (area < videoWidth * videoHeight * 0.05) return false;
+    return true;
+  }
+
   function captureAlignedOmr(detectedMarkers) {
     const id = examMgrSelectedId;
     const ex = examMgrExams[id];
     const videoWidth = scannerVideo.videoWidth, videoHeight = scannerVideo.videoHeight;
     if (!id || !ex || !videoWidth || !videoHeight) return;
 
-    const left = (detectedMarkers["top-left"].x + detectedMarkers["bottom-left"].x) / 2;
-    const right = (detectedMarkers["top-right"].x + detectedMarkers["bottom-right"].x) / 2;
-    const top = (detectedMarkers["top-left"].y + detectedMarkers["top-right"].y) / 2;
-    const bottom = (detectedMarkers["bottom-left"].y + detectedMarkers["bottom-right"].y) / 2;
-    const scaleX = (right - left) / (OMR_SCAN_MARKERS["top-right"].x - OMR_SCAN_MARKERS["top-left"].x);
-    const scaleY = (bottom - top) / (OMR_SCAN_MARKERS["bottom-left"].y - OMR_SCAN_MARKERS["top-left"].y);
-    const sourceX = Math.max(0, left - OMR_SCAN_MARKERS["top-left"].x * scaleX);
-    const sourceY = Math.max(0, top - OMR_SCAN_MARKERS["top-left"].y * scaleY);
-    const sourceWidth = Math.min(videoWidth - sourceX, OMR_CANVAS_SIZE.width * scaleX);
-    const sourceHeight = Math.min(videoHeight - sourceY, OMR_CANVAS_SIZE.height * scaleY);
-    if (sourceWidth <= 0 || sourceHeight <= 0) {
+    const videoQuad = [
+      detectedMarkers["top-left"], detectedMarkers["top-right"],
+      detectedMarkers["bottom-left"], detectedMarkers["bottom-right"]
+    ];
+    if (!egQuadIsSane(videoQuad, videoWidth, videoHeight)) {
       scannerCapturing = false;
+      scannerStableFrames = 0;
+      scannerMarkerHistory = [];
       setScannerStatus("Sheet ko poori tarah camera frame ke andar rakhein aur dobara try karein.", 4, false);
       return;
     }
@@ -1485,11 +1752,29 @@
     if (scannerAnimationFrame) { cancelAnimationFrame(scannerAnimationFrame); scannerAnimationFrame = null; }
     examgrPlayShutterSound();
 
+    // Grab the FULL raw frame at native video resolution first — the old
+    // code cropped straight out of <video> with a single rectangle, which
+    // is exactly what a true perspective warp can't do (it needs the
+    // whole frame to sample from, since the 4 markers are rarely an
+    // axis-aligned rectangle on a hand-held shot).
+    if (!scannerRawVideoCanvas) scannerRawVideoCanvas = document.createElement("canvas");
+    scannerRawVideoCanvas.width = videoWidth;
+    scannerRawVideoCanvas.height = videoHeight;
+    scannerRawVideoCanvas.getContext("2d").drawImage(scannerVideo, 0, 0, videoWidth, videoHeight);
+
+    // True 4-point perspective correction (see egWarpPerspective above)
+    // instead of the old single axis-aligned scale/crop — this is what
+    // keeps every bubble on the flattened sheet lined up with the print
+    // template regardless of how tilted the phone was held.
+    const templateQuad = [
+      OMR_SCAN_MARKERS["top-left"], OMR_SCAN_MARKERS["top-right"],
+      OMR_SCAN_MARKERS["bottom-left"], OMR_SCAN_MARKERS["bottom-right"]
+    ];
+    const warped = egWarpPerspective(scannerRawVideoCanvas, videoQuad, templateQuad, OMR_CANVAS_SIZE);
+
     scannerCaptureCanvas.width = OMR_CANVAS_SIZE.width;
     scannerCaptureCanvas.height = OMR_CANVAS_SIZE.height;
-    scannerCaptureCanvas.getContext("2d").drawImage(
-      scannerVideo, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, OMR_CANVAS_SIZE.width, OMR_CANVAS_SIZE.height
-    );
+    scannerCaptureCanvas.getContext("2d").drawImage(warped, 0, 0);
     // Strip any camera/video colour cast (see egDesaturateCanvas) right
     // away, on the ONE canvas everything downstream is copied from —
     // registration squares and bubbles are pure black/white ink, so a
@@ -1636,10 +1921,18 @@
 
     const ready = detectedCount === 4;
     scannerStableFrames = ready ? scannerStableFrames + 1 : 0;
+    if (ready) {
+      scannerMarkerHistory.push(detectedMarkers);
+      if (scannerMarkerHistory.length > EG_MARKER_HISTORY_SIZE) scannerMarkerHistory.shift();
+    } else {
+      scannerMarkerHistory = [];
+    }
     setScannerStatus(ready ? "Sab 4 markers mil gaye. Steady rakhein, auto-scan ho raha hai..." : "Kaale OMR squares ko blue corner box ke andar align karein.", detectedCount, ready);
     if (ready && scannerStableFrames >= 6) {
       scannerCapturing = true;
-      captureAlignedOmr(detectedMarkers);
+      // Average of the last EG_MARKER_HISTORY_SIZE ready frames, not just
+      // this single frame — see the v8 comment above egQuadIsSane.
+      captureAlignedOmr(egAverageMarkerFrames(scannerMarkerHistory));
     }
   }
 
