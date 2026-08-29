@@ -1858,7 +1858,11 @@
       setLetter, setFlag, setMultiOptions,
       roll, rollDigitsDetected, rollFlags, rollMultiOptions,
       answers, answerFlags, answerMultiOptions,
-      totalQuestions: map.totalQuestions, map
+      totalQuestions: map.totalQuestions, map,
+      // Exposed so the capture/review step can warn on a too-dark photo
+      // (see EG_REFERENCE_WHITE) instead of silently grading a shaky-
+      // exposure capture with no feedback to the person scanning.
+      whiteMedian: whiteField.median
     };
   }
 
@@ -2283,6 +2287,8 @@
     if (scannerReviewFooter) scannerReviewFooter.hidden = true;
     if (scannerGradedHead) scannerGradedHead.hidden = true;
     if (scannerSavedToast) scannerSavedToast.hidden = true;
+    const qualityWarnEl = $id("examgr-scan-quality-warn");
+    if (qualityWarnEl) qualityWarnEl.hidden = true;
     resetScannerCorners();
     setScannerStatus("Kaale OMR squares dhoonde ja rahe hain...", 0, false);
   }
@@ -2509,6 +2515,50 @@
   }
   let egSharpnessProbe = null;
 
+  // ────────────────────────────────────────────────────────────────
+  // Post-capture quality safety net — deliberately does NOT use
+  // egQuickSharpness for an absolute cutoff (see the comment on that
+  // function: it's relative-only, varies per device/session, and a fixed
+  // threshold there would just mean nagging false "blurry" warnings on
+  // some phones and missing real ones on others). Instead each check
+  // below reuses a signal the grading pipeline already computes for its
+  // OWN purposes and is either already calibrated against an absolute
+  // reference (whiteMedian, against EG_REFERENCE_WHITE) or is a plain
+  // count the admin can sanity-check at a glance (unreadable roll
+  // digits, an unusually high blank rate) — just surfaced here instead
+  // of staying internal, so a bad capture gets caught before Save
+  // instead of silently producing a wrong/incomplete result.
+  const EG_DARK_WHITE_WARN = 120; // whiteMedian this low means exposureScaleAt() is already sitting at/near its clamped floor (EG_MIN_EXPOSURE_SCALE * EG_REFERENCE_WHITE ≈ 94) — genuinely too dark, not adaptive-threshold noise
+  const EG_HIGH_BLANK_RATE_WARN = 0.35; // ≥35% blank on one sheet is far more likely a bad capture (angle/glare/focus) than a genuinely under-attempted exam
+
+  function examgrCaptureQualityIssues(detected, graded) {
+    const issues = [];
+    if (typeof detected.whiteMedian === "number" && detected.whiteMedian <= EG_DARK_WHITE_WARN) {
+      issues.push("Photo bahut dark lag rahi hai — 🔦 Flash ON karke dobara scan karein.");
+    }
+    if (Array.isArray(detected.rollDigitsDetected) && detected.rollDigitsDetected.some(d => d === null)) {
+      issues.push("Roll No ke kuch digits saaf nahi padhe gaye — Edit se check kar lein ya Retake karein.");
+    }
+    const total = graded.perQuestion.length;
+    if (total && (graded.blank / total) >= EG_HIGH_BLANK_RATE_WARN) {
+      issues.push(`${graded.blank}/${total} answers blank/unclear aayi hain — sheet ka angle ya lighting check karke dobara try karein.`);
+    }
+    return issues;
+  }
+
+  function examgrShowCaptureQualityWarning(detected, graded) {
+    const el = $id("examgr-scan-quality-warn");
+    const textEl = $id("examgr-scan-quality-warn-text");
+    if (!el || !textEl) return;
+    const issues = examgrCaptureQualityIssues(detected, graded);
+    if (!issues.length) { el.hidden = true; textEl.textContent = ""; return; }
+    textEl.textContent = "⚠️ " + issues.join(" ");
+    el.hidden = false;
+  }
+  $id("examgr-scan-quality-retake-btn")?.addEventListener("click", () => {
+    resumeScannerDetectionLoop(); // already hides the warning banner too — see resetScannerForLivePreview
+  });
+
   function egQuadIsSane(quad, videoWidth, videoHeight) {
     const [tl, tr, bl, br] = quad;
     for (const p of quad) {
@@ -2629,6 +2679,7 @@
       scannerDetected = detected;
       scannerGraded = graded;
       examgrRepaintCapture(ex, detected, graded);
+      examgrShowCaptureQualityWarning(detected, graded);
 
       scannerOverlayUi.hidden = true;
       scannerFooter.hidden = true;
@@ -2675,6 +2726,30 @@
     // stays complete even if the admin scans first and opens Reports/CSV
     // later. Cheap after the first call (see ensureExamResultsLoaded).
     await ensureExamResultsLoaded(id, ex);
+
+    // Duplicate Roll No check — same sheet scanned twice by mistake (or
+    // camera bumped and auto-captured again) used to silently create a
+    // second result with no warning at all. ex.results is this exam's
+    // authoritative local cache after ensureExamResultsLoaded above, so
+    // this is a plain in-memory check, no extra Firestore read needed.
+    const rollDetected = (scannerDetected.roll || "").trim();
+    const dupExisting = rollDetected && rollDetected.indexOf("?") === -1 && Array.isArray(ex.results)
+      ? ex.results.filter(existing => (existing.roll || "").trim() === rollDetected)
+      : [];
+    if (dupExisting.length) {
+      const prev = dupExisting[dupExisting.length - 1];
+      const proceed = confirm(
+        `⚠️ Roll No ${rollDetected} ka result pehle se maujood hai (Marks: ${Number(prev.marks || 0).toFixed(1)}, Set: ${prev.setLetter || "—"}).\n\n` +
+        `OK = phir bhi ek ALAG/naya result save karein\n` +
+        `Cancel = rok kar Roll No check karein`
+      );
+      if (!proceed) {
+        btn.disabled = false;
+        btn.textContent = originalLabel;
+        setScannerStatus(`Roll No ${rollDetected} pehle se scanned hai — Cancel karke roll number check karein.`, 4, false);
+        return;
+      }
+    }
 
     const resultId = (Date.now().toString(36) + Math.random().toString(36).slice(2, 8));
 
@@ -3111,12 +3186,14 @@
       rollDigitsDetected: editDraftRollDigits.slice(),
       answers,
       totalQuestions: scannerDetected.totalQuestions,
-      map: scannerDetected.map
+      map: scannerDetected.map,
+      whiteMedian: scannerDetected.whiteMedian // carried over — same photo, just hand-corrected readings
     };
     const graded = examgrGradeSheet(ex, editedDetected);
     scannerDetected = editedDetected;
     scannerGraded = graded;
     examgrRepaintCapture(ex, editedDetected, graded);
+    examgrShowCaptureQualityWarning(editedDetected, graded); // re-check — a hand-fixed roll/blank rate can clear the earlier warning
     examgrCloseEdit();
   });
 
@@ -3388,6 +3465,26 @@
     examgrReportIndex = 0;
     examgrLinkPostScan = true;
     examgrOpenLinkStudent();
+
+    // Speed: if this exact roll was already linked to a student earlier
+    // in THIS exam's batch (a rescanned sheet, or same roll appearing
+    // again), prefill that mobile instead of making the admin search by
+    // name again for a roll already linked once this session. Only
+    // prefills the field — still requires an explicit "Link Karein" tap,
+    // never links without confirmation.
+    const ex = examMgrExams[examMgrSelectedId];
+    const roll = (resultObj.roll || "").trim();
+    if (ex && Array.isArray(ex.results) && roll && roll.indexOf("?") === -1) {
+      const priorLinked = ex.results
+        .filter(r => r.id !== resultObj.id && (r.roll || "").trim() === roll && r.linkedMobile)
+        .pop();
+      if (priorLinked) {
+        const mobileInput = $id("examgr-link-mobile-input");
+        const status = $id("examgr-link-status");
+        if (mobileInput && !mobileInput.value) mobileInput.value = priorLinked.linkedMobile;
+        if (status) status.textContent = `Is roll ko pehle isi exam mein ${priorLinked.linkedMobile} se link kiya gaya tha — confirm karke "Link Karein" dabayen.`;
+      }
+    }
   }
 
   function examgrCloseLinkStudent() {

@@ -610,6 +610,14 @@
           <span>Marks <strong id="examgr-scan-g-marks">0.0</strong></span>
         </div>
 
+        <!-- Quality warning: shown after capture when the picked frame is
+             still blurry and/or too dark, so a bad scan gets caught here
+             instead of silently producing wrong marks later. -->
+        <div class="examgr-scan-quality-warn" id="examgr-scan-quality-warn" hidden>
+          <span id="examgr-scan-quality-warn-text"></span>
+          <button type="button" class="btn-secondary" id="examgr-scan-quality-retake-btn">🔄 Retake</button>
+        </div>
+
         <div class="examgr-scan-stage" id="examgr-scan-stage">
           <video class="examgr-scan-video" id="examgr-scan-video" autoplay muted playsinline></video>
           <img class="examgr-scan-capture" id="examgr-scan-capture" alt="Captured OMR scan" hidden>

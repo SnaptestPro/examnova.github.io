@@ -346,6 +346,18 @@
 }
 .examgr-scan-graded-head strong { font-size: .92rem; }
 
+/* ---------- Blurry/dark capture warning (shown between the graded
+   head and the photo, only after a capture that failed the quality
+   check — see EG_MIN_ACCEPTABLE_SHARPNESS / EG_MIN_ACCEPTABLE_WHITE) ---------- */
+.examgr-scan-quality-warn {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  background: #fff7ed; border: 1.5px solid var(--orange); color: #9a3412;
+  border-radius: 10px; padding: 8px 12px; margin-bottom: 10px;
+  font-size: .8rem; font-weight: 600; line-height: 1.35;
+}
+.examgr-scan-quality-warn[hidden] { display: none; }
+.examgr-scan-quality-warn button { flex-shrink: 0; padding: 6px 12px; font-size: .78rem; }
+
 /* ---------- Cancel / Edit / Save review footer ---------- */
 .examgr-scan-review-footer { display: flex; gap: 10px; padding: 10px 0 2px; }
 .examgr-scan-review-footer button { flex: 1; }
