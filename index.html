@@ -702,13 +702,18 @@
       <div class="test-analysis-sheet" style="max-width:420px;">
         <button type="button" class="test-analysis-close" onclick="examgrCloseLinkStudent()">✕</button>
         <div class="test-analysis-title">🔗 Student Se Link Karein</div>
-        <p class="muted-text">Is scanned result ko student ke mobile number se link karein — tab wo student apne "My Result" mein ye report (photo sahit) dekh payega.</p>
+        <p class="muted-text">Is scanned result ko student ke mobile number se link karein — tab wo student apne "My Result" mein ye report (photo sahit) dekh payega. Neeche naam se registered student search karke chunein, number apne aap bhar jaayega.</p>
+        <div class="field-row">
+          <label>Registered Student Dhoondein (Naam se)</label>
+          <input id="examgr-link-name-input" type="text" placeholder="Student ka naam type karein..." autocomplete="off" />
+        </div>
         <div class="field-row">
           <label>Student ka Mobile Number</label>
           <input id="examgr-link-mobile-input" type="tel" placeholder="jaise: 9876543210" maxlength="10" />
         </div>
         <div id="examgr-link-status" class="muted-text" style="min-height:20px;"></div>
         <button type="button" class="btn-primary" id="examgr-link-confirm-btn" style="width:100%;margin-top:8px;">🔗 Link Karein</button>
+        <button type="button" class="btn-secondary" id="examgr-link-skip-btn" style="width:100%;margin-top:8px;">⏭️ Skip Karein (Baad Mein Link Karenge)</button>
         <button type="button" class="btn-secondary" id="examgr-link-unlink-btn" style="width:100%;margin-top:8px;">🔓 Unlink Karein</button>
       </div>
     </div>
@@ -1558,12 +1563,6 @@ B"></textarea>
               <div class="cd-card-sub">Photo upload karein, AI turant answers nikaal dega</div>
               <div class="cd-card-bottom"><span class="cd-arrow-btn">→</span></div>
             </button>
-            <button type="button" class="cd-card cd-purple" onclick="showOmrSubTab('train')">
-              <div class="cd-card-top"><div class="cd-icon-circle">🎯</div><span class="cd-badge">Train</span></div>
-              <div class="cd-card-title">Naya Sheet Sikhayein</div>
-              <div class="cd-card-sub">Apni khud ki OMR sheet ka layout khud train karein</div>
-              <div class="cd-card-bottom"><span class="cd-arrow-btn">→</span></div>
-            </button>
             <button type="button" class="cd-card cd-orange" onclick="showOmrSubTab('manual')">
               <div class="cd-card-top"><div class="cd-icon-circle">✍️</div><span class="cd-badge">Type</span></div>
               <div class="cd-card-title">Manual Entry</div>
@@ -1603,13 +1602,6 @@ B"></textarea>
           <h3 class="section-title">📷 Photo Se Auto-Scan Karein</h3>
           <p class="muted-text">OMR sheet ki photo upload karein — AI aur pixel-darkness dono method se sheet padhi jaayegi aur ek dusre se cross-check hogi. Jahan dono ka jawab match na ho ya AI ko confidence kam ho, wahan wo question laal highlight ho kar aapke saamne review ke liye aayega — baaki answers khud-ba-khud bhar jayenge.</p>
           <div class="field-row">
-            <label>OMR Sheet Ka Design</label>
-            <select id="omr-scan-template-select">
-              <option value="">🤖 System-Generated Sheet (default)</option>
-            </select>
-            <p class="muted-text" style="font-size:.78rem;margin-top:4px;">Agar apni khud ki (bahar se print ki hui) sheet use kar rahe hain, to pehle "🎯 Naya Sheet Sikhayein" mein use train karein, phir yahan chunein.</p>
-          </div>
-          <div class="field-row">
             <label>Test Chunein</label>
             <select id="omr-scan-test-select"></select>
           </div>
@@ -1645,62 +1637,6 @@ B"></textarea>
         </div>
         </div>
         <!-- /Photo Se Auto-Scan -->
-
-        <!-- Naya Sheet Sikhayein (Template Trainer) -->
-        <div id="omr-train-box" class="hidden">
-          <button type="button" class="btn-secondary" onclick="backToOmrHub()" style="margin-bottom:12px;">⬅ OMR par wapas</button>
-
-        <div class="card" style="margin-bottom:16px;">
-          <h3 class="section-title">🎯 Naya OMR Sheet Sikhayein (Template Train Karein)</h3>
-          <p class="muted-text">Agar aap koi apni khud ki (bahar se print ki hui, is app se generate nahi ki hui) OMR sheet use karte hain, to yahan ek baar us sheet ki EK sample photo par sirf <strong>4 bar click karke</strong> uska layout sikha sakte hain — uske baad wo template hamesha ke liye "Photo Se Scan" mein select ho sakega, koi coding ki zaroorat nahi.</p>
-
-          <div class="field-row">
-            <label>Template Ka Naam</label>
-            <input id="omr-train-name" type="text" placeholder="jaise: Board Exam 100Q Sheet" />
-          </div>
-          <div class="field-row" style="display:flex;gap:12px;flex-wrap:wrap;">
-            <div style="flex:1;min-width:140px;">
-              <label>Kul Kitne Questions Hain Is Sheet Par</label>
-              <input id="omr-train-numq" type="number" min="1" max="200" value="100" />
-            </div>
-            <div style="flex:1;min-width:140px;">
-              <label>Kitne Columns Mein Bante Hain</label>
-              <input id="omr-train-cols" type="number" min="1" max="8" value="5" />
-            </div>
-          </div>
-          <p class="muted-text" style="font-size:.8rem;">Jaise BSEB-style 100-question sheet mein aksar 5 columns hote hain (1-20, 21-40, 41-60, 61-80, 81-100) — apni sheet dekh kar sahi number bharein.</p>
-
-          <div class="field-row">
-            <label>"A B C D" Header Row Har Kitne Questions Ke Baad Dobara Chhapti Hai?</label>
-            <input id="omr-train-header-every" type="number" min="0" max="50" value="0" />
-            <p class="muted-text" style="font-size:.78rem;margin-top:4px;">Agar aapki sheet mein har 5 questions ke baad "A B C D" wali row dobara print hoti hai (jaise is app ki apni generate ki hui sheet mein), yahan <strong>5</strong> bharein. Agar sirf column ke sabse upar EK baar hi chhapti hai, <strong>0</strong> rehne dein. Galat value bharne se neeche wale questions ki position dheere-dheere (row-by-row) drift ho jaati hai.</p>
-          </div>
-
-          <div class="field-row">
-            <label>Sample Photo Upload Karein</label>
-            <input id="omr-train-file-input" type="file" accept="image/*" />
-            <p class="muted-text" style="font-size:.8rem;margin-top:4px;">Photo <strong>waise hi khinchein jaise aage har baar khinchenge</strong> — poori sheet frame mein bhar ke, edge-to-edge, bahar zyada background na ho. Yehi convention scan ke waqt bhi maana jayega.</p>
-          </div>
-
-          <div id="omr-train-canvas-wrap" class="hidden" style="margin-top:12px;">
-            <p id="omr-train-click-instruction" style="font-weight:600;color:#7c3aed;margin-bottom:8px;"></p>
-            <div style="max-width:100%;overflow:auto;border:1px solid #e2e8f0;border-radius:8px;">
-              <canvas id="omr-train-canvas" style="display:block;max-width:100%;cursor:crosshair;"></canvas>
-            </div>
-            <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
-              <button type="button" id="omr-train-reset-btn" class="btn-secondary">↺ Clicks Reset Karein</button>
-              <button type="button" id="omr-train-save-btn" class="btn-primary" disabled>💾 Template Save Karein</button>
-            </div>
-            <p id="omr-train-status" class="muted-text" style="margin-top:8px;"></p>
-          </div>
-        </div>
-
-        <div class="card">
-          <h3 class="section-title">📚 Save Kiye Hue Templates</h3>
-          <div id="omr-train-list" class="muted-text">Load ho raha hai...</div>
-        </div>
-        </div>
-        <!-- /Naya Sheet Sikhayein -->
 
         <!-- Manual Entry -->
         <div id="omr-manual-box" class="hidden">
@@ -1756,6 +1692,8 @@ B"></textarea>
           <h3 class="section-title">🗂️ Exam Manager</h3>
           <p class="muted-text">Apne offline/paper exams yahan manage karein — question bank se link nahi hai, sirf ek halka record hai: answer key, sheets ka collection-count, aur reports jaisi bookkeeping ke liye.</p>
           <button type="button" class="btn-primary" onclick="examgrOpenAdd()" style="width:100%;">+ Naya Exam Banayein</button>
+          <button type="button" class="btn-secondary" onclick="syncOldTestsToExamManager()" id="examgr-sync-old-btn" style="width:100%;margin-top:10px;">🔄 Purane Publish Kiye Tests Ko Sync Karein</button>
+          <p class="muted-text" style="font-size:.78rem;margin-top:4px;">Naye publish hone wale tests ab yahan khud-ba-khud aa jaate hain. Ye button un purane tests ke liye hai jo is feature se PEHLE publish ho chuke the — ek baar dabane se sabhi (draft chhodkar) yahan sync ho jaayenge.</p>
         </div>
 
         <div class="examgr-intro-row">

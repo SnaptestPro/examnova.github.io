@@ -2248,7 +2248,11 @@
     if (scannerSavedToast) { scannerSavedToast.hidden = false; }
     setTimeout(() => {
       if (scannerSavedToast) scannerSavedToast.hidden = true;
-      resumeScannerDetectionLoop();
+      // Save ke turant baad registered student search/link overlay
+      // kholte hain (naam se search karke number apne aap bhar jaata
+      // hai) — camera ab "Link Karein" ya "Skip" dabane par hi agli
+      // sheet ke liye resume hoga, bina permission dobara maange.
+      examgrOpenLinkStudentForScan(resultObj);
     }, 650);
   });
 
@@ -2321,6 +2325,25 @@
       } catch (error) {
         if (!["NotFoundError", "OverconstrainedError"].includes(error && error.name)) throw error;
         scannerStream = await navigator.mediaDevices.getUserMedia({ audio: false, video: true });
+      }
+      // Kai Android phones par getUserMedia video stream ke time humne
+      // torch kabhi maanga hi nahi (torch:true kahin bhi set nahi hai),
+      // phir bhi kam light dekh kar phone ka camera driver khud-ba-khud
+      // flash/torch ON kar deta hai (still-photo "auto-flash" default,
+      // jo video-capture ke liye bhi apply ho jaata hai kuch hardware
+      // par). Explicitly torch:false constraint apply karke isse force
+      // OFF rakhte hain — sirf un devices par asar karta hai jo ye
+      // capability expose karte hain, baaki sab par chup-chaap no-op
+      // (scan flow kabhi block nahi hota, chahe ye fail ho jaaye).
+      try {
+        const [videoTrack] = scannerStream.getVideoTracks();
+        const caps = videoTrack && typeof videoTrack.getCapabilities === "function"
+          ? videoTrack.getCapabilities() : null;
+        if (videoTrack && caps && "torch" in caps) {
+          await videoTrack.applyConstraints({ advanced: [{ torch: false }] });
+        }
+      } catch (torchErr) {
+        console.warn("Torch off constraint apply nahi ho paya:", torchErr);
       }
       scannerVideo.srcObject = scannerStream;
       await scannerVideo.play();
@@ -2699,22 +2722,150 @@
   // the student's mobile number as the identity key, same as the rest
   // of the app (students/{mobile}, studentRecords).
   // ────────────────────────────────────────────────────────────────
+  // true jab ye overlay Scan → Save ke turant baad khula ho (batch-scan
+  // flow) — us case mein Link ya Skip, dono par camera turant agli sheet
+  // ke liye resume hona chahiye. Report Detail se "🔗" button dabakar
+  // khola ho to ye false rehta hai aur band karne par bas overlay hata
+  // jaata hai (koi scanner active hi nahi hota us waqt).
+  let examgrLinkPostScan = false;
+
   function examgrOpenLinkStudent() {
     const r = examgrReportList[examgrReportIndex];
     if (!r) return;
+    const nameInput = $id("examgr-link-name-input");
     const input = $id("examgr-link-mobile-input");
     const status = $id("examgr-link-status");
+    const skipBtn = $id("examgr-link-skip-btn");
+    const unlinkBtn = $id("examgr-link-unlink-btn");
+    if (nameInput) nameInput.value = "";
     if (input) input.value = r.linkedMobile || "";
     if (status) status.textContent = r.linkedMobile
       ? `Abhi link hai: ${r.linkedMobile}`
       : "";
+    if (skipBtn) skipBtn.hidden = !examgrLinkPostScan;
+    if (unlinkBtn) unlinkBtn.hidden = !r.linkedMobile;
+    // Students Directory abhi tak load nahi hui (agar admin ne kabhi
+    // "Records → Students Directory" tab nahi khola) to yahin se load
+    // kara lete hain, taaki naam-search pehli baar mein bhi kaam kare.
+    if (typeof ensureAllStudentsCache === "function") ensureAllStudentsCache().catch(() => {});
     $id("examgr-link-student-overlay")?.classList.remove("hidden");
   }
+
+  // Scan Sheet ke "Save" ke turant baad is result ke liye link-overlay
+  // kholta hai — examgrReportList/examgrReportIndex ko is akele result
+  // par point karke, taaki wahi confirm/skip/unlink handlers (jo neeche
+  // examgrReportList[examgrReportIndex] use karte hain) bina badlaav ke
+  // yahan bhi kaam karein.
+  function examgrOpenLinkStudentForScan(resultObj) {
+    examgrReportList = [resultObj];
+    examgrReportIndex = 0;
+    examgrLinkPostScan = true;
+    examgrOpenLinkStudent();
+  }
+
   function examgrCloseLinkStudent() {
     $id("examgr-link-student-overlay")?.classList.add("hidden");
+    if (examgrLinkPostScan) {
+      examgrLinkPostScan = false;
+      resumeScannerDetectionLoop();
+    }
   }
   window.examgrCloseLinkStudent = examgrCloseLinkStudent;
-  $id("examgr-rd-link-btn")?.addEventListener("click", examgrOpenLinkStudent);
+  $id("examgr-rd-link-btn")?.addEventListener("click", () => { examgrLinkPostScan = false; examgrOpenLinkStudent(); });
+  $id("examgr-link-skip-btn")?.addEventListener("click", examgrCloseLinkStudent);
+
+  // ── Naam se Student Search (Students Directory se, allStudentsCache) ──
+  // Admin yahan student ka NAAM type karta hai; suggestion par click
+  // karte hi neeche wale Mobile Number field mein uska EXACT registered
+  // number apne aap bhar jaata hai — bilkul omr.js ke
+  // enhanceStudentAutocomplete jaisa pattern, taaki OMR sheet hamesha
+  // sahi registered mobile se hi link ho, haath se galat number type
+  // hone ka chance na rahe. Registered na ho to number seedha type bhi
+  // kiya ja sakta hai — ye sirf ek shortcut hai, zaroori nahi.
+  function examgrSavedStudentsForNameSearch() {
+    if (typeof allStudentsCache === "undefined" || !Array.isArray(allStudentsCache)) return [];
+    return allStudentsCache
+      .map(s => ({ name: (s.name || "").trim(), mobile: (s.mobile || "").trim() }))
+      .filter(s => s.name && s.mobile);
+  }
+
+  function examgrSetupLinkNameSearch() {
+    const nameInput = $id("examgr-link-name-input");
+    const mobileInput = $id("examgr-link-mobile-input");
+    const status = $id("examgr-link-status");
+    if (!nameInput || nameInput.dataset.examgrBound) return;
+    nameInput.dataset.examgrBound = "1";
+
+    const wrap = document.createElement("div");
+    wrap.className = "searchable-select-wrap";
+    nameInput.parentNode.insertBefore(wrap, nameInput);
+    wrap.appendChild(nameInput);
+
+    const list = document.createElement("div");
+    list.className = "searchable-select-list hidden";
+    wrap.appendChild(list);
+
+    let activeIndex = -1;
+
+    function renderList() {
+      const q = nameInput.value.trim().toLowerCase();
+      if (!q) { list.classList.add("hidden"); return; }
+      const students = examgrSavedStudentsForNameSearch().filter(s => s.name.toLowerCase().includes(q));
+      list.innerHTML = "";
+      activeIndex = -1;
+      if (!students.length) {
+        const empty = document.createElement("div");
+        empty.className = "searchable-select-empty";
+        empty.textContent = "Koi registered student nahi mila — number seedha type kar sakte hain.";
+        list.appendChild(empty);
+        list.classList.remove("hidden");
+        return;
+      }
+      students.slice(0, 8).forEach(s => {
+        const item = document.createElement("div");
+        item.className = "searchable-select-option";
+        item.textContent = `${s.name} — ${s.mobile}`;
+        item.addEventListener("mousedown", (e) => {
+          e.preventDefault();
+          nameInput.value = s.name;
+          if (mobileInput) mobileInput.value = s.mobile;
+          if (status) status.textContent = `✓ ${s.name} chuna gaya — ab "Link Karein" dabayein.`;
+          closeList();
+        });
+        list.appendChild(item);
+      });
+      list.classList.remove("hidden");
+    }
+
+    function closeList() { list.classList.add("hidden"); activeIndex = -1; }
+
+    nameInput.addEventListener("input", renderList);
+    nameInput.addEventListener("focus", () => { if (nameInput.value.trim()) renderList(); });
+    document.addEventListener("click", (e) => { if (!wrap.contains(e.target)) closeList(); });
+    nameInput.addEventListener("keydown", (e) => {
+      const items = Array.from(list.querySelectorAll(".searchable-select-option"));
+      if (!items.length) return;
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        activeIndex = Math.min(activeIndex + 1, items.length - 1);
+        items.forEach((it, i) => it.classList.toggle("highlight", i === activeIndex));
+        items[activeIndex]?.scrollIntoView({ block: "nearest" });
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        activeIndex = Math.max(activeIndex - 1, 0);
+        items.forEach((it, i) => it.classList.toggle("highlight", i === activeIndex));
+        items[activeIndex]?.scrollIntoView({ block: "nearest" });
+      } else if (e.key === "Enter") {
+        if (activeIndex >= 0 && items[activeIndex]) {
+          e.preventDefault();
+          items[activeIndex].dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+        }
+      } else if (e.key === "Escape") {
+        closeList();
+      }
+    });
+  }
+  examgrSetupLinkNameSearch();
 
   // Writes/updates the per-student copy of this scanned report. Kept as
   // its own small doc (not embedded in examManagerExams) so a student's

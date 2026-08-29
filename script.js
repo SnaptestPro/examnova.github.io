@@ -1313,7 +1313,7 @@ window.backToRecordsHub = backToRecordsHub;
 
 // ── OMR sub-hub: "Generate OMR Sheet / Manual Entry" — do alag cards,
 //    ek waqt mein sirf ek. ───────────────────────────────────────────
-const OMR_SUB_BOX_IDS = { generate: "omr-generate-box", scan: "omr-scan-box", train: "omr-train-box", manual: "omr-manual-box", exammgr: "omr-exammgr-box" };
+const OMR_SUB_BOX_IDS = { generate: "omr-generate-box", scan: "omr-scan-box", manual: "omr-manual-box", exammgr: "omr-exammgr-box" };
 function showOmrSubTab(sub) {
   $("#omr-hub")?.classList.add("hidden");
   Object.entries(OMR_SUB_BOX_IDS).forEach(([s, id]) => {
@@ -1326,14 +1326,6 @@ function showOmrSubTab(sub) {
   // khola to woh cache khaali hoga — yahan pehli baar in tabs par aate hi
   // load kar lo taaki suggestions turant sahi (aur complete) dikhein.
   if ((sub === "manual" || sub === "scan") && !allStudentsCache.length && typeof loadStudentsDirectory === "function") loadStudentsDirectory();
-  // FIX: trained templates used to load ONLY when the admin opened the
-  // "Naya Sheet Sikhayein" trainer tab. An admin going straight to
-  // "Photo Se Auto-Scan" (the normal day-to-day flow) got an EMPTY
-  // template list, so the design dropdown could only show "System-
-  // Generated Sheet" — silently forcing the wrong bubble geometry onto
-  // a custom externally-printed sheet, even if that sheet was trained
-  // in an earlier session. Load templates for the scan tab too.
-  if ((sub === "train" || sub === "scan") && typeof window.loadOmrTemplates === "function") window.loadOmrTemplates();
   if (sub === "exammgr" && typeof window.loadExamManagerExams === "function") window.loadExamManagerExams();
   $(`#${OMR_SUB_BOX_IDS[sub]}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
@@ -6589,6 +6581,31 @@ async function syncTestToExamManager(testId, data, questions) {
     console.warn("[syncTestToExamManager] sync failed (non-fatal):", err);
   }
 }
+
+// One-time backfill button (Exam Manager card) — tests jo is auto-sync
+// feature aane se PEHLE hi publish ho chuke the, unke liye syncTestToExamManager
+// khud-ba-khud kabhi nahi chalega (wo sirf naye saveTestOnline calls par
+// chalta hai), isliye admin ek button dabakar sabko ek saath sync kar
+// sakta hai. `tests`/`remoteTests` global mein har test ke poore
+// questions pehle se load hote hain (syncTests()), isliye yahan alag se
+// Firestore se dobara padhne ki zaroorat nahi.
+async function syncOldTestsToExamManager() {
+  const btn = $("#examgr-sync-old-btn");
+  const ids = Object.keys(remoteTests || {}).filter(id => remoteTests[id] && remoteTests[id].isDraft !== true);
+  if (!ids.length) { alert("Koi published test nahi mila."); return; }
+  if (btn) { btn.disabled = true; btn.textContent = `⏳ Sync ho raha hai (0/${ids.length})...`; }
+  let done = 0;
+  for (const id of ids) {
+    const data = remoteTests[id];
+    await syncTestToExamManager(id, data, data.questions);
+    done++;
+    if (btn) btn.textContent = `⏳ Sync ho raha hai (${done}/${ids.length})...`;
+  }
+  if (btn) { btn.disabled = false; btn.textContent = "🔄 Purane Publish Kiye Tests Ko Sync Karein"; }
+  alert(`✅ Sync poora hua — ${done}/${ids.length} tests check kiye gaye.\n\nExam Manager list refresh karne ke liye "Exam Manager" card se bahar nikal kar dobara kholein.`);
+  if (typeof window.loadExamManagerExams === "function") window.loadExamManagerExams();
+}
+window.syncOldTestsToExamManager = syncOldTestsToExamManager;
 
 async function saveTestOnline(id, data) {
   const db = getDB(); if (!db) return;
