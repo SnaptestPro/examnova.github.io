@@ -1906,13 +1906,54 @@ OUTPUT ONLY SEPARATE CODE BLOCKS.`;
   // auto-capture" flow the admin wants, instead of picking an already-
   // taken photo) ─────────────────────────────────────────────────────
   let liveStream = null, liveDetectTimer = null, liveLockCount = 0, liveCaptured = false;
+  let liveTorchOn = false;
 
   function stopLiveCamera() {
     if (liveDetectTimer) { clearInterval(liveDetectTimer); liveDetectTimer = null; }
-    if (liveStream) { liveStream.getTracks().forEach(t => t.stop()); liveStream = null; }
+    if (liveStream) {
+      const track = liveStream.getVideoTracks()[0];
+      if (track && liveTorchOn) {
+        try { track.applyConstraints({ advanced: [{ torch: false }] }); } catch (e) { /* ignore */ }
+      }
+      liveStream.getTracks().forEach(t => t.stop());
+      liveStream = null;
+    }
     const modal = document.getElementById("omr-live-camera-modal");
     if (modal) modal.style.display = "none";
-    liveLockCount = 0; liveCaptured = false;
+    const torchBtn = document.getElementById("omr-live-torch-btn");
+    if (torchBtn) { torchBtn.style.display = "none"; torchBtn.style.background = "rgba(0,0,0,.45)"; }
+    liveLockCount = 0; liveCaptured = false; liveTorchOn = false;
+  }
+
+  // Torch (phone ki flashlight) sirf us camera track pe kaam karta hai jo
+  // ise support kare (mostly Android Chrome ka back camera; iOS Safari
+  // abhi tak torch control nahi deta) — isliye button ko sirf tabhi
+  // dikhaya jaata hai jab getCapabilities().torch true ho.
+  function setupTorchButton() {
+    const torchBtn = document.getElementById("omr-live-torch-btn");
+    if (!torchBtn || !liveStream) return;
+    const track = liveStream.getVideoTracks()[0];
+    if (!track) return;
+    let caps = {};
+    try { caps = track.getCapabilities ? track.getCapabilities() : {}; } catch (e) { caps = {}; }
+    if (!caps.torch) {
+      torchBtn.style.display = "none";
+      return;
+    }
+    torchBtn.style.display = "block";
+    liveTorchOn = false;
+    torchBtn.style.background = "rgba(0,0,0,.45)";
+    torchBtn.onclick = async () => {
+      try {
+        liveTorchOn = !liveTorchOn;
+        await track.applyConstraints({ advanced: [{ torch: liveTorchOn }] });
+        torchBtn.style.background = liveTorchOn ? "#fde047" : "rgba(0,0,0,.45)";
+        torchBtn.style.color = liveTorchOn ? "#000" : "#fde047";
+      } catch (err) {
+        liveTorchOn = !liveTorchOn; // revert on failure
+        alert("Flashlight on/off nahi ho payi: " + (err && err.message ? err.message : err));
+      }
+    };
   }
 
   async function openLiveCamera() {
@@ -1934,6 +1975,7 @@ OUTPUT ONLY SEPARATE CODE BLOCKS.`;
     video.srcObject = liveStream;
     modal.style.display = "block";
     liveLockCount = 0; liveCaptured = false;
+    setupTorchButton();
 
     // Small offscreen canvas for running the SAME corner-marker detector
     // used on a static photo (detectCorners), just at low resolution and
@@ -1951,6 +1993,26 @@ OUTPUT ONLY SEPARATE CODE BLOCKS.`;
       const gray = toGrayscale(probeCtx, pw, ph);
       const corners = detectCorners(gray, pw, ph);
       const allLocked = ["tl", "tr", "bl", "br"].every(k => corners[k].isolated !== false);
+
+      // Kam roshni mein corner-square detection flaky ho jaati hai (yehi
+      // sabse aam wajah hai jab markers baar-baar lock/unlock hote rahte
+      // hain) — is liye ek halka brightness check karke torch button ki
+      // taraf ishara kar dete hain, agar wo is device/track par available hai.
+      const banner = document.getElementById("omr-live-mode-banner");
+      if (banner) {
+        let sum = 0, cnt = 0;
+        for (let i = 0; i < gray.length; i += 37) { sum += gray[i]; cnt++; }
+        const avgBrightness = cnt ? sum / cnt : 200;
+        const torchBtn = document.getElementById("omr-live-torch-btn");
+        const torchAvailable = torchBtn && torchBtn.style.display !== "none";
+        if (avgBrightness < 80 && !allLocked) {
+          banner.textContent = torchAvailable
+            ? "🌑 Kam roshni lag rahi hai — 🔦 torch button try karein"
+            : "🌑 Kam roshni lag rahi hai — zyada roshni mein aa jayein";
+        } else {
+          banner.textContent = "";
+        }
+      }
 
       // Draw overlay boxes scaled to the on-screen video element size.
       overlay.width = video.clientWidth; overlay.height = video.clientHeight;

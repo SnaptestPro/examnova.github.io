@@ -99,6 +99,42 @@
   // Scratch canvas holding the untouched, full-resolution video frame at
   // the instant of capture — input to the perspective warp below.
   let scannerRawVideoCanvas = null;
+  // v10: SHARPEST-OF-WINDOW CAPTURE
+  // 6 consecutive "all-4-corners-found" frames only proves the sheet was
+  // held steady enough for the SQUARE DETECTOR to keep tracking it — it
+  // says nothing about motion blur. A hand that's "steady" by that
+  // measure can still be trembling enough, especially in dim light where
+  // the phone's camera picks a slower shutter speed, to blur the actual
+  // ink on the frame that happens to be live at the exact instant the
+  // 6th tick fires (this is what produced the wildly different Roll No /
+  // Marks readings on repeated attempts of the SAME physical sheet).
+  // Fix: track the sharpest frame seen so far in the current steady
+  // streak (via egQuickSharpness, a relative/self-normalizing measure —
+  // no device- or lighting-specific magic threshold needed since it's
+  // only ever compared against other frames from this same streak) and
+  // capture-and-warp THAT frame's pixels instead of whatever is live the
+  // instant the streak hits its length target. Paired with the existing
+  // temporally-averaged corner positions (v8) — those two fixes target
+  // different noise sources (geometry jitter vs. pixel-content blur) and
+  // stack cleanly.
+  let scannerBestSharpness = -Infinity;
+  let scannerBestRawVideoCanvas = null;
+  // Perf: the "is this the sharpest frame yet" check above is cheap (a
+  // 160px probe), but actually SAVING a candidate means drawImage-ing the
+  // full native video frame (often ~1920×2560, i.e. ~5MP) onto
+  // scannerBestRawVideoCanvas. Early in a steady streak, sharpness tends
+  // to fluctuate upward on almost every tick (tiny hand micro-adjustments
+  // each briefly "improving" on the last), so without a limit this full
+  // -res copy was firing on nearly every ~130ms tick of the ~780ms+ hold
+  // — several 5MP canvas copies per second is exactly the kind of main
+  // -thread work that shows up to the admin as the live preview
+  // "lagging". Debounced to at most one such copy per
+  // EG_BEST_FRAME_MIN_GAP_MS, EXCEPT in the last couple of ticks before
+  // capture actually fires (scannerStableFrames close to the trigger),
+  // where we always save so the true best/final frame is never skipped
+  // right when it matters most.
+  let scannerLastBestDrawAt = 0;
+  const EG_BEST_FRAME_MIN_GAP_MS = 220;
 
   function $id(id) { return document.getElementById(id); }
   function db() { return typeof getDB === "function" ? getDB() : null; }
@@ -1834,6 +1870,7 @@
     scannerCapturing = false;
     scannerStableFrames = 0;
     scannerMarkerHistory = [];
+    scannerBestSharpness = -Infinity;
     scannerLastDetectionAt = 0;
     scannerDetected = null;
     scannerGraded = null;
@@ -2036,6 +2073,40 @@
   // (a corner just outside frame, two corners collapsed onto each other,
   // slots swapped) gets caught with a clear message instead of silently
   // producing a garbage warp.
+  // Relative-only sharpness score (variance of a simple Laplacian
+  // response) for picking the best frame out of a short recent window —
+  // see scannerBestSharpness above. Deliberately NOT compared against
+  // any fixed cutoff (unlike assessPhotoQuality's blur check elsewhere,
+  // which is calibrated for full-resolution still photos); this only
+  // ever ranks frames from the same device/session against each other,
+  // so it needs no per-device or per-lighting tuning.
+  function egQuickSharpness(canvas) {
+    const pw = 160;
+    const ph = Math.max(1, Math.round(pw * canvas.height / canvas.width));
+    if (!egSharpnessProbe) egSharpnessProbe = document.createElement("canvas");
+    egSharpnessProbe.width = pw; egSharpnessProbe.height = ph;
+    const pctx = egSharpnessProbe.getContext("2d", { willReadFrequently: true });
+    pctx.drawImage(canvas, 0, 0, pw, ph);
+    const data = pctx.getImageData(0, 0, pw, ph).data;
+    const gray = new Float64Array(pw * ph);
+    for (let i = 0, p = 0; i < data.length; i += 4, p++) {
+      gray[p] = data[i] * 0.2126 + data[i + 1] * 0.7152 + data[i + 2] * 0.0722;
+    }
+    const step = 2;
+    let sum = 0, sumSq = 0, count = 0;
+    for (let y = step; y < ph - step; y += step) {
+      for (let x = step; x < pw - step; x += step) {
+        const c = gray[y * pw + x];
+        const l = 4 * c - gray[y * pw + (x - step)] - gray[y * pw + (x + step)]
+                         - gray[(y - step) * pw + x] - gray[(y + step) * pw + x];
+        sum += l; sumSq += l * l; count++;
+      }
+    }
+    const mean = count ? sum / count : 0;
+    return count ? (sumSq / count) - (mean * mean) : 0;
+  }
+  let egSharpnessProbe = null;
+
   function egQuadIsSane(quad, videoWidth, videoHeight) {
     const [tl, tr, bl, br] = quad;
     for (const p of quad) {
@@ -2075,6 +2146,7 @@
       scannerCapturing = false;
       scannerStableFrames = 0;
       scannerMarkerHistory = [];
+      scannerBestSharpness = -Infinity;
       setScannerStatus("Sheet ko poori tarah camera frame ke andar rakhein aur dobara try karein.", 4, false);
       return;
     }
@@ -2089,10 +2161,19 @@
     // is exactly what a true perspective warp can't do (it needs the
     // whole frame to sample from, since the 4 markers are rarely an
     // axis-aligned rectangle on a hand-held shot).
-    if (!scannerRawVideoCanvas) scannerRawVideoCanvas = document.createElement("canvas");
-    scannerRawVideoCanvas.width = videoWidth;
-    scannerRawVideoCanvas.height = videoHeight;
-    scannerRawVideoCanvas.getContext("2d").drawImage(scannerVideo, 0, 0, videoWidth, videoHeight);
+    // v10: prefer the sharpest frame tracked during the steady streak
+    // (see scannerBestSharpness) over whatever frame happens to be live
+    // at this exact instant — a blurry instant can still slip through
+    // 6 consecutive "corners found" ticks, since square-detection alone
+    // doesn't measure focus/motion blur.
+    if (scannerBestRawVideoCanvas && scannerBestSharpness > -Infinity) {
+      scannerRawVideoCanvas = scannerBestRawVideoCanvas;
+    } else {
+      if (!scannerRawVideoCanvas) scannerRawVideoCanvas = document.createElement("canvas");
+      scannerRawVideoCanvas.width = videoWidth;
+      scannerRawVideoCanvas.height = videoHeight;
+      scannerRawVideoCanvas.getContext("2d").drawImage(scannerVideo, 0, 0, videoWidth, videoHeight);
+    }
 
     // True 4-point perspective correction (see egWarpPerspective above)
     // instead of the old single axis-aligned scale/crop — this is what
@@ -2303,8 +2384,31 @@
     if (ready) {
       scannerMarkerHistory.push(detectedMarkers);
       if (scannerMarkerHistory.length > EG_MARKER_HISTORY_SIZE) scannerMarkerHistory.shift();
+
+      // Track the sharpest frame of this steady streak (see v10 note
+      // above scannerBestSharpness) — cheap relative-only check on the
+      // small analysis canvas we already drew this tick, only draws the
+      // full-res video frame when it actually improves on the current
+      // best, so this stays lightweight even at ~7-8 ticks/sec.
+      const sharpness = egQuickSharpness(scannerAnalysisCanvas);
+      if (sharpness > scannerBestSharpness) {
+        const nearCapture = scannerStableFrames >= 4; // last couple of ticks before the 6-frame trigger
+        if (nearCapture || now - scannerLastBestDrawAt >= EG_BEST_FRAME_MIN_GAP_MS) {
+          scannerBestSharpness = sharpness;
+          scannerLastBestDrawAt = now;
+          const vw = scannerVideo.videoWidth, vh = scannerVideo.videoHeight;
+          if (vw && vh) {
+            if (!scannerBestRawVideoCanvas) scannerBestRawVideoCanvas = document.createElement("canvas");
+            scannerBestRawVideoCanvas.width = vw;
+            scannerBestRawVideoCanvas.height = vh;
+            scannerBestRawVideoCanvas.getContext("2d").drawImage(scannerVideo, 0, 0, vw, vh);
+          }
+        }
+      }
     } else {
       scannerMarkerHistory = [];
+      scannerBestSharpness = -Infinity;
+      scannerLastBestDrawAt = 0;
     }
     setScannerStatus(ready ? "Sab 4 markers mil gaye. Steady rakhein, auto-scan ho raha hai..." : "Kaale OMR squares ko blue corner box ke andar align karein.", detectedCount, ready);
     if (ready && scannerStableFrames >= 6) {
