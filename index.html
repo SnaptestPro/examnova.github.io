@@ -411,6 +411,19 @@
         </div>
         <p class="muted-text">Aapne jo bhi test diya hai (online ho, OMR ho, ya offline sheet check karke chadhaya gaya ho), sabme aapne kaun sa sawaal sahi kiya aur kaun sa galat, wo yahan automatically dikhega — apna number dobara dalne ki zaroorat nahi.</p>
         <div id="my-result-list" style="margin-top:12px;"></div>
+
+        <div id="my-paper-exam-section" class="hidden" style="margin-top:18px;">
+          <h4 style="margin-bottom:8px;">📝 Paper/OMR Exam Reports</h4>
+          <div id="my-paper-exam-list"></div>
+        </div>
+      </div>
+
+      <!-- Student: view a linked scanned OMR report (photo + marks) -->
+      <div id="my-paper-exam-detail-overlay" class="test-analysis-overlay hidden" onclick="if(event.target===this) closeMyPaperExamDetail()">
+        <div class="test-analysis-sheet" style="max-width:480px;">
+          <button type="button" class="test-analysis-close" onclick="closeMyPaperExamDetail()">✕</button>
+          <div id="my-paper-exam-detail-body"></div>
+        </div>
       </div>
 
       <!-- ── PRACTICE MODE (unlimited, no timer pressure, doesn't count towards ranking) ── -->
@@ -672,6 +685,7 @@
           <button type="button" class="examgr-rd-icon-btn" id="examgr-rd-back-btn" aria-label="Back">←</button>
           <div class="examgr-rd-title" id="examgr-rd-title">Roll No : —</div>
           <button type="button" class="examgr-rd-icon-btn" id="examgr-rd-delete-btn" aria-label="Delete">🗑️</button>
+          <button type="button" class="examgr-rd-icon-btn" id="examgr-rd-link-btn" aria-label="Link to Student">🔗</button>
           <button type="button" class="examgr-rd-icon-btn" id="examgr-rd-edit-btn" aria-label="Edit">✏️</button>
           <button type="button" class="examgr-rd-icon-btn" id="examgr-rd-share-btn" aria-label="Share">📤</button>
         </div>
@@ -681,6 +695,22 @@
           <span id="examgr-rd-page-text">Report 1/1</span>
           <button type="button" class="examgr-rd-nav-btn" id="examgr-rd-next-btn" aria-label="Next">›</button>
         </div>
+      </div>
+    </div>
+
+    <!-- Reports: link a scanned result to a student's login so it shows in their "My Result" -->
+    <div id="examgr-link-student-overlay" class="test-analysis-overlay hidden" onclick="if(event.target===this) examgrCloseLinkStudent()">
+      <div class="test-analysis-sheet" style="max-width:420px;">
+        <button type="button" class="test-analysis-close" onclick="examgrCloseLinkStudent()">✕</button>
+        <div class="test-analysis-title">🔗 Student Se Link Karein</div>
+        <p class="muted-text">Is scanned result ko student ke mobile number se link karein — tab wo student apne "My Result" mein ye report (photo sahit) dekh payega.</p>
+        <div class="field-row">
+          <label>Student ka Mobile Number</label>
+          <input id="examgr-link-mobile-input" type="tel" placeholder="jaise: 9876543210" maxlength="10" />
+        </div>
+        <div id="examgr-link-status" class="muted-text" style="min-height:20px;"></div>
+        <button type="button" class="btn-primary" id="examgr-link-confirm-btn" style="width:100%;margin-top:8px;">🔗 Link Karein</button>
+        <button type="button" class="btn-secondary" id="examgr-link-unlink-btn" style="width:100%;margin-top:8px;">🔓 Unlink Karein</button>
       </div>
     </div>
 

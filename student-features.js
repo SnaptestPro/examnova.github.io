@@ -535,7 +535,69 @@
     cache.myResults = myRecs;
     persistExtrasCache();
     renderMyResultsList(myRecs);
+    loadMyPaperExamReports(mobile);
   }
+
+  /* ── 6b) MY PAPER/OMR EXAM REPORTS — scanned sheets an admin has
+     linked to this student's mobile via Exam Manager → 🔗 Link to
+     Student. Separate small collection (studentScanReports) so this
+     student only ever reads their own linked reports, not the whole
+     admin exam data. ──────────────────────────────────────────────── */
+
+  let myPaperExamReports = [];
+
+  async function loadMyPaperExamReports(mobile) {
+    const section = document.getElementById("my-paper-exam-section");
+    const listEl = document.getElementById("my-paper-exam-list");
+    if (!section || !listEl) return;
+    const db = getDB();
+    if (!db) return;
+    try {
+      const snap = await db.collection("studentScanReports").where("mobile", "==", mobile).get();
+      myPaperExamReports = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    } catch (err) {
+      console.warn("Paper exam reports load fail hui:", err);
+      return;
+    }
+    if (!myPaperExamReports.length) { section.classList.add("hidden"); listEl.innerHTML = ""; return; }
+    section.classList.remove("hidden");
+    myPaperExamReports.sort((a, b) => (Number(b.scannedAt) || 0) - (Number(a.scannedAt) || 0));
+    listEl.innerHTML = myPaperExamReports.map((r, idx) => {
+      const pct = r.totalQuestions ? Math.round((Number(r.marks) || 0) / r.totalQuestions * 100) : 0;
+      return `
+        <div class="card" style="margin-bottom:8px;padding:10px 12px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+          <div>
+            <div style="font-weight:700;">${escHtml(r.examName || "Exam")}</div>
+            <div style="font-size:.78rem;color:#64748b;">${escHtml(r.className || "")}${r.date ? " · " + escHtml(r.date) : ""} · Marks: ${r.marks}/${r.totalQuestions} (${pct}%)</div>
+          </div>
+          <button type="button" class="btn-primary my-paper-exam-view-btn" data-idx="${idx}" style="font-size:.82rem;padding:6px 12px;">👁️ Dekhein</button>
+        </div>`;
+    }).join("");
+    listEl.querySelectorAll(".my-paper-exam-view-btn").forEach(btn => {
+      btn.onclick = () => openMyPaperExamDetail(myPaperExamReports[Number(btn.getAttribute("data-idx"))]);
+    });
+  }
+
+  function openMyPaperExamDetail(r) {
+    if (!r) return;
+    const body = document.getElementById("my-paper-exam-detail-body");
+    if (!body) return;
+    const pct = r.totalQuestions ? Math.round((Number(r.marks) || 0) / r.totalQuestions * 100) : 0;
+    body.innerHTML = `
+      <div class="test-analysis-title">${escHtml(r.examName || "Exam")}</div>
+      <div class="examgr-rd-info-row"><span>Class</span><span>${escHtml(r.className || "—")}</span></div>
+      <div class="examgr-rd-info-row"><span>Roll No</span><span>${escHtml(r.roll || "—")}</span></div>
+      <div class="examgr-rd-info-row"><span>Marks</span><span>${r.marks}/${r.totalQuestions} (${pct}%)</span></div>
+      <div class="examgr-rd-info-row"><span>Correct / Wrong / Blank</span><span>${r.correct} / ${r.wrong} / ${r.blank}</span></div>
+      ${r.thumb ? `<div class="examgr-rd-sheet-img-wrap" style="margin-top:10px;"><img src="${r.thumb}" alt="Scanned sheet" style="width:100%;border-radius:8px;"></div>` : ""}
+    `;
+    document.getElementById("my-paper-exam-detail-overlay")?.classList.remove("hidden");
+  }
+  function closeMyPaperExamDetail() {
+    document.getElementById("my-paper-exam-detail-overlay")?.classList.add("hidden");
+  }
+  window.closeMyPaperExamDetail = closeMyPaperExamDetail;
+
 
   function renderMyResultsList(myRecs) {
     const listEl = document.getElementById("my-result-list");

@@ -1549,11 +1549,13 @@
     });
   }
 
-  // Tiny (≤ ~90px-wide) low-quality thumbnail so a scan result's photo
-  // can be reopened from Reports without bloating the exam document —
+  // Tiny (≤ ~90px-wide) low-quality thumbnail — LAST-RESORT FALLBACK only,
+  // used when Firebase Storage upload (see examgrUploadScanPhoto below)
+  // isn't available (offline, Storage not configured, upload failed).
   // Firestore caps a document at 1MB and a class can have 100+ results
-  // saved on the SAME exam doc, so a full-resolution photo per result is
-  // not an option here.
+  // saved on the SAME exam doc, so a full-resolution photo embedded
+  // directly in the doc is not an option — hence the fallback is
+  // deliberately tiny.
   function examgrMakeThumb(canvas) {
     const scale = 90 / canvas.width;
     const t = document.createElement("canvas");
@@ -1561,6 +1563,44 @@
     t.height = Math.round(canvas.height * scale);
     t.getContext("2d").drawImage(canvas, 0, 0, t.width, t.height);
     return t.toDataURL("image/jpeg", 0.45);
+  }
+
+  // Full-quality scan photo → Firebase Storage (NOT embedded in the
+  // Firestore doc), so Reports can show a sharp image instead of the old
+  // 90px/0.45-quality thumbnail. Capped at 1400px-wide/0.85-quality so a
+  // single photo stays a few hundred KB — the exam doc itself only ever
+  // stores the short download URL string, so the 1MB Firestore doc limit
+  // is no longer a concern no matter how many results get scanned.
+  // Falls back to the old embedded low-res thumbnail if Storage is
+  // unavailable/offline/upload fails, so saving a scan never breaks.
+  function examgrUploadScanPhoto(canvas, examId, resultId) {
+    return new Promise((resolve) => {
+      const storage = window.vishnuFirebase && window.vishnuFirebase.storage;
+      if (!storage) { resolve(examgrMakeThumb(canvas)); return; }
+
+      const maxW = 1400;
+      const scale = Math.min(1, maxW / canvas.width);
+      let uploadCanvas = canvas;
+      if (scale < 1) {
+        uploadCanvas = document.createElement("canvas");
+        uploadCanvas.width = Math.round(canvas.width * scale);
+        uploadCanvas.height = Math.round(canvas.height * scale);
+        uploadCanvas.getContext("2d").drawImage(canvas, 0, 0, uploadCanvas.width, uploadCanvas.height);
+      }
+
+      uploadCanvas.toBlob(async (blob) => {
+        if (!blob) { resolve(examgrMakeThumb(canvas)); return; }
+        try {
+          const path = `examScans/${examId}/${resultId}.jpg`;
+          const snap = await storage.ref(path).put(blob, { contentType: "image/jpeg" });
+          const url = await snap.ref.getDownloadURL();
+          resolve(url);
+        } catch (err) {
+          console.warn("Scan photo upload failed, using low-res fallback thumb", err);
+          resolve(examgrMakeThumb(canvas));
+        }
+      }, "image/jpeg", 0.85);
+    });
   }
 
   // Short synthesized "shutter" beep at the exact auto-capture moment —
@@ -1979,8 +2019,14 @@
     btn.disabled = true;
     btn.textContent = "⏳ Saving...";
 
+    const resultId = (Date.now().toString(36) + Math.random().toString(36).slice(2, 8));
+
+    btn.textContent = "⏳ Uploading photo...";
+    const thumbUrl = await examgrUploadScanPhoto(scannerCaptureCanvas, id, resultId);
+    btn.textContent = "⏳ Saving...";
+
     const resultObj = {
-      id: (Date.now().toString(36) + Math.random().toString(36).slice(2, 8)),
+      id: resultId,
       roll: scannerDetected.roll || "",
       setLetter: scannerGraded.setLetter || null,
       marks: scannerGraded.marks,
@@ -2000,7 +2046,10 @@
       multiOptions: scannerGraded.perQuestion.map(pq =>
         pq.multiOptions && pq.multiOptions.length ? pq.multiOptions.map(o => OPTION_LETTERS[o.opt]).join(",") : null),
       scannedAt: Date.now(),
-      thumb: examgrMakeThumb(scannerCaptureCanvas)
+      // Firebase Storage download URL (sharp, full-res) when upload
+      // succeeds; falls back to a tiny embedded base64 thumbnail if
+      // Storage was unavailable — see examgrUploadScanPhoto above.
+      thumb: thumbUrl
     };
 
     const database = db();
@@ -2454,6 +2503,128 @@
     const photoImg = $id("examgr-report-photo-img");
     if (photoImg) photoImg.src = img.src;
     $id("examgr-report-photo-overlay")?.classList.remove("hidden");
+  });
+
+  // ────────────────────────────────────────────────────────────────
+  // Link a scanned result to a student's login (studentScanReports)
+  // so it shows up in that student's own "My Result" screen — see
+  // student-features.js loadMyPaperExamReports(). Writing/reading uses
+  // the student's mobile number as the identity key, same as the rest
+  // of the app (students/{mobile}, studentRecords).
+  // ────────────────────────────────────────────────────────────────
+  function examgrOpenLinkStudent() {
+    const r = examgrReportList[examgrReportIndex];
+    if (!r) return;
+    const input = $id("examgr-link-mobile-input");
+    const status = $id("examgr-link-status");
+    if (input) input.value = r.linkedMobile || "";
+    if (status) status.textContent = r.linkedMobile
+      ? `Abhi link hai: ${r.linkedMobile}`
+      : "";
+    $id("examgr-link-student-overlay")?.classList.remove("hidden");
+  }
+  function examgrCloseLinkStudent() {
+    $id("examgr-link-student-overlay")?.classList.add("hidden");
+  }
+  window.examgrCloseLinkStudent = examgrCloseLinkStudent;
+  $id("examgr-rd-link-btn")?.addEventListener("click", examgrOpenLinkStudent);
+
+  // Writes/updates the per-student copy of this scanned report. Kept as
+  // its own small doc (not embedded in examManagerExams) so a student's
+  // security rules only ever need to read their own linked reports, not
+  // the whole admin exam doc (which also holds the answer key etc).
+  async function examgrWriteScanReportDoc(mobile, ex, r) {
+    const database = db();
+    if (!database) return false;
+    try {
+      await database.collection("studentScanReports").doc(r.id).set({
+        mobile,
+        examId: examMgrSelectedId,
+        examName: ex.examName || "",
+        className: ex.className || "",
+        date: ex.date || "",
+        roll: r.roll || "",
+        setLetter: r.setLetter || null,
+        marks: r.marks,
+        correct: r.correct,
+        wrong: r.wrong,
+        blank: r.blank,
+        totalQuestions: r.totalQuestions,
+        thumb: r.thumb || null,
+        scannedAt: r.scannedAt || Date.now(),
+        linkedAt: firebase.firestore.FieldValue.serverTimestamp()
+      });
+      return true;
+    } catch (err) {
+      alert("Link save nahi ho paya: " + (err.message || err));
+      return false;
+    }
+  }
+
+  $id("examgr-link-confirm-btn")?.addEventListener("click", async () => {
+    const id = examMgrSelectedId;
+    const ex = examMgrExams[id];
+    const r = examgrReportList[examgrReportIndex];
+    if (!ex || !r) return;
+    const input = $id("examgr-link-mobile-input");
+    const status = $id("examgr-link-status");
+    const mobile = (input?.value || "").trim();
+    if (!/^\d{10}$/.test(mobile)) {
+      if (status) status.textContent = "⚠️ Sahi 10-digit mobile number daalein.";
+      return;
+    }
+
+    const btn = $id("examgr-link-confirm-btn");
+    btn.disabled = true;
+    if (status) status.textContent = "Student dhoondh rahe hain...";
+
+    const database = db();
+    let studentName = null;
+    try {
+      if (database) {
+        const snap = await database.collection("students").doc(mobile).get();
+        if (snap.exists) studentName = snap.data().name || null;
+      }
+    } catch (err) { /* lookup optional — proceed even if it fails */ }
+
+    if (!studentName) {
+      const proceed = confirm(
+        `Is mobile number (${mobile}) se koi registered student nahi mila. Phir bhi link karein? ` +
+        `(Jab wo student is number se register/login karega, tab ye report use dikhne lagega.)`
+      );
+      if (!proceed) { btn.disabled = false; if (status) status.textContent = ""; return; }
+    }
+
+    if (status) status.textContent = "⏳ Link kar rahe hain...";
+    const ok = await examgrWriteScanReportDoc(mobile, ex, r);
+    if (ok) {
+      r.linkedMobile = mobile;
+      await examgrPersistResults(id, ex);
+      if (status) status.textContent = studentName
+        ? `✅ ${studentName} se link ho gaya.`
+        : "✅ Link ho gaya.";
+      setTimeout(examgrCloseLinkStudent, 900);
+    }
+    btn.disabled = false;
+  });
+
+  $id("examgr-link-unlink-btn")?.addEventListener("click", async () => {
+    const id = examMgrSelectedId;
+    const ex = examMgrExams[id];
+    const r = examgrReportList[examgrReportIndex];
+    if (!ex || !r || !r.linkedMobile) { examgrCloseLinkStudent(); return; }
+    if (!confirm("Is result ko student ke login se unlink kar dein?")) return;
+
+    const database = db();
+    try {
+      if (database) await database.collection("studentScanReports").doc(r.id).delete();
+    } catch (err) {
+      alert("Unlink nahi ho paya: " + (err.message || err));
+      return;
+    }
+    delete r.linkedMobile;
+    await examgrPersistResults(id, ex);
+    examgrCloseLinkStudent();
   });
 
   // Persists the (possibly edited/deleted) results array for the current

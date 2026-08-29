@@ -1,0 +1,37 @@
+rules_version = '2';
+
+// ══════════════════════════════════════════════════════════════════
+// SAVYASACHI — FIREBASE STORAGE SECURITY RULES
+// ══════════════════════════════════════════════════════════════════
+// Mirrors the admin allow-list in firestore.rules. Deploy with:
+//   firebase deploy --only storage
+// (also add "storage": { "rules": "storage.rules" } to firebase.json —
+// already done in this project's firebase.json.)
+// ══════════════════════════════════════════════════════════════════
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function isAdmin() {
+      return request.auth != null &&
+        request.auth.token.email != null &&
+        request.auth.token.email in [
+          "vishnu1234stmp@gmail.com"
+        ];
+    }
+
+    // examScans/{examId}/{resultId}.jpg — full-res OMR sheet photos
+    // uploaded when a scan is saved in Exam Manager (see
+    // examgrUploadScanPhoto in exam-manager.js). Same trust model as
+    // examManagerExams in firestore.rules: admin-only, students never
+    // touch this.
+    match /examScans/{examId}/{fileName} {
+      allow read, write: if isAdmin();
+    }
+
+    // Default deny — anything not explicitly listed above is blocked.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -195,6 +195,17 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    // ── Scanned paper/OMR exam reports linked to a student ─────────
+    // Written by admin (Exam Manager → Report Detail → 🔗 Link to
+    // Student) when a scanned result's roll number is matched to a
+    // real student account. Student's "My Result" screen reads these
+    // by mobile — same read/write trust model as studentRecords above,
+    // but writes stay admin-only since linking is an admin action.
+    match /studentScanReports/{docId} {
+      allow get, list: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
     // ── My Mistakes (auto-collected wrong answers, per student) ────
     // Doc id = student's mobile number. Same trust model as
     // "students/{mobile}" above — any signed-in client can read/write
