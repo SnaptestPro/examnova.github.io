@@ -1615,10 +1615,90 @@
   // reading it from the canvas itself (the old behaviour) when absent —
   // e.g. the rare degenerate-homography path, or any future caller that
   // doesn't have a warp-time buffer handy.
+  // v16: LOCAL PAPER-REGISTRATION correction, on top of the existing
+  // 4-corner perspective warp.
+  //
+  // The printed sheet actually carries a full 5x9 = 45-point grid of
+  // small black squares (OMR_MARKER_XS x OMR_MARKER_YS — the 4 extreme
+  // corners of that grid ARE the same 4 corners the live scanner already
+  // homographs against). Until now, detection only ever looked at those
+  // 4 outer corners; the other 41 were printed but never read back.
+  //
+  // A single 4-point perspective transform is only exact if the sheet is
+  // perfectly FLAT. A real paper sheet handled by a student (folded to
+  // fit a bag, creased down the middle, slightly curled) is not flat —
+  // it's gently bent in 3-D — so the same 4-corner math that lines up
+  // the corners correctly can still drift a few pixels off target
+  // further from those corners, worst right at a crease. That drift is
+  // exactly the "circle sometimes lands above/below the real bubble"
+  // symptom, and it gets worse toward the middle of the sheet, not
+  // better — matching a folded/creased sheet precisely.
+  //
+  // Fix: after the global warp, re-detect each of the 41 INTERNAL marker
+  // squares near where the template says it should be, measure how far
+  // off each one actually landed, and use that scattered set of local
+  // "here's exactly how far the paper drifted AT THIS POINT" measurements
+  // to nudge every bubble's sampling position — inverse-distance-weighted
+  // from the nearest few real measurements, so the correction tracks
+  // local paper warp instead of one rigid whole-sheet number. If too few
+  // markers are found (heavy crop, very poor photo) this backs off to
+  // zero correction rather than risk a wild guess.
+  function findLocalMarkerOffset(ctx, expectedX, expectedY, w, h) {
+    const winHalf = 26;
+    const region = { x: expectedX - winHalf, y: expectedY - winHalf, width: winHalf * 2, height: winHalf * 2 };
+    const found = findBlackSquare(ctx, region, w, h);
+    if (!found) return null;
+    const dx = found.x - expectedX, dy = found.y - expectedY;
+    const maxOffset = 18; // sane cap — markers are 150-240px apart, so this can't be confused with a neighbouring marker
+    if (Math.abs(dx) > maxOffset || Math.abs(dy) > maxOffset) return null;
+    return { ax: found.x, ay: found.y, ex: expectedX, ey: expectedY, dx, dy };
+  }
+
+  function egBuildLocalRegistrationField(ctx, w, h) {
+    const found = [];
+    OMR_MARKER_YS.forEach(y => OMR_MARKER_XS.forEach(x => {
+      const off = findLocalMarkerOffset(ctx, x + 10, y + 10, w, h);
+      if (off) found.push(off);
+    }));
+    const MIN_POINTS = 8; // need a real spread before trusting local correction — otherwise zero correction (old behaviour) is safer than extrapolating from a handful of points
+    if (found.length < MIN_POINTS) {
+      return { active: false, points: found, at: () => ({ dx: 0, dy: 0 }) };
+    }
+    return {
+      active: true,
+      points: found,
+      at(x, y) {
+        let wSum = 0, dxSum = 0, dySum = 0;
+        for (let i = 0; i < found.length; i++) {
+          const p = found[i];
+          const ddx = x - p.ex, ddy = y - p.ey;
+          const d2 = ddx * ddx + ddy * ddy;
+          if (d2 < 1) return { dx: p.dx, dy: p.dy };
+          const wgt = 1 / d2; // nearer markers dominate — keeps the correction local, not a global average
+          wSum += wgt; dxSum += p.dx * wgt; dySum += p.dy * wgt;
+        }
+        return wSum ? { dx: dxSum / wSum, dy: dySum / wSum } : { dx: 0, dy: 0 };
+      }
+    };
+  }
+
   function examgrDetectFromCanvas(canvas, ex, precomputedGray) {
     const w = canvas.width, h = canvas.height;
     const gray = precomputedGray || egToGrayscale(canvas.getContext("2d", { willReadFrequently: true }), w, h);
     const map = examgrBubbleMap(ex);
+
+    const regField = egBuildLocalRegistrationField(canvas.getContext("2d", { willReadFrequently: true }), w, h);
+    if (regField.active) {
+      const applyOffset = b => { const o = regField.at(b.x, b.y); b.x += o.dx; b.y += o.dy; };
+      map.setBubbles.forEach(applyOffset);
+      map.rollColumns.forEach(col => col.forEach(applyOffset));
+      Object.keys(map.questionBubbles).forEach(qStr => map.questionBubbles[qStr].forEach(applyOffset));
+    }
+    // Kept on the map (which flows through to painting) purely so the
+    // result overlay can show exactly which internal markers were found
+    // and used — a visible way to sanity-check alignment, not just trust it.
+    map.regFieldPoints = regField.points;
+    map.regFieldActive = regField.active;
 
     // Flatten every registered bubble centre so the white-level field can
     // avoid sampling "paper white" from inside a mark (see
@@ -1629,7 +1709,15 @@
     Object.keys(map.questionBubbles).forEach(qStr => {
       map.questionBubbles[qStr].forEach(b => excludePoints.push({ x: b.x, y: b.y }));
     });
-    const whiteField = egWhiteLevelField(gray, w, h, 5, 7, excludePoints, EG_WHITE_EXCLUDE_RADIUS);
+    // v16: finer local-exposure grid (8x11 instead of 5x7). egWhiteLevelField's
+    // .at() already bilinearly interpolates between bins, so this doesn't add
+    // any sharp seams — it just lets the correction track a tighter flash
+    // hotspot / lighting gradient (a close phone flash lights a much smaller
+    // patch of the sheet unevenly than a 5x7 grid's ~240x220px bins can
+    // resolve, especially right where Roll No / Exam Set sit near the top of
+    // the sheet, closest to the lens). Cost is negligible: still the same
+    // single full-image sweep, just tallied into more (smaller) bins.
+    const whiteField = egWhiteLevelField(gray, w, h, 8, 11, excludePoints, EG_WHITE_EXCLUDE_RADIUS);
 
     // v14: LOCAL (per-bubble) exposure scaling, not one number for the
     // WHOLE photo.
@@ -1923,6 +2011,26 @@
         detected.rollMultiOptions[colIdx].forEach(o => ringOutline(o.x, o.y, 13, REVIEW_BLUE));
       }
     });
+
+    // v16: mark every internal registration square that was actually
+    // found and used for local paper-warp correction (see
+    // egBuildLocalRegistrationField) — small solid blue dots, drawn right
+    // on top of the real marker in the photo. This is a visible way to
+    // check alignment quality at a glance: if these blue dots sit right
+    // on the printed black squares, registration was solid across the
+    // whole sheet; if a patch of them is missing (photo crop/glare/crease
+    // covering that area) or off, you can see exactly WHERE the sheet
+    // wasn't read reliably instead of only guessing from a wrong mark.
+    if (Array.isArray(map.regFieldPoints)) {
+      map.regFieldPoints.forEach(p => {
+        ctx.beginPath();
+        ctx.arc(p.ax, p.ay, 4.5, 0, Math.PI * 2);
+        ctx.globalAlpha = 0.95;
+        ctx.fillStyle = REVIEW_BLUE;
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      });
+    }
   }
 
   // Tiny (~90px-wide) low-quality thumbnail embedded directly in the exam
