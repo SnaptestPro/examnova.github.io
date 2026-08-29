@@ -80,6 +80,14 @@
   let scannerMarkerHistory = [];
   let scannerCapturing = false;
   let scannerCameraRequestInProgress = false;
+  // Manual flash/torch toggle (🔦 button) — scannerTorchSupported gates
+  // whether the button is even shown (many phones/laptops don't expose
+  // this capability at all), scannerTorchOn tracks its current state so
+  // resumeScannerDetectionLoop() between consecutive scans in the same
+  // session can leave it exactly as the admin left it (no re-toggling
+  // needed sheet after sheet in a dark room).
+  let scannerTorchSupported = false;
+  let scannerTorchOn = false;
   // Most recent capture's detection + grading result, kept so Edit/Save can
   // act on it without re-running detection.
   let scannerDetected = null;   // { setLetter, roll, rollDigits:[...], answers:[{q,opt}] }
@@ -1696,26 +1704,26 @@
     return t.toDataURL("image/jpeg", 0.45);
   }
 
-  // Sharp photo (900px-wide, 0.8 quality — a few hundred KB) for the
-  // Report DETAIL screen. 100% FREE — no Firebase Storage/Blaze plan
-  // needed. The trick: instead of embedding this in the shared exam doc
-  // (where the 1MB limit is split across every result), it's saved as
-  // its OWN Firestore document in a subcollection:
+  // HD photo (full 1203×1536 detection-resolution canvas, 100% se koi
+  // artificial downscale nahi) for the Report DETAIL screen aur student
+  // ke "My Result" mein dikhne wali sharp copy. 100% FREE — no Firebase
+  // Storage/Blaze plan needed. The trick: instead of embedding this in
+  // the shared exam doc (where the 1MB limit is split across every
+  // result), it's saved as its OWN Firestore document in a subcollection:
   //   examManagerExams/{examId}/scanPhotos/{resultId}
-  // Each subcollection doc gets its own independent 1MB budget, so one
-  // sharp photo per result is easily safe no matter how many results
-  // the exam has.
+  // Each subcollection doc gets its own independent 1MB budget. Pehle
+  // yahan 900px tak downscale kiya jaata tha — ab full HD resolution
+  // rakhte hain, bas quality ko zaroorat padne par step-by-step ghata
+  // kar (kabhi bhi) us ~1MB limit ke andar hi rehte hain.
   function examgrMakeFullQuality(canvas) {
-    const maxW = 900;
-    const scale = Math.min(1, maxW / canvas.width);
-    let c = canvas;
-    if (scale < 1) {
-      c = document.createElement("canvas");
-      c.width = Math.round(canvas.width * scale);
-      c.height = Math.round(canvas.height * scale);
-      c.getContext("2d").drawImage(canvas, 0, 0, c.width, c.height);
+    let quality = 0.85;
+    let dataUrl = canvas.toDataURL("image/jpeg", quality);
+    const SAFE_LIMIT = 900000; // ~900KB base64 string — 1MB doc limit se safe margin
+    while (dataUrl.length > SAFE_LIMIT && quality > 0.4) {
+      quality -= 0.1;
+      dataUrl = canvas.toDataURL("image/jpeg", quality);
     }
-    return c.toDataURL("image/jpeg", 0.8);
+    return dataUrl;
   }
 
   async function examgrSaveFullPhoto(examId, resultId, canvas) {
@@ -1816,6 +1824,10 @@
     if (scannerAnimationFrame) { cancelAnimationFrame(scannerAnimationFrame); scannerAnimationFrame = null; }
     if (scannerStream) { scannerStream.getTracks().forEach(track => track.stop()); scannerStream = null; }
     if (scannerVideo) scannerVideo.srcObject = null;
+    scannerTorchSupported = false;
+    scannerTorchOn = false;
+    const torchBtn = $id("examgr-scan-torch-btn");
+    if (torchBtn) { torchBtn.hidden = true; torchBtn.classList.remove("is-on"); torchBtn.textContent = "🔦 Flash"; }
   }
 
   function resetScannerForLivePreview() {
@@ -2320,7 +2332,15 @@
       try {
         scannerStream = await navigator.mediaDevices.getUserMedia({
           audio: false,
-          video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 1920 } }
+          // HD quality: pehle 1280×1920 maangte the (jo detection ke
+          // 1203×1536 target se thoda hi zyada tha), ab ideal 1920×2560
+          // maangte hain taaki phone jitna bhi sharp camera feed de sake
+          // de, warp/crop se pehle hi zyada detail available rahe —
+          // isi se final scanned photo aur bubble-edges dono crisper
+          // aate hain. "ideal" hai, "exact" nahi, isliye jis phone mein
+          // itna high nahi milta wahan bhi camera fail nahi hoga, bas
+          // jo max mil sake wo milega.
+          video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 2560 } }
         });
       } catch (error) {
         if (!["NotFoundError", "OverconstrainedError"].includes(error && error.name)) throw error;
@@ -2331,19 +2351,29 @@
       // phir bhi kam light dekh kar phone ka camera driver khud-ba-khud
       // flash/torch ON kar deta hai (still-photo "auto-flash" default,
       // jo video-capture ke liye bhi apply ho jaata hai kuch hardware
-      // par). Explicitly torch:false constraint apply karke isse force
-      // OFF rakhte hain — sirf un devices par asar karta hai jo ye
-      // capability expose karte hain, baaki sab par chup-chaap no-op
-      // (scan flow kabhi block nahi hota, chahe ye fail ho jaaye).
+      // par). Default state hamesha OFF force karte hain — agar admin
+      // khud dark room mein flash chalu rakhna chahe to neeche ka 🔦
+      // button (sirf un devices par dikhta hai jo torch support karte
+      // hain) manually ON karne deta hai.
+      const torchBtn = $id("examgr-scan-torch-btn");
+      scannerTorchSupported = false;
+      scannerTorchOn = false;
       try {
         const [videoTrack] = scannerStream.getVideoTracks();
         const caps = videoTrack && typeof videoTrack.getCapabilities === "function"
           ? videoTrack.getCapabilities() : null;
-        if (videoTrack && caps && "torch" in caps) {
+        scannerTorchSupported = !!(videoTrack && caps && "torch" in caps);
+        if (scannerTorchSupported) {
           await videoTrack.applyConstraints({ advanced: [{ torch: false }] });
         }
       } catch (torchErr) {
+        scannerTorchSupported = false;
         console.warn("Torch off constraint apply nahi ho paya:", torchErr);
+      }
+      if (torchBtn) {
+        torchBtn.hidden = !scannerTorchSupported;
+        torchBtn.classList.remove("is-on");
+        torchBtn.textContent = "🔦 Flash";
       }
       scannerVideo.srcObject = scannerStream;
       await scannerVideo.play();
@@ -2385,6 +2415,24 @@
 
   $id("examgr-scan-done-btn")?.addEventListener("click", examgrCloseScanner);
   $id("examgr-scan-enable-btn")?.addEventListener("click", startScannerCamera);
+
+  $id("examgr-scan-torch-btn")?.addEventListener("click", async () => {
+    if (!scannerStream || !scannerTorchSupported) return;
+    const [videoTrack] = scannerStream.getVideoTracks();
+    if (!videoTrack) return;
+    const torchBtn = $id("examgr-scan-torch-btn");
+    const next = !scannerTorchOn;
+    try {
+      await videoTrack.applyConstraints({ advanced: [{ torch: next }] });
+      scannerTorchOn = next;
+      if (torchBtn) {
+        torchBtn.classList.toggle("is-on", scannerTorchOn);
+        torchBtn.textContent = scannerTorchOn ? "🔦 Flash ON" : "🔦 Flash";
+      }
+    } catch (err) {
+      alert("Flash on/off nahi ho paya: " + (err.message || err));
+    }
+  });
 
   // ────────────────────────────────────────────────────────────────
   // Edit — hand-correct a capture's Roll No / Set / individual answers
@@ -2672,7 +2720,7 @@
       </table>
     `;
 
-    // Lazy-swap in the sharp (900px) photo once it loads — the small
+    // Lazy-swap in the sharp HD photo once it loads — the small
     // embedded thumb shows instantly above so there's no blank gap.
     if (r.thumb) {
       const myIndex = examgrReportIndex;
@@ -2874,7 +2922,7 @@
   async function examgrWriteScanReportDoc(mobile, ex, r) {
     const database = db();
     if (!database) return false;
-    // Pull the sharp (900px) photo saved at scan-time, if present, so the
+    // Pull the sharp HD photo saved at scan-time, if present, so the
     // student sees the same quality as the admin Report Detail screen —
     // falls back to the small embedded thumb if it wasn't saved/found.
     const sharpPhoto = await examgrFetchFullPhoto(examMgrSelectedId, r.id);
