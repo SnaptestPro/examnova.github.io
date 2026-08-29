@@ -118,6 +118,20 @@ service cloud.firestore {
       match /scanPhotos/{resultId} {
         allow read, write: if isAdmin();
       }
+
+      // scanResults subcollection: one small doc per scanned OMR result
+      // (roll, marks, answers, thumb, etc.) — kept OUT of the parent exam
+      // doc's `results` array on purpose. Every scan used to append to
+      // that single array field via arrayUnion(), so the write got bigger
+      // and slower to process the longer a scanning session ran (session
+      // -duration slowdown, separate from the per-frame camera hang fixed
+      // above). One doc per result here means every scan's write stays
+      // the same small size no matter how long the session runs. Same
+      // nested-rule requirement as scanPhotos above — a parent match does
+      // NOT cover a subcollection.
+      match /scanResults/{resultId} {
+        allow read, write: if isAdmin();
+      }
     }
 
     // app_settings holds sensitive things like the Groq AI API key —

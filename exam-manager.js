@@ -201,6 +201,64 @@
   }
   window.loadExamManagerExams = loadExamManagerExams;
 
+  // Lazily loads this exam's scanned results from the scanResults
+  // subcollection (one small doc per result — see the save handler and
+  // the SCAN_SESSION_PERF_FIX notes for why they no longer live in a
+  // single growing array field on the parent doc). Cached on the exam
+  // object after the first load per session (ex._resultsLoaded), and
+  // kept in sync locally on every new scan/edit/delete after that, so
+  // this only ever does one subcollection read per exam per session —
+  // opening Reports/Analysis/CSV repeatedly does NOT re-fetch.
+  async function ensureExamResultsLoaded(id, ex) {
+    if (ex._resultsLoaded) return Array.isArray(ex.results) ? ex.results : [];
+    const database = db();
+    if (!database) return Array.isArray(ex.results) ? ex.results : [];
+    try {
+      const snap = await database.collection(COLLECTION).doc(id).collection("scanResults").get();
+      const byId = new Map();
+      snap.forEach(doc => byId.set(doc.id, doc.data()));
+
+      // One-time migration: an exam scanned before this perf fix still
+      // has its old results sitting in the legacy `results` ARRAY field
+      // on the parent doc (that's exactly what `doc.data()` handed us at
+      // load time, into ex.results, before this function ran). Any of
+      // those not already present as their own scanResults doc get
+      // written out individually here, then the bulky legacy field is
+      // cleared off the parent doc — so it only ever costs one small
+      // migration write, and every scan/edit after that is back to O(1)
+      // regardless of session length, same as a brand-new exam.
+      const legacy = (Array.isArray(ex.results) ? ex.results : []).filter(r => r && r.id && !byId.has(r.id));
+      if (legacy.length) {
+        try {
+          const examRef = database.collection(COLLECTION).doc(id);
+          for (let i = 0; i < legacy.length; i += 400) {
+            const chunk = legacy.slice(i, i + 400);
+            const batch = database.batch();
+            chunk.forEach(r => batch.set(examRef.collection("scanResults").doc(r.id), r));
+            await batch.commit();
+          }
+          await examRef.update({ results: firebase.firestore.FieldValue.delete() });
+        } catch (migrateErr) {
+          // Non-fatal — legacy data still shows up fine via the merge
+          // below either way, just won't be migrated off the parent doc
+          // until a future successful attempt.
+          console.warn("[ensureExamResultsLoaded] legacy migration failed:", migrateErr);
+        }
+        legacy.forEach(r => byId.set(r.id, r));
+      }
+
+      // Keep anything already pushed locally this session (e.g. a scan
+      // that just landed) even if it raced ahead of this fetch.
+      (Array.isArray(ex.results) ? ex.results : []).forEach(r => { if (r && r.id && !byId.has(r.id)) byId.set(r.id, r); });
+      ex.results = Array.from(byId.values());
+      ex._resultsLoaded = true;
+    } catch (err) {
+      console.warn("[ensureExamResultsLoaded] failed:", err);
+      if (!Array.isArray(ex.results)) ex.results = [];
+    }
+    return ex.results;
+  }
+
   async function createExamManagerExam(fields) {
     const database = db();
     if (!database) { alert("Firebase se connect nahi ho paya — internet check karein."); return null; }
@@ -439,7 +497,7 @@
     btn.addEventListener("click", () => handleExamMgrAction(btn.dataset.action));
   });
 
-  function handleExamMgrAction(action) {
+  async function handleExamMgrAction(action) {
     const id = examMgrSelectedId;
     const ex = examMgrExams[id];
     if (!ex) return;
@@ -471,11 +529,11 @@
       if (val === null) return;
       updateExamManagerExam(id, { webLink: val.trim() }).then(ok => { if (ok) examgrShowNotice("✅ Web link save ho gaya."); });
     } else if (action === "view-reports") {
-      examgrOpenReports();
+      await examgrOpenReports();
     } else if (action === "download-excel") {
-      examgrDownloadCsv(ex);
+      await examgrDownloadCsv(ex);
     } else if (action === "analysis") {
-      examgrOpenAnalysis();
+      await examgrOpenAnalysis();
     } else if (action === "publish") {
       updateExamManagerExam(id, { published: true }).then(ok => { if (ok) { renderExamMgrDetails(); examgrShowNotice("🚀 Exam publish ho gaya."); } });
     } else if (action === "absentees") {
@@ -485,7 +543,8 @@
     }
   }
 
-  function examgrDownloadCsv(ex) {
+  async function examgrDownloadCsv(ex) {
+    await ensureExamResultsLoaded(examMgrSelectedId, ex);
     const rows = [
       ["Exam Name", "Class", "Date", "Questions", "Sets", "Scanned", "Students", "Absentees", "Published"],
       [ex.examName || "", ex.className || "", ex.date || "", ex.questions || 0, ex.sets || 1, ex.scanned || 0, ex.students || 0, ex.absentees || "", ex.published ? "Yes" : "No"]
@@ -1264,6 +1323,24 @@
   // Falls back to a plain non-perspective (best-fit affine-ish) copy if
   // the 4 markers are degenerate (near-collinear) so a capture never hard
   // fails just because the homography solve couldn't run.
+  //
+  // PERF FIX: this used to only produce the warped colour canvas, and the
+  // caller then ran TWO MORE full-canvas passes over that same
+  // 1203×1536 image — egDesaturateCanvas (getImageData, loop,
+  // putImageData) and examgrDetectFromCanvas's egToGrayscale
+  // (getImageData, loop) — to get the same information this loop is
+  // already computing pixel-by-pixel right here. On a mid/low-end phone,
+  // 3 full-buffer getImageData/putImageData round trips per capture
+  // (instead of 1) is a big chunk of why "Scan Sheet" could freeze the
+  // whole page for a noticeable stretch on every single attempt. Now this
+  // loop ALSO desaturates in place (R=G=B=luminance, same 0.299/0.587/
+  // 0.114 weights egDesaturateCanvas and egToGrayscale already used, so
+  // the output is numerically identical either way) and builds the
+  // Float32Array grayscale buffer the grading engine needs — both "for
+  // free" while every output pixel is already being touched. Returns
+  // { canvas, gray } instead of just a canvas; gray is null only on the
+  // rare degenerate-homography fallback below, in which case the caller
+  // falls back to computing it the old way.
   function egWarpPerspective(sourceCanvas, videoQuad, templateQuad, dstSize) {
     const sw = sourceCanvas.width, sh = sourceCanvas.height;
     const sctx = sourceCanvas.getContext("2d", { willReadFrequently: true });
@@ -1276,14 +1353,17 @@
 
     if (!H) {
       // Degenerate fallback: same simple rectangle scale as before, better
-      // than throwing the capture away entirely.
+      // than throwing the capture away entirely. Rare enough path (near-
+      // collinear markers) that it isn't worth fusing — just desaturate
+      // the old way and let the caller compute gray separately.
       const left = (videoQuad[0].x + videoQuad[2].x) / 2, right = (videoQuad[1].x + videoQuad[3].x) / 2;
       const top = (videoQuad[0].y + videoQuad[1].y) / 2, bottom = (videoQuad[2].y + videoQuad[3].y) / 2;
       const scaleX = (right - left) / (templateQuad[1].x - templateQuad[0].x);
       const scaleY = (bottom - top) / (templateQuad[2].y - templateQuad[0].y);
       const sx0 = left - templateQuad[0].x * scaleX, sy0 = top - templateQuad[0].y * scaleY;
       octx.drawImage(sourceCanvas, sx0, sy0, dstSize.width * scaleX, dstSize.height * scaleY, 0, 0, dstSize.width, dstSize.height);
-      return out;
+      egDesaturateCanvas(out);
+      return { canvas: out, gray: null };
     }
 
     // Homography math inlined (not via egApplyHomography) and no
@@ -1293,14 +1373,16 @@
     const [h0, h1, h2, h3, h4, h5, h6, h7, h8] = H;
     const outImg = octx.createImageData(dstSize.width, dstSize.height);
     const outData = outImg.data;
-    let di = 0;
+    const gray = new Float32Array(dstSize.width * dstSize.height);
+    let di = 0, gi = 0;
     for (let Y = 0; Y < dstSize.height; Y++) {
-      for (let X = 0; X < dstSize.width; X++, di += 4) {
+      for (let X = 0; X < dstSize.width; X++, di += 4, gi++) {
         const wDen = h6 * X + h7 * Y + h8;
         const sx = (h0 * X + h1 * Y + h2) / wDen;
         const sy = (h3 * X + h4 * Y + h5) / wDen;
         if (sx < 0 || sy < 0 || sx >= sw - 1 || sy >= sh - 1) {
           outData[di] = outData[di + 1] = outData[di + 2] = 255; outData[di + 3] = 255;
+          gray[gi] = 255;
           continue;
         }
         const x0 = sx | 0, y0 = sy | 0;
@@ -1308,14 +1390,17 @@
         const i00 = (y0 * sw + x0) * 4, i10 = i00 + 4;
         const i01 = i00 + sw * 4, i11 = i01 + 4;
         const ifx = 1 - fx, ify = 1 - fy;
-        outData[di]     = (srcData[i00]     * ifx + srcData[i10]     * fx) * ify + (srcData[i01]     * ifx + srcData[i11]     * fx) * fy;
-        outData[di + 1] = (srcData[i00 + 1] * ifx + srcData[i10 + 1] * fx) * ify + (srcData[i01 + 1] * ifx + srcData[i11 + 1] * fx) * fy;
-        outData[di + 2] = (srcData[i00 + 2] * ifx + srcData[i10 + 2] * fx) * ify + (srcData[i01 + 2] * ifx + srcData[i11 + 2] * fx) * fy;
+        const r = (srcData[i00]     * ifx + srcData[i10]     * fx) * ify + (srcData[i01]     * ifx + srcData[i11]     * fx) * fy;
+        const g = (srcData[i00 + 1] * ifx + srcData[i10 + 1] * fx) * ify + (srcData[i01 + 1] * ifx + srcData[i11 + 1] * fx) * fy;
+        const b = (srcData[i00 + 2] * ifx + srcData[i10 + 2] * fx) * ify + (srcData[i01 + 2] * ifx + srcData[i11 + 2] * fx) * fy;
+        const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+        outData[di] = outData[di + 1] = outData[di + 2] = lum;
         outData[di + 3] = 255;
+        gray[gi] = lum;
       }
     }
     octx.putImageData(outImg, 0, 0);
-    return out;
+    return { canvas: out, gray };
   }
 
   // Coarse grid of LOCAL white levels across the photo (handles a shadow
@@ -1374,7 +1459,15 @@
       }
       field.push(row);
     }
+    // Single scalar summary of this capture's overall paper-white level
+    // (median across every bin) — see EG_REFERENCE_WHITE below for why
+    // this matters: it's what the mark-detection thresholds get scaled
+    // against so a brighter/dimmer photo of the exact same physical sheet
+    // still reads the exact same marks.
+    const flatWhites = field.flat().slice().sort((a, b) => a - b);
+    const median = flatWhites.length ? flatWhites[Math.floor(flatWhites.length / 2)] : 200;
     return {
+      median,
       at(x, y) {
         const fx = Math.min(binsX - 1, Math.max(0, x / binW - 0.5));
         const fy = Math.min(binsY - 1, Math.max(0, y / binH - 0.5));
@@ -1451,6 +1544,38 @@
   }
 
   const EG_MARK_THRESHOLD = 42;   // "dark enough to count as marked", relative to local white
+  // ────────────────────────────────────────────────────────────────
+  // v13: EXPOSURE-ADAPTIVE THRESHOLDS
+  //
+  // Reported bug: scanning the exact same physical sheet twice in a row
+  // (no pen touched it between attempts) produced wildly different marks
+  // /roll numbers each time. Root cause: EG_MARK_THRESHOLD and the
+  // EG_CORE_* constants below are ABSOLUTE pixel-brightness deltas
+  // (whiteField.at(x,y) - inkSample). whiteField already adapts to
+  // lighting that varies ACROSS one photo (a shadow on one side), but a
+  // phone's auto-exposure/auto-ISO also varies the OVERALL brightness
+  // BETWEEN separate captures of the same sheet — one attempt a little
+  // brighter, the next a little dimmer/flatter. Ink doesn't get darker
+  // in a linear 1:1 way with the paper around it as exposure shifts (the
+  // camera's tone curve and sensor black-level offset aren't perfectly
+  // proportional), so a fixed 42-pixel gap that comfortably cleared the
+  // threshold in a bright capture can quietly fall just under it in a
+  // dimmer one of the SAME mark — flipping filled bubbles to "blank" (or
+  // vice-versa for near-threshold faint marks) purely because of that
+  // capture's exposure, not anything the student did.
+  //
+  // Fix: scale every one of these absolute thresholds by how this
+  // capture's own measured paper-white (whiteField.median, computed once
+  // per capture) compares to a fixed calibration baseline. A dimmer
+  // capture (lower median white) gets proportionally LOWER thresholds —
+  // it takes less of an absolute pixel gap to count as "ink" when the
+  // whole photo is darker to begin with — so the same physical mark
+  // keeps reading the same way regardless of which capture's exposure
+  // happened to land closer to daylight or closer to a dim room.
+  // ────────────────────────────────────────────────────────────────
+  const EG_REFERENCE_WHITE = 210; // typical paper-white reading calibrated against, in decent light
+  const EG_MIN_EXPOSURE_SCALE = 0.45; // never scale thresholds down more than this (guards against a near-black misread photo making EVERYTHING look "marked")
+  const EG_MAX_EXPOSURE_SCALE = 1.15; // ...or up more than this, for an unusually bright/overexposed capture
   // Printed bubbles are ~22px wide (radius 11 — see the `doc.circle(...,
   // mmPos(11))` in the PDF export above) with a 1.7px ring stroke, so the
   // ring's own ink starts at radius ~10.15. Sample radius kept at 9 (not
@@ -1483,10 +1608,16 @@
 
   // Reads every registered bubble off the captured canvas and returns the
   // raw detection (no right/wrong judgement yet — that's examgrGradeSheet).
-  function examgrDetectFromCanvas(canvas, ex) {
+  // precomputedGray (optional): the Float32Array grayscale buffer
+  // egWarpPerspective already built while warping this exact capture —
+  // when present, skips ANOTHER full-canvas getImageData pass over the
+  // same pixels (see the perf note on egWarpPerspective). Falls back to
+  // reading it from the canvas itself (the old behaviour) when absent —
+  // e.g. the rare degenerate-homography path, or any future caller that
+  // doesn't have a warp-time buffer handy.
+  function examgrDetectFromCanvas(canvas, ex, precomputedGray) {
     const w = canvas.width, h = canvas.height;
-    const ctx = canvas.getContext("2d", { willReadFrequently: true });
-    const gray = egToGrayscale(ctx, w, h);
+    const gray = precomputedGray || egToGrayscale(canvas.getContext("2d", { willReadFrequently: true }), w, h);
     const map = examgrBubbleMap(ex);
 
     // Flatten every registered bubble centre so the white-level field can
@@ -1499,6 +1630,16 @@
       map.questionBubbles[qStr].forEach(b => excludePoints.push({ x: b.x, y: b.y }));
     });
     const whiteField = egWhiteLevelField(gray, w, h, 5, 7, excludePoints, EG_WHITE_EXCLUDE_RADIUS);
+
+    // See the v13 comment block above EG_MARK_THRESHOLD — this is the
+    // single number that makes every absolute-pixel threshold below track
+    // THIS capture's actual exposure instead of assuming every photo of
+    // every sheet comes out equally bright.
+    const exposureScale = Math.min(EG_MAX_EXPOSURE_SCALE, Math.max(EG_MIN_EXPOSURE_SCALE, whiteField.median / EG_REFERENCE_WHITE));
+    const markThreshold = EG_MARK_THRESHOLD * exposureScale;
+    const coreMinForConfident = EG_CORE_MIN_FOR_CONFIDENT * exposureScale;
+    const coreThreshold = EG_CORE_THRESHOLD * exposureScale;
+    const coreMarginThreshold = EG_CORE_MARGIN * exposureScale;
 
     function darkAt(x, y, radius) {
       return whiteField.at(x, y) - egSampleFillScore(gray, w, h, x, y, radius);
@@ -1524,8 +1665,11 @@
       }));
       // "Genuinely filled" = broad coverage passes AND the centre itself
       // is actually inked — see EG_CORE_MIN_FOR_CONFIDENT above for why
-      // the second half matters.
-      const genuine = c => c.broad > EG_MARK_THRESHOLD && c.core > EG_CORE_MIN_FOR_CONFIDENT;
+      // the second half matters. Both sides of this check use the
+      // exposure-scaled thresholds (see v13 note above), not the raw
+      // constants, so the same physical mark reads the same way whether
+      // this particular capture happened to come out brighter or dimmer.
+      const genuine = c => c.broad > markThreshold && c.core > coreMinForConfident;
 
       let best = null, second = -Infinity;
       const aboveThreshold = [];
@@ -1548,7 +1692,7 @@
         else if (c.core > coreSecond) { coreSecond = c.core; }
       });
       const coreMargin = coreBest ? coreBest.core - (coreSecond === -Infinity ? 0 : coreSecond) : 0;
-      if (coreBest && coreBest.core > EG_CORE_THRESHOLD && coreMargin > EG_CORE_MARGIN) {
+      if (coreBest && coreBest.core > coreThreshold && coreMargin > coreMarginThreshold) {
         return { value: coreBest, margin: coreMargin, flag: "faint" };
       }
 
@@ -1592,6 +1736,20 @@
 
   // Scores a detection against the exam's Answer Key (the key for the
   // detected Set, falling back to Set A / the legacy single key).
+  //
+  // BUG FIX: a "multi" flag (two-or-more options genuinely filled — see
+  // pickBest) was only ever painted as a blue review ring; the actual
+  // right/wrong grading below still compared detectedLetter (pickBest's
+  // "best"/darkest guess among the several filled options) straight
+  // against the Answer Key. So whenever that darkest guess happened to
+  // MATCH the key, a multi-marked question silently scored "correct" and
+  // added a mark — exactly backwards, since a student who filled more
+  // than one bubble gave an invalid/ambiguous response and should never
+  // get credit for it, regardless of which one of their marks happens to
+  // line up with the key. A genuinely double-filled bubble on a real
+  // OMR sheet is void, full stop — not "credit if you're lucky". Fixed by
+  // checking the multi flag BEFORE the correct/wrong comparison and
+  // forcing it to "wrong" unconditionally.
   function examgrGradeSheet(ex, detected) {
     const keyArr = examgrResolveAnswerKeyForGrading(ex, detected.setLetter);
     let correct = 0, wrong = 0, blank = 0, ungraded = 0, flagged = 0;
@@ -1604,6 +1762,7 @@
       const multiOptions = detected.answerMultiOptions ? (detected.answerMultiOptions[q] || null) : null;
       let status;
       if (!correctLetter) { status = "ungraded"; ungraded++; }
+      else if (flag === "multi") { status = "wrong"; wrong++; } // multiple options marked = void response, never counted correct
       else if (detectedLetter === null) { status = "blank"; blank++; }
       else if (detectedLetter === correctLetter) { status = "correct"; correct++; }
       else { status = "wrong"; wrong++; }
@@ -1673,8 +1832,15 @@
       } else if (pq.status === "wrong") {
         const px = optsPx[pq.detectedOpt];
         dot(px.x, px.y, 9, RED, true);
-        if (pq.correctLetter) {
-          const correctIdx = OPTION_LETTERS.indexOf(pq.correctLetter);
+        // Skip the usual pale "this was the right answer" gold dot when it
+        // would land on the exact same bubble as the red dot above — this
+        // now happens for a multi-marked question forced to "wrong" whose
+        // darkest pick happens to be the correct letter (see
+        // examgrGradeSheet). That bubble is already unambiguous (red dot +
+        // a blue multi-ring from the flag loop below); a gold dot stacked
+        // on the identical spot only adds visual clutter, not information.
+        const correctIdx = pq.correctLetter ? OPTION_LETTERS.indexOf(pq.correctLetter) : -1;
+        if (pq.correctLetter && correctIdx !== pq.detectedOpt) {
           const cpx = optsPx[correctIdx];
           if (cpx) paleDot(cpx.x, cpx.y, 6, GOLD);
         }
@@ -2172,7 +2338,10 @@
       if (!scannerRawVideoCanvas) scannerRawVideoCanvas = document.createElement("canvas");
       scannerRawVideoCanvas.width = videoWidth;
       scannerRawVideoCanvas.height = videoHeight;
-      scannerRawVideoCanvas.getContext("2d").drawImage(scannerVideo, 0, 0, videoWidth, videoHeight);
+      // willReadFrequently HERE (this canvas's first-ever getContext call
+      // in the common case) — see the identical note on
+      // scannerBestRawVideoCanvas below for why this matters a lot.
+      scannerRawVideoCanvas.getContext("2d", { willReadFrequently: true }).drawImage(scannerVideo, 0, 0, videoWidth, videoHeight);
     }
 
     // True 4-point perspective correction (see egWarpPerspective above)
@@ -2183,18 +2352,23 @@
       OMR_SCAN_MARKERS["top-left"], OMR_SCAN_MARKERS["top-right"],
       OMR_SCAN_MARKERS["bottom-left"], OMR_SCAN_MARKERS["bottom-right"]
     ];
-    const warped = egWarpPerspective(scannerRawVideoCanvas, videoQuad, templateQuad, OMR_CANVAS_SIZE);
+    const { canvas: warped, gray: warpedGray } = egWarpPerspective(scannerRawVideoCanvas, videoQuad, templateQuad, OMR_CANVAS_SIZE);
 
     scannerCaptureCanvas.width = OMR_CANVAS_SIZE.width;
     scannerCaptureCanvas.height = OMR_CANVAS_SIZE.height;
-    scannerCaptureCanvas.getContext("2d").drawImage(warped, 0, 0);
-    // Strip any camera/video colour cast (see egDesaturateCanvas) right
-    // away, on the ONE canvas everything downstream is copied from —
-    // registration squares and bubbles are pure black/white ink, so a
-    // clean grayscale capture here is what stops a blue tint from ever
-    // reaching the raw copy, the grading read, the review photo, or the
-    // saved image.
-    egDesaturateCanvas(scannerCaptureCanvas);
+    // willReadFrequently HERE too — this is scannerCaptureCanvas's
+    // first-ever getContext call, and it gets getImageData'd again below
+    // in the deferred detect step (or used to also get it from the now-
+    // removed egDesaturateCanvas pass) — see the perf note above
+    // egWarpPerspective for why the ordering matters.
+    scannerCaptureCanvas.getContext("2d", { willReadFrequently: true }).drawImage(warped, 0, 0);
+    // No separate egDesaturateCanvas call needed any more — egWarpPerspective
+    // already desaturates (R=G=B=luminance) in the same pass that produces
+    // `warped`, so this canvas is already clean black/white/gray. Strips
+    // any camera/video colour cast (chroma-subsampling can smear a stray
+    // blue/purple tint onto small high-contrast features like the
+    // registration squares) exactly as before, just computed once instead
+    // of in a redundant extra full-canvas pass.
     if (!scannerRawCanvas) scannerRawCanvas = document.createElement("canvas");
     scannerRawCanvas.width = OMR_CANVAS_SIZE.width;
     scannerRawCanvas.height = OMR_CANVAS_SIZE.height;
@@ -2210,7 +2384,11 @@
     if (scannerGMarks) scannerGMarks.textContent = "0.0";
 
     requestAnimationFrame(() => {
-      const detected = examgrDetectFromCanvas(scannerCaptureCanvas, ex);
+      // Passes through the grayscale buffer egWarpPerspective already
+      // built (see its perf note) so this doesn't re-read the whole
+      // canvas a third time — null only on the rare degenerate-homography
+      // fallback, in which case examgrDetectFromCanvas computes it itself.
+      const detected = examgrDetectFromCanvas(scannerCaptureCanvas, ex, warpedGray);
       const graded = examgrGradeSheet(ex, detected);
       scannerDetected = detected;
       scannerGraded = graded;
@@ -2256,6 +2434,12 @@
     btn.disabled = true;
     btn.textContent = "⏳ Saving...";
 
+    // Pull in any results already sitting in the scanResults subcollection
+    // from an earlier session BEFORE pushing this new one, so ex.results
+    // stays complete even if the admin scans first and opens Reports/CSV
+    // later. Cheap after the first call (see ensureExamResultsLoaded).
+    await ensureExamResultsLoaded(id, ex);
+
     const resultId = (Date.now().toString(36) + Math.random().toString(36).slice(2, 8));
 
     const resultObj = {
@@ -2290,7 +2474,27 @@
     let pendingSync = false;
     if (database) {
       try {
-        // Firestore ka .update() Promise sirf tabhi resolve hota hai jab
+        // SCAN-SESSION PERF FIX: this used to send the WHOLE `results`
+        // array via arrayUnion() on the parent exam doc on every single
+        // scan. That array only grows during a session, so each new scan
+        // had to locally re-serialize/merge a bigger and bigger payload —
+        // scan #80 did far more client-side work than scan #5. That's
+        // exactly what was behind "the longer I keep scanning, the more
+        // it slows down / hangs", separate from the per-frame camera
+        // capture fix (see the PERF FIX comments in runScannerDetection
+        // above, which fixed the OTHER hang — the one on every capture
+        // regardless of session length). Now each result is its own tiny
+        // doc in a scanResults subcollection (same pattern already used
+        // for scanPhotos below), so every scan's write is the same small
+        // size no matter how long the session has been running.
+        const examRef = database.collection(COLLECTION).doc(id);
+        const batch = database.batch();
+        batch.set(examRef.collection("scanResults").doc(resultId), resultObj);
+        batch.update(examRef, {
+          scanned: firebase.firestore.FieldValue.increment(1),
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        // Firestore ka commit() Promise sirf tabhi resolve hota hai jab
         // SERVER confirm kar de — offline ya bahut weak internet mein ye
         // kabhi resolve/reject hi nahi hota (kyunki offline persistence
         // write ko local cache mein queue kar deta hai aur silently connection
@@ -2299,25 +2503,22 @@
         // hum user ko fasne nahi dete — local write already ho chuki hoti
         // hai (nीचे dekhein), bas server-confirmation background mein hoti
         // rahegi aur internet aate hi apne aap sync ho jaayegi.
-        const updatePromise = database.collection(COLLECTION).doc(id).update({
-          results: firebase.firestore.FieldValue.arrayUnion(resultObj),
-          scanned: firebase.firestore.FieldValue.increment(1),
-          updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-        });
+        const commitPromise = batch.commit();
         const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve("TIMEOUT"), 10000));
-        const raceResult = await Promise.race([updatePromise, timeoutPromise]);
+        const raceResult = await Promise.race([commitPromise, timeoutPromise]);
 
         if (!Array.isArray(ex.results)) ex.results = [];
         ex.results.push(resultObj);
+        ex._resultsLoaded = true; // this session's copy is authoritative now — no re-fetch needed
         ex.scanned = (Number(ex.scanned) || 0) + 1;
         ok = true;
 
         if (raceResult === "TIMEOUT") {
           pendingSync = true;
-          // Update abhi bhi background mein chal raha hai (Firestore ise
+          // Commit abhi bhi background mein chal raha hai (Firestore ise
           // apne aap retry karta rahega) — agar wo baad mein fail ho jaaye
           // to sirf console mein warn karo, user ko dobara disturb mat karo.
-          updatePromise.catch((err) => console.warn("Background save (post-timeout) fail hui:", err));
+          commitPromise.catch((err) => console.warn("Background save (post-timeout) fail hui:", err));
         }
 
         examgrSaveFullPhoto(id, resultId, scannerCaptureCanvas); // fire-and-forget, non-fatal if it fails
@@ -2401,7 +2602,23 @@
             if (!scannerBestRawVideoCanvas) scannerBestRawVideoCanvas = document.createElement("canvas");
             scannerBestRawVideoCanvas.width = vw;
             scannerBestRawVideoCanvas.height = vh;
-            scannerBestRawVideoCanvas.getContext("2d").drawImage(scannerVideo, 0, 0, vw, vh);
+            // PERF FIX: willReadFrequently must be set on a canvas's VERY
+            // FIRST getContext('2d', ...) call to have any effect — later
+            // calls (like the one inside egWarpPerspective, which reads
+            // this exact canvas back at capture time via getImageData) are
+            // silently ignored once the context already exists. Without
+            // it here, this becomes the FIRST context for
+            // scannerBestRawVideoCanvas (this is almost always the frame
+            // captureAlignedOmr ends up warping from — see v10's
+            // "sharpest frame" note above), so every capture's biggest
+            // single getImageData call — the FULL native-resolution video
+            // frame, up to ~5MP — was forced through a slow GPU→CPU
+            // framebuffer readback instead of a fast CPU-backed read. That
+            // stall is the main thing behind "Scan Sheet freezes/hangs the
+            // whole phone" on mid/low-end Android devices: it blocks the
+            // single JS main thread with no chance to repaint the camera
+            // preview or respond to touches until it's done.
+            scannerBestRawVideoCanvas.getContext("2d", { willReadFrequently: true }).drawImage(scannerVideo, 0, 0, vw, vh);
           }
         }
       }
@@ -2649,9 +2866,10 @@
   // ────────────────────────────────────────────────────────────────
   // Reports — per-student list of everything scanned for this exam.
   // ────────────────────────────────────────────────────────────────
-  function examgrOpenReports() {
+  async function examgrOpenReports() {
     const ex = examMgrExams[examMgrSelectedId];
     if (!ex) return;
+    await ensureExamResultsLoaded(examMgrSelectedId, ex);
     const results = Array.isArray(ex.results) ? ex.results.slice() : [];
     results.sort((a, b) => (Number(b.marks) || 0) - (Number(a.marks) || 0));
 
@@ -3093,7 +3311,7 @@
     const ok = await examgrWriteScanReportDoc(mobile, ex, r);
     if (ok) {
       r.linkedMobile = mobile;
-      await examgrPersistResults(id, ex);
+      await examgrPersistResult(id, r);
       if (status) status.textContent = studentName
         ? `✅ ${studentName} se link ho gaya.`
         : "✅ Link ho gaya.";
@@ -3117,21 +3335,21 @@
       return;
     }
     delete r.linkedMobile;
-    await examgrPersistResults(id, ex);
+    await examgrPersistResult(id, r);
     examgrCloseLinkStudent();
   });
 
-  // Persists the (possibly edited/deleted) results array for the current
-  // exam back to Firestore. arrayUnion only appends, so any edit/delete
-  // has to overwrite the whole `results` field.
-  async function examgrPersistResults(id, ex) {
+  // Persists ONE edited/relinked result back to its own doc in the
+  // scanResults subcollection (see ensureExamResultsLoaded and the save
+  // handler above — each result is its own small doc now, not an entry
+  // in a single growing array field on the parent exam doc). An edit or
+  // unlink only ever touches the one result that changed, so this stays
+  // just as cheap on scan #200 of a session as it was on scan #2.
+  async function examgrPersistResult(id, r) {
     const database = db();
     if (!database) { alert("Firebase se connect nahi ho paya — internet check karein."); return false; }
     try {
-      await database.collection(COLLECTION).doc(id).update({
-        results: ex.results,
-        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-      });
+      await database.collection(COLLECTION).doc(id).collection("scanResults").doc(r.id).set(r);
       return true;
     } catch (err) {
       alert("Save nahi ho paya: " + (err.message || err));
@@ -3139,22 +3357,25 @@
     }
   }
 
-  // Permanently deletes one scanned result: removes it from the exam's
-  // `results` array AND deletes its full-quality photo document from
-  // the `scanPhotos` subcollection (examManagerExams/{examId}/scanPhotos/{resultId}).
-  // Previously only the results-array entry was removed — the photo
-  // doc was left behind in Firestore forever as orphaned data. Also
-  // covers a result that was re-scanned ("naya sheet" / rescan) and
-  // is being discarded — same cleanup applies either way.
-  async function examgrDeleteScanPhotoDoc(examId, resultId) {
+  // Permanently deletes one scanned result: its scanResults doc, its
+  // full-quality photo doc (scanPhotos subcollection), and updates the
+  // exam's `scanned` counter — batched into one round trip. Also covers
+  // a result that was re-scanned ("naya sheet" / rescan) and is being
+  // discarded — same cleanup applies either way.
+  async function examgrDeleteResult(examId, resultId, newScannedCount) {
     const database = db();
-    if (!database) return;
+    if (!database) return false;
     try {
-      await database.collection(COLLECTION).doc(examId).collection("scanPhotos").doc(resultId).delete();
+      const examRef = database.collection(COLLECTION).doc(examId);
+      const batch = database.batch();
+      batch.delete(examRef.collection("scanResults").doc(resultId));
+      batch.delete(examRef.collection("scanPhotos").doc(resultId));
+      batch.update(examRef, { scanned: newScannedCount, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+      await batch.commit();
+      return true;
     } catch (err) {
-      // Non-fatal — the result entry itself is the important part;
-      // an orphaned photo doc left behind on failure is harmless.
-      console.warn("[examgrDeleteScanPhotoDoc] photo cleanup failed:", err);
+      alert("Delete nahi ho paya: " + (err.message || err));
+      return false;
     }
   }
 
@@ -3172,12 +3393,11 @@
     ex.results = results;
     ex.scanned = results.length;
 
-    await examgrDeleteScanPhotoDoc(id, r.id);
-    const ok = await examgrPersistResults(id, ex);
+    const ok = await examgrDeleteResult(id, r.id, results.length);
     if (!ok) return;
 
     const nextIndex = Math.min(examgrReportIndex, results.length - 1);
-    examgrOpenReports(); // rebuilds + re-sorts the list (and examgrReportList) from ex.results
+    await examgrOpenReports(); // rebuilds + re-sorts the list (and examgrReportList) from ex.results
     if (results.length) examgrOpenReportDetail(nextIndex);
     else examgrCloseReportDetail();
   });
@@ -3325,7 +3545,7 @@
     const btn = $id("examgr-rd-edit-save-btn");
     const originalLabel = btn ? btn.textContent : "";
     if (btn) { btn.disabled = true; btn.textContent = "⏳ Saving..."; }
-    const ok = await examgrPersistResults(id, ex);
+    const ok = await examgrPersistResult(id, r);
     if (btn) { btn.disabled = false; btn.textContent = originalLabel; }
     if (!ok) return;
 
@@ -3338,9 +3558,10 @@
   // Analysis — per-question difficulty across every scanned sheet, so a
   // teacher can spot which questions the whole class struggled with.
   // ────────────────────────────────────────────────────────────────
-  function examgrOpenAnalysis() {
+  async function examgrOpenAnalysis() {
     const ex = examMgrExams[examMgrSelectedId];
     if (!ex) return;
+    await ensureExamResultsLoaded(examMgrSelectedId, ex);
     const results = Array.isArray(ex.results) ? ex.results : [];
     const n = results.length;
     const total = Math.max(1, Math.min(MAX_QUESTIONS, Number(ex.questions) || 0));
