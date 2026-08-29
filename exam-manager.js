@@ -661,13 +661,30 @@
     }
   ];
   // 4 outer-corner registration squares the scanner looks for while
-  // collecting sheets (matches OMR_MARKER_XS/YS's outer ring, refined
-  // slightly from the precomputed PDF-vector calibration).
+  // collecting sheets. Both the HTML preview (egMarkers, via egBoxStyle)
+  // and the printed PDF (doc.rect(mmPos(x), mmPos(y), mmPos(20), mmPos(20)))
+  // draw each 20x20 marker square with its TOP-LEFT corner at
+  // (OMR_MARKER_XS[i], OMR_MARKER_YS[j]) — so the square's true CENTER,
+  // which is what the scanner's blob detector locks onto in the photo
+  // (see the "x + minX + componentWidth / 2" center-of-mass calculation
+  // above), is (x + 10, y + 10), not (x, y).
+  //
+  // These were previously hand-tuned to slightly different values
+  // (116.26/207.16/1086.74/1419.79) that did NOT match that true center,
+  // and by a DIFFERENT amount on each corner (left columns off by ~1.3px,
+  // right columns by ~11.7px; top rows by ~2.2px, bottom rows by
+  // ~14.8px). Because this is the template-space reference the
+  // scan-time homography is solved against, feeding it a corner that
+  // doesn't match where that corner is actually printed distorts the
+  // whole warp — every bubble on the flattened sheet lands off by an
+  // amount that grows toward the bottom-right, exactly matching the
+  // "circle/dot doesn't sit on the bubble" symptom. Using the true
+  // geometric centers here removes that distortion.
   const OMR_SCAN_MARKERS = {
-    "top-left": { x: 116.26, y: 207.16 },
-    "top-right": { x: 1086.74, y: 207.16 },
-    "bottom-left": { x: 116.26, y: 1419.79 },
-    "bottom-right": { x: 1086.74, y: 1419.79 }
+    "top-left": { x: 115, y: 205 },
+    "top-right": { x: 1075, y: 205 },
+    "bottom-left": { x: 115, y: 1405 },
+    "bottom-right": { x: 1075, y: 1405 }
   };
 
   const egPx = v => `${v.toFixed(3)}px`;
@@ -1970,7 +1987,14 @@
       correct: scannerGraded.correct,
       wrong: scannerGraded.wrong,
       blank: scannerGraded.blank,
+      totalQuestions: scannerGraded.perQuestion.length,
       answers: scannerGraded.perQuestion.map(pq => pq.detectedLetter || null),
+      // flag/multiOptions per question (see pickBest) — kept so the Report
+      // Detail screen can show "A, C" for a double-marked question instead
+      // of silently collapsing it to whichever option pickBest guessed.
+      flags: scannerGraded.perQuestion.map(pq => pq.flag || null),
+      multiOptions: scannerGraded.perQuestion.map(pq =>
+        pq.multiOptions ? pq.multiOptions.map(o => OPTION_LETTERS[o.opt]) : null),
       scannedAt: Date.now(),
       thumb: examgrMakeThumb(scannerCaptureCanvas)
     };
@@ -2245,7 +2269,7 @@
     const listEl = $id("examgr-reports-list");
     if (listEl) {
       listEl.innerHTML = results.length ? results.map((r, i) => `
-        <div class="examgr-report-row">
+        <div class="examgr-report-row" data-idx="${i}">
           <div class="examgr-report-avatar">👤</div>
           <div class="examgr-report-body">
             <div class="examgr-report-top">
@@ -2264,6 +2288,10 @@
         : '<div class="examgr-empty">📷 Abhi tak koi sheet scan nahi hui — "Scan Sheet" se shuru karein.</div>';
     }
 
+    // Sorted list + which student to jump to are shared with Report Detail
+    // (tapping a row opens the same order, so rank/prev/next line up).
+    examgrReportList = results;
+
     $id("examgr-details-overlay")?.classList.add("hidden");
     $id("examgr-reports-overlay")?.classList.remove("hidden");
   }
@@ -2276,16 +2304,346 @@
 
   $id("examgr-reports-list")?.addEventListener("click", (e) => {
     const thumb = e.target.closest(".examgr-report-thumb");
-    if (!thumb) return;
-    const img = $id("examgr-report-photo-img");
-    if (img) img.src = thumb.dataset.full;
-    $id("examgr-report-photo-overlay")?.classList.remove("hidden");
+    if (thumb) {
+      const img = $id("examgr-report-photo-img");
+      if (img) img.src = thumb.dataset.full;
+      $id("examgr-report-photo-overlay")?.classList.remove("hidden");
+      return;
+    }
+    const row = e.target.closest(".examgr-report-row");
+    if (!row) return;
+    examgrOpenReportDetail(Number(row.dataset.idx));
   });
 
   function examgrCloseReportPhoto() {
     $id("examgr-report-photo-overlay")?.classList.add("hidden");
   }
   window.examgrCloseReportPhoto = examgrCloseReportPhoto;
+
+  // ────────────────────────────────────────────────────────────────
+  // Report Detail — single-student drill-down from the Reports list:
+  // full Subject/Marks/Percentage/Correct-Answers summary, the scanned
+  // sheet photo, a per-question Attempted/Correct/Marks table, and
+  // Delete / Edit / Share actions with Prev/Next to flip through every
+  // scanned student without going back to the list each time.
+  // ────────────────────────────────────────────────────────────────
+  let examgrReportList = [];   // same sorted array examgrOpenReports built
+  let examgrReportIndex = 0;
+
+  // This app doesn't have a real multi-subject/section configuration (an
+  // exam is just N questions against one Answer Key) — the summary table
+  // below always shows a single generic "Subject 1" / "Section1" row
+  // mirroring the exam's one true total, plus the "Total Marks" row.
+  function examgrReportSummaryRows(ex, r) {
+    const total = Number(r.totalQuestions) || Number(ex.questions) || 0;
+    const marks = Number(r.marks) || 0;
+    const pct = total ? (marks / total * 100) : 0;
+    const correct = Number(r.correct) || 0;
+    const row = { marks: marks.toFixed(1), pct: pct.toFixed(1) + "%", correct };
+    return [
+      { label: "Subject 1", ...row },
+      { label: "Section1", ...row },
+      { label: "Total Marks", ...row, total: true }
+    ];
+  }
+
+  function examgrReportQuestionRows(ex, r) {
+    const total = Number(r.totalQuestions) || Number(ex.questions) || 0;
+    const keyArr = examgrResolveAnswerKeyForGrading(ex, r.setLetter);
+    const answers = Array.isArray(r.answers) ? r.answers : [];
+    const flags = Array.isArray(r.flags) ? r.flags : [];
+    const multi = Array.isArray(r.multiOptions) ? r.multiOptions : [];
+    const rows = [];
+    for (let i = 0; i < total; i++) {
+      const correctLetter = keyArr[i] || null;
+      const detected = answers[i] || null;
+      const flag = flags[i] || null;
+      const attemptedText = flag === "multi" && multi[i] && multi[i].length
+        ? multi[i].join(", ")
+        : (detected || "");
+      let status = "blank";
+      if (!correctLetter) status = "ungraded";
+      else if (!detected) status = "blank";
+      else if (detected === correctLetter) status = "correct";
+      else status = "wrong";
+      const marks = status === "correct" ? 1 : 0;
+      rows.push({ q: i + 1, attemptedText, correctLetter: correctLetter || "—", marks, status, flag });
+    }
+    return rows;
+  }
+
+  function examgrRenderReportDetail() {
+    const ex = examMgrExams[examMgrSelectedId];
+    const r = examgrReportList[examgrReportIndex];
+    if (!ex || !r) return;
+
+    $id("examgr-rd-title").textContent = `Roll No : ${r.roll || "—"}`;
+    $id("examgr-rd-page-text").textContent = `Report ${examgrReportIndex + 1}/${examgrReportList.length}`;
+    $id("examgr-rd-prev-btn").disabled = examgrReportIndex <= 0;
+    $id("examgr-rd-next-btn").disabled = examgrReportIndex >= examgrReportList.length - 1;
+
+    const summaryRows = examgrReportSummaryRows(ex, r);
+    const qRows = examgrReportQuestionRows(ex, r);
+
+    const body = $id("examgr-rd-body");
+    if (!body) return;
+    body.innerHTML = `
+      <div class="examgr-rd-info-row"><span>Class</span><span>${escHtml(ex.className || "—")}</span></div>
+      <div class="examgr-rd-info-row"><span>Exam</span><span>${escHtml(ex.examName || "—")}</span></div>
+      <div class="examgr-rd-info-row"><span>Exam Set</span><span>${escHtml(r.setLetter || "—")}</span></div>
+      <div class="examgr-rd-info-row"><span>Rank</span><span>${examgrReportIndex + 1}</span></div>
+
+      <table class="examgr-rd-table">
+        <thead><tr><th>Subject</th><th>Marks</th><th>Percentage</th><th>Correct Answers</th></tr></thead>
+        <tbody>
+          ${summaryRows.map(row => `
+            <tr${row.total ? ' class="examgr-rd-total-row"' : ""}>
+              <td>${escHtml(row.label)}</td>
+              <td class="examgr-rd-num">${row.marks}</td>
+              <td class="examgr-rd-num">${row.pct}</td>
+              <td class="examgr-rd-num">${row.correct}</td>
+            </tr>`).join("")}
+        </tbody>
+      </table>
+
+      ${r.thumb ? `<div class="examgr-rd-sheet-img-wrap"><img class="examgr-rd-sheet-img" id="examgr-rd-sheet-img" src="${r.thumb}" alt="Scanned sheet"></div>` : ""}
+
+      <table class="examgr-rd-table examgr-rd-qtable">
+        <thead><tr><th>Q No</th><th>Attempted</th><th>Correct</th><th>Marks</th></tr></thead>
+        <tbody>
+          ${qRows.map(row => `
+            <tr class="examgr-rd-row-${row.status}">
+              <td>${row.q}</td>
+              <td class="examgr-rd-attempted${row.flag === "multi" ? " examgr-rd-flag-multi" : row.flag === "faint" ? " examgr-rd-flag-faint" : ""}">${escHtml(row.attemptedText)}</td>
+              <td>${escHtml(row.correctLetter)}</td>
+              <td class="examgr-rd-num">${row.marks.toFixed(1)}</td>
+            </tr>`).join("")}
+        </tbody>
+      </table>
+    `;
+  }
+
+  function examgrOpenReportDetail(idx) {
+    if (!examgrReportList.length) return;
+    examgrReportIndex = Math.max(0, Math.min(examgrReportList.length - 1, idx || 0));
+    examgrRenderReportDetail();
+    $id("examgr-reports-overlay")?.classList.add("hidden");
+    $id("examgr-report-detail-overlay")?.classList.remove("hidden");
+  }
+
+  function examgrCloseReportDetail() {
+    $id("examgr-report-detail-overlay")?.classList.add("hidden");
+    $id("examgr-reports-overlay")?.classList.remove("hidden");
+  }
+  window.examgrCloseReportDetail = examgrCloseReportDetail;
+
+  $id("examgr-rd-back-btn")?.addEventListener("click", examgrCloseReportDetail);
+  $id("examgr-rd-prev-btn")?.addEventListener("click", () => {
+    if (examgrReportIndex > 0) { examgrReportIndex--; examgrRenderReportDetail(); }
+  });
+  $id("examgr-rd-next-btn")?.addEventListener("click", () => {
+    if (examgrReportIndex < examgrReportList.length - 1) { examgrReportIndex++; examgrRenderReportDetail(); }
+  });
+  $id("examgr-rd-body")?.addEventListener("click", (e) => {
+    const img = e.target.closest("#examgr-rd-sheet-img");
+    if (!img) return;
+    const photoImg = $id("examgr-report-photo-img");
+    if (photoImg) photoImg.src = img.src;
+    $id("examgr-report-photo-overlay")?.classList.remove("hidden");
+  });
+
+  // Persists the (possibly edited/deleted) results array for the current
+  // exam back to Firestore. arrayUnion only appends, so any edit/delete
+  // has to overwrite the whole `results` field.
+  async function examgrPersistResults(id, ex) {
+    const database = db();
+    if (!database) { alert("Firebase se connect nahi ho paya — internet check karein."); return false; }
+    try {
+      await database.collection(COLLECTION).doc(id).update({
+        results: ex.results,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+      });
+      return true;
+    } catch (err) {
+      alert("Save nahi ho paya: " + (err.message || err));
+      return false;
+    }
+  }
+
+  $id("examgr-rd-delete-btn")?.addEventListener("click", async () => {
+    const id = examMgrSelectedId;
+    const ex = examMgrExams[id];
+    const r = examgrReportList[examgrReportIndex];
+    if (!ex || !r) return;
+    if (!confirm(`Roll No ${r.roll || "—"} ka result delete karein? Ye wapas nahi hoga.`)) return;
+
+    const results = Array.isArray(ex.results) ? ex.results : [];
+    const pos = results.findIndex(x => x.id === r.id);
+    if (pos === -1) return;
+    results.splice(pos, 1);
+    ex.results = results;
+    ex.scanned = results.length;
+
+    const ok = await examgrPersistResults(id, ex);
+    if (!ok) return;
+
+    const nextIndex = Math.min(examgrReportIndex, results.length - 1);
+    examgrOpenReports(); // rebuilds + re-sorts the list (and examgrReportList) from ex.results
+    if (results.length) examgrOpenReportDetail(nextIndex);
+    else examgrCloseReportDetail();
+  });
+
+  $id("examgr-rd-share-btn")?.addEventListener("click", async () => {
+    const ex = examMgrExams[examMgrSelectedId];
+    const r = examgrReportList[examgrReportIndex];
+    if (!ex || !r) return;
+    const total = Number(r.totalQuestions) || Number(ex.questions) || 0;
+    const text = `${ex.examName || "Exam"} — Roll No ${r.roll || "—"}\n` +
+      `Class: ${ex.className || "—"} · Set: ${r.setLetter || "—"}\n` +
+      `Marks: ${(Number(r.marks) || 0).toFixed(1)} / ${total} (${total ? ((Number(r.marks) || 0) / total * 100).toFixed(1) : "0.0"}%)\n` +
+      `Correct: ${r.correct || 0} · Wrong: ${r.wrong || 0} · Blank: ${r.blank || 0}`;
+    if (navigator.share) {
+      try { await navigator.share({ title: `Roll No ${r.roll} Report`, text }); }
+      catch (err) { /* user cancelled share — nothing to do */ }
+    } else if (navigator.clipboard) {
+      try { await navigator.clipboard.writeText(text); examgrShowNotice("📋 Report clipboard mein copy ho gaya."); }
+      catch (err) { alert(text); }
+    } else {
+      alert(text);
+    }
+  });
+
+  // ── Report Detail → Edit (Roll No / Set / individual answers) ──
+  let editRdDraftSet = null;
+  let editRdDraftRollDigits = [];
+  let editRdDraftAnswers = {};
+
+  function examgrOpenReportEdit() {
+    const ex = examMgrExams[examMgrSelectedId];
+    const r = examgrReportList[examgrReportIndex];
+    if (!ex || !r) return;
+
+    const rollDigits = Math.max(1, Math.min(5, Number(ex.rollDigits) || 5));
+    editRdDraftRollDigits = String(r.roll || "").padStart(rollDigits, "?").slice(-rollDigits)
+      .split("").map(c => (c >= "0" && c <= "9") ? Number(c) : null);
+    editRdDraftSet = r.setLetter || null;
+    const total = Number(r.totalQuestions) || Number(ex.questions) || 0;
+    const answers = Array.isArray(r.answers) ? r.answers : [];
+    editRdDraftAnswers = {};
+    for (let i = 0; i < total; i++) editRdDraftAnswers[i + 1] = answers[i] || null;
+
+    const rollsetEl = $id("examgr-rd-edit-rollset");
+    if (rollsetEl) {
+      rollsetEl.innerHTML = `
+        <div class="examgr-edit-block">
+          <label>Roll No</label>
+          <div style="display:flex;gap:6px;">
+            ${editRdDraftRollDigits.map((d, i) => `
+              <select class="examgr-edit-roll-digit" data-col="${i}" style="flex:1;padding:8px;border-radius:8px;border:1.5px solid rgba(30,27,75,.15);text-align:center;font-weight:700;color:var(--navy);background:#fff;">
+                <option value="">?</option>
+                ${Array.from({ length: 10 }, (_, n) => `<option value="${n}"${d === n ? " selected" : ""}>${n}</option>`).join("")}
+              </select>`).join("")}
+          </div>
+        </div>
+        <div class="examgr-edit-block" style="margin-top:12px;">
+          <label>Exam Set</label>
+          <select id="examgr-rd-edit-set" style="width:100%;padding:9px;border-radius:8px;border:1.5px solid rgba(30,27,75,.15);font-weight:700;color:var(--navy);background:#fff;">
+            ${SET_LETTERS.map(l => `<option value="${l}"${editRdDraftSet === l ? " selected" : ""}>${l}</option>`).join("")}
+          </select>
+        </div>`;
+      rollsetEl.querySelectorAll(".examgr-edit-roll-digit").forEach(sel => {
+        sel.addEventListener("change", (e) => {
+          const col = Number(e.target.dataset.col);
+          editRdDraftRollDigits[col] = e.target.value === "" ? null : Number(e.target.value);
+        });
+      });
+      $id("examgr-rd-edit-set")?.addEventListener("change", (e) => { editRdDraftSet = e.target.value; });
+    }
+
+    const qlistEl = $id("examgr-rd-edit-qlist");
+    if (qlistEl) {
+      qlistEl.innerHTML = Array.from({ length: total }, (_, i) => {
+        const q = i + 1;
+        return `
+        <div class="examgr-akey-row">
+          <span class="examgr-akey-qnum">${q}</span>
+          ${OPTION_LETTERS.map(letter => `
+            <button type="button" class="examgr-akey-opt${editRdDraftAnswers[q] === letter ? " selected" : ""}" data-rq="${q}" data-letter="${letter}">${letter}</button>`).join("")}
+        </div>`;
+      }).join("");
+    }
+
+    $id("examgr-report-detail-overlay")?.classList.add("hidden");
+    $id("examgr-report-edit-overlay")?.classList.remove("hidden");
+  }
+
+  function examgrCloseReportEdit() {
+    $id("examgr-report-edit-overlay")?.classList.add("hidden");
+    $id("examgr-report-detail-overlay")?.classList.remove("hidden");
+  }
+  window.examgrCloseReportEdit = examgrCloseReportEdit;
+
+  $id("examgr-rd-edit-btn")?.addEventListener("click", examgrOpenReportEdit);
+
+  $id("examgr-rd-edit-qlist")?.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-rq]");
+    if (!btn) return;
+    const q = Number(btn.dataset.rq);
+    const letter = btn.dataset.letter;
+    editRdDraftAnswers[q] = editRdDraftAnswers[q] === letter ? null : letter;
+    const row = btn.closest(".examgr-akey-row");
+    row.querySelectorAll(".examgr-akey-opt").forEach(b =>
+      b.classList.toggle("selected", b.dataset.letter === editRdDraftAnswers[q]));
+  });
+
+  $id("examgr-rd-edit-save-btn")?.addEventListener("click", async () => {
+    const id = examMgrSelectedId;
+    const ex = examMgrExams[id];
+    const r = examgrReportList[examgrReportIndex];
+    if (!ex || !r) return;
+
+    const rollKnown = editRdDraftRollDigits.every(d => d !== null);
+    const roll = rollKnown ? editRdDraftRollDigits.join("") : editRdDraftRollDigits.map(d => d === null ? "?" : d).join("");
+    const total = Number(r.totalQuestions) || Number(ex.questions) || 0;
+    const keyArr = examgrResolveAnswerKeyForGrading(ex, editRdDraftSet);
+
+    let correct = 0, wrong = 0, blank = 0;
+    const answers = [];
+    for (let i = 0; i < total; i++) {
+      const letter = editRdDraftAnswers[i + 1] || null;
+      answers.push(letter);
+      const correctLetter = keyArr[i] || null;
+      if (!letter) blank++;
+      else if (correctLetter && letter === correctLetter) correct++;
+      else wrong++;
+    }
+
+    r.roll = roll;
+    r.setLetter = editRdDraftSet;
+    r.answers = answers;
+    r.flags = new Array(total).fill(null);   // manual edit resolves any multi/faint flag
+    r.multiOptions = new Array(total).fill(null);
+    r.correct = correct;
+    r.wrong = wrong;
+    r.blank = blank;
+    r.marks = correct;
+
+    const results = Array.isArray(ex.results) ? ex.results : [];
+    const pos = results.findIndex(x => x.id === r.id);
+    if (pos !== -1) results[pos] = r;
+    ex.results = results;
+
+    const btn = $id("examgr-rd-edit-save-btn");
+    const originalLabel = btn ? btn.textContent : "";
+    if (btn) { btn.disabled = true; btn.textContent = "⏳ Saving..."; }
+    const ok = await examgrPersistResults(id, ex);
+    if (btn) { btn.disabled = false; btn.textContent = originalLabel; }
+    if (!ok) return;
+
+    examgrReportList[examgrReportIndex] = r;
+    examgrRenderReportDetail();
+    examgrCloseReportEdit();
+  });
 
   // ────────────────────────────────────────────────────────────────
   // Analysis — per-question difficulty across every scanned sheet, so a

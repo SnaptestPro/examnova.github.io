@@ -665,6 +665,39 @@
       <img id="examgr-report-photo-img" alt="Scanned sheet" style="max-width:92vw;max-height:88vh;border-radius:10px;">
     </div>
 
+    <!-- Reports: single-student detail (tap a report row) -->
+    <div id="examgr-report-detail-overlay" class="test-analysis-overlay examgr-overlay-full hidden">
+      <div class="test-analysis-sheet examgr-rd-sheet">
+        <div class="examgr-rd-head">
+          <button type="button" class="examgr-rd-icon-btn" id="examgr-rd-back-btn" aria-label="Back">←</button>
+          <div class="examgr-rd-title" id="examgr-rd-title">Roll No : —</div>
+          <button type="button" class="examgr-rd-icon-btn" id="examgr-rd-delete-btn" aria-label="Delete">🗑️</button>
+          <button type="button" class="examgr-rd-icon-btn" id="examgr-rd-edit-btn" aria-label="Edit">✏️</button>
+          <button type="button" class="examgr-rd-icon-btn" id="examgr-rd-share-btn" aria-label="Share">📤</button>
+        </div>
+        <div class="examgr-rd-body" id="examgr-rd-body"></div>
+        <div class="examgr-rd-footer">
+          <button type="button" class="examgr-rd-nav-btn" id="examgr-rd-prev-btn" aria-label="Previous">‹</button>
+          <span id="examgr-rd-page-text">Report 1/1</span>
+          <button type="button" class="examgr-rd-nav-btn" id="examgr-rd-next-btn" aria-label="Next">›</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Reports: edit a saved student's Roll No / Set / answers -->
+    <div id="examgr-report-edit-overlay" class="test-analysis-overlay examgr-overlay-full hidden" onclick="if(event.target===this) examgrCloseReportEdit()">
+      <div class="test-analysis-sheet examgr-akey-sheet">
+        <button type="button" class="test-analysis-close" onclick="examgrCloseReportEdit()">✕</button>
+        <div class="test-analysis-title">✏️ Result Edit Karein</div>
+        <p class="muted-text">Roll No, Exam Set ya kisi bhi question ka jawab yahan se sahi karein.</p>
+        <div class="examgr-edit-rollset" id="examgr-rd-edit-rollset"></div>
+        <div class="examgr-akey-list" id="examgr-rd-edit-qlist"></div>
+        <div class="examgr-akey-footer">
+          <button type="button" class="btn-primary" id="examgr-rd-edit-save-btn" style="width:100%;">💾 Save</button>
+        </div>
+      </div>
+    </div>
+
     <!-- ── ADMIN LOGIN ── -->
     <form id="admin-login-form" class="hidden card" autocomplete="off">
       <h2 class="section-title">🔐 Admin Login</h2>
