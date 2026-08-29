@@ -1656,17 +1656,22 @@
 
   function egBuildLocalRegistrationField(ctx, w, h) {
     const found = [];
+    const missed = []; // expected-but-not-found markers, kept purely so the
+    // overlay can show exactly which squares scanning could NOT use (see
+    // examgrPaintOverlay) — helps spot a glare/shadow/crop patch at a glance.
     OMR_MARKER_YS.forEach(y => OMR_MARKER_XS.forEach(x => {
-      const off = findLocalMarkerOffset(ctx, x + 10, y + 10, w, h);
-      if (off) found.push(off);
+      const ex = x + 10, ey = y + 10;
+      const off = findLocalMarkerOffset(ctx, ex, ey, w, h);
+      if (off) found.push(off); else missed.push({ ex, ey });
     }));
     const MIN_POINTS = 8; // need a real spread before trusting local correction — otherwise zero correction (old behaviour) is safer than extrapolating from a handful of points
     if (found.length < MIN_POINTS) {
-      return { active: false, points: found, at: () => ({ dx: 0, dy: 0 }) };
+      return { active: false, points: found, missed, at: () => ({ dx: 0, dy: 0 }) };
     }
     return {
       active: true,
       points: found,
+      missed,
       at(x, y) {
         let wSum = 0, dxSum = 0, dySum = 0;
         for (let i = 0; i < found.length; i++) {
@@ -1680,6 +1685,7 @@
         return wSum ? { dx: dxSum / wSum, dy: dySum / wSum } : { dx: 0, dy: 0 };
       }
     };
+
   }
 
   function examgrDetectFromCanvas(canvas, ex, precomputedGray) {
@@ -1698,6 +1704,7 @@
     // result overlay can show exactly which internal markers were found
     // and used — a visible way to sanity-check alignment, not just trust it.
     map.regFieldPoints = regField.points;
+    map.regFieldMissed = regField.missed;
     map.regFieldActive = regField.active;
 
     // Flatten every registered bubble centre so the white-level field can
@@ -2021,6 +2028,15 @@
     // whole sheet; if a patch of them is missing (photo crop/glare/crease
     // covering that area) or off, you can see exactly WHERE the sheet
     // wasn't read reliably instead of only guessing from a wrong mark.
+    // v16/v17: colour every registration square by whether scanning could
+    // actually USE it — solid blue dot right on the printed square = found
+    // and used for local paper-warp correction there. A thin red ring at
+    // the square's EXPECTED spot = looked for it and could NOT find it
+    // (glare, shadow, crease shadow, cropped edge, ink smudge, etc) — that
+    // patch of the sheet had to rely on nearby markers instead. Together
+    // these make it obvious at a glance which regions of THIS capture were
+    // reliably read vs which weren't, instead of only ever seeing the
+    // downstream effect (a wrong/missing answer) with no way to tell why.
     if (Array.isArray(map.regFieldPoints)) {
       map.regFieldPoints.forEach(p => {
         ctx.beginPath();
@@ -2028,6 +2044,23 @@
         ctx.globalAlpha = 0.95;
         ctx.fillStyle = REVIEW_BLUE;
         ctx.fill();
+        ctx.globalAlpha = 1;
+      });
+    }
+    if (Array.isArray(map.regFieldMissed)) {
+      map.regFieldMissed.forEach(p => {
+        ctx.beginPath();
+        ctx.arc(p.ex, p.ey, 7, 0, Math.PI * 2);
+        ctx.lineWidth = 2;
+        // Deliberately NOT red — red is already "wrong answer" everywhere
+        // else on this same photo, and a student glancing at their sheet
+        // would read a red mark near their answers as "something here is
+        // wrong with MY answer", which isn't what this is. Neutral grey
+        // instead: purely an admin/teacher diagnostic (which squares
+        // scanning couldn't use), unrelated to grading.
+        ctx.strokeStyle = "#8a8a8a";
+        ctx.globalAlpha = 0.9;
+        ctx.stroke();
         ctx.globalAlpha = 1;
       });
     }
