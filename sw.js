@@ -1,4 +1,4 @@
-const CACHE_NAME = 'savyasachi-v74-exam-manager-pdf-20260826';
+const CACHE_NAME = 'savyasachi-v75-scan-save-timeout-fix-20260829';
 
 // App-shell files — sab kuch jo student ko app chalane ke liye chahiye
 // (code + question-bank data + icons). Pehli visit par yeh sab download
