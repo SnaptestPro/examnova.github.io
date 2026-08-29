@@ -3730,29 +3730,42 @@
     if (qlistEl) {
       qlistEl.innerHTML = Array.from({ length: total }, (_, i) => examgrAkeyRowHtml(i + 1, editRdDraftAnswers[i + 1], "rq", null)).join("");
 
-      // No sharp photo in memory yet at this point (only the tiny
-      // embedded list thumbnail, too low-res to crop a single bubble
-      // out of legibly) — fetch the full-quality saved photo, same one
-      // Report Detail lazy-swaps in, and once it's loaded re-render
-      // this same list with each question's 4 cropped bubbles added
-      // above its A/B/C/D buttons, so a teacher can see exactly what
-      // was marked instead of only trusting the auto-detected letter
-      // while correcting it.
+      // Two-stage crop render. Earlier this only tried the full-quality
+      // saved photo, with NO onerror handler on the Image — if that
+      // fetch/decode ever failed (full photo never saved, corrupted
+      // data URL, still-syncing offline write, etc.) the crop row just
+      // silently never appeared, with nothing in the console to say why.
+      // Fix: (1) always try the tiny embedded thumb FIRST — it's already
+      // in memory, decodes near-instantly, and guarantees a crop row
+      // shows up even if the sharp photo never arrives; (2) then try to
+      // upgrade to the sharp full-quality photo once it's fetched; (3)
+      // log failures instead of swallowing them.
       const myIndex = examgrReportIndex;
-      const src = r.thumb || null;
-      examgrFetchFullPhoto(examMgrSelectedId, r.id).then(fullPhoto => {
-        const photoSrc = fullPhoto || src;
+      const stillOpen = () =>
+        examgrReportIndex === myIndex &&
+        !$id("examgr-report-edit-overlay")?.classList.contains("hidden");
+
+      const renderCropsFrom = (photoSrc, label) => {
         if (!photoSrc) return;
-        if (examgrReportIndex !== myIndex) return; // navigated away before this resolved
-        if ($id("examgr-report-edit-overlay")?.classList.contains("hidden")) return; // edit closed already
         const img = new Image();
         img.onload = () => {
-          if (examgrReportIndex !== myIndex) return;
-          if ($id("examgr-report-edit-overlay")?.classList.contains("hidden")) return;
-          const crops = examgrBuildOptionCrops(img, ex);
-          qlistEl.innerHTML = Array.from({ length: total }, (_, i) => examgrAkeyRowHtml(i + 1, editRdDraftAnswers[i + 1], "rq", crops)).join("");
+          if (!stillOpen()) return;
+          try {
+            const crops = examgrBuildOptionCrops(img, ex);
+            qlistEl.innerHTML = Array.from({ length: total }, (_, i) =>
+              examgrAkeyRowHtml(i + 1, editRdDraftAnswers[i + 1], "rq", crops)).join("");
+          } catch (err) {
+            console.warn(`Option crop build failed (${label}):`, err);
+          }
         };
+        img.onerror = () => console.warn(`Option crop source image failed to load (${label})`);
         img.src = photoSrc;
+      };
+
+      renderCropsFrom(r.thumb || null, "thumb");
+      examgrFetchFullPhoto(examMgrSelectedId, r.id).then(fullPhoto => {
+        if (!fullPhoto || !stillOpen()) return;
+        renderCropsFrom(fullPhoto, "full photo");
       });
     }
 
