@@ -1992,9 +1992,13 @@
       // flag/multiOptions per question (see pickBest) — kept so the Report
       // Detail screen can show "A, C" for a double-marked question instead
       // of silently collapsing it to whichever option pickBest guessed.
+      // Stored as a comma-joined STRING (not a nested array) — Firestore
+      // rejects an array whose elements are themselves arrays, even
+      // inside arrayUnion(), so ["A","C"] per question would break every
+      // save the moment any question had a genuine double-mark.
       flags: scannerGraded.perQuestion.map(pq => pq.flag || null),
       multiOptions: scannerGraded.perQuestion.map(pq =>
-        pq.multiOptions ? pq.multiOptions.map(o => OPTION_LETTERS[o.opt]) : null),
+        pq.multiOptions && pq.multiOptions.length ? pq.multiOptions.map(o => OPTION_LETTERS[o.opt]).join(",") : null),
       scannedAt: Date.now(),
       thumb: examgrMakeThumb(scannerCaptureCanvas)
     };
@@ -2358,8 +2362,8 @@
       const correctLetter = keyArr[i] || null;
       const detected = answers[i] || null;
       const flag = flags[i] || null;
-      const attemptedText = flag === "multi" && multi[i] && multi[i].length
-        ? multi[i].join(", ")
+      const attemptedText = flag === "multi" && multi[i]
+        ? multi[i].split(",").join(", ")
         : (detected || "");
       let status = "blank";
       if (!correctLetter) status = "ungraded";
