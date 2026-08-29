@@ -395,6 +395,24 @@
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
+  // Test se linked Exam Management wali exam dhoondhta hai (jo Test save
+  // hote hi khud-ba-khud ban jaati hai — script.js ka syncTestToExamManager
+  // dekhein). Isi exam ka OMR/Bubble Sheet yahan bhi dikhaya/download
+  // kiya jaata hai, taaki Test ka aur Exam Management ka OMR — dono
+  // EK HI sheet hon (alag-alag layout na banein).
+  async function findLinkedExamManagerExam(testId) {
+    const db = typeof getDB === "function" ? getDB() : null;
+    if (!db) return null;
+    try {
+      const snap = await db.collection("examManagerExams").where("linkedTestId", "==", testId).limit(1).get();
+      if (snap.empty) return null;
+      return { id: snap.docs[0].id, ...snap.docs[0].data() };
+    } catch (err) {
+      console.warn("[findLinkedExamManagerExam] lookup failed:", err);
+      return null;
+    }
+  }
+
   async function generateOMRSheet() {
     const testId = document.getElementById("omr-sheet-test-select")?.value;
     if (!testId || typeof tests === "undefined" || !tests[testId]) { alert("Pehle test select karein."); return; }
@@ -403,15 +421,24 @@
     if (test.questions.length > 100) { alert("OMR sheet abhi max 100 questions tak support karti hai."); return; }
 
     const btn = document.getElementById("omr-generate-sheet-btn");
-    if (btn) { btn.disabled = true; btn.textContent = "⏳ Word Doc Generate ho raha hai..."; }
+    if (btn) { btn.disabled = true; btn.textContent = "⏳ OMR Sheet (JPG) Bana Rahe Hain..."; }
 
     try {
-      await downloadOMRSheetAsWord(test, testId);
+      const linkedExam = await findLinkedExamManagerExam(testId);
+      if (!linkedExam) {
+        alert("Ye test abhi Exam Management se link nahi hua — pehle test ko \"Create/Edit Test\" se ek baar Save/Publish karein (draft nahi), phir dobara try karein.");
+        return;
+      }
+      if (typeof window.examgrDownloadSheetJpg !== "function") {
+        alert("OMR sheet module load nahi ho paya — page reload karke dobara try karein.");
+        return;
+      }
+      await window.examgrDownloadSheetJpg(linkedExam, test.title);
     } catch (e) {
       console.error(e);
-      alert("Word Doc generate karne mein error: " + (e.message || e));
+      alert("OMR Sheet generate karne mein error: " + (e.message || e));
     } finally {
-      if (btn) { btn.disabled = false; btn.textContent = "🖨️ OMR Sheet Generate Karein (Word)"; }
+      if (btn) { btn.disabled = false; btn.textContent = "🖨️ OMR Sheet Generate Karein (JPG)"; }
     }
   }
 

@@ -807,12 +807,145 @@
   }
   window.examgrCloseOmrSheet = examgrCloseOmrSheet;
 
-  $id("examgr-sheet-download-btn")?.addEventListener("click", () => {
+  window.examgrBuildSheetHtml = examgrBuildSheetHtml;
+
+  /* ── OMR Sheet → JPG (direct canvas draw, no html2canvas) ─────────
+     Same reasoning as the PDF generator below: rasterizing the HTML
+     preview via html2canvas is the documented "blank/partial canvas
+     on phones" failure mode, so this draws straight onto a <canvas>
+     with the 2D drawing API instead — nothing to render blank, and
+     the geometry (OMR_CANVAS_SIZE / OMR_MARKER_XS / OMR_COLUMN_SPECS)
+     is reused as-is from the on-screen preview + scanner, so the JPG
+     lines up with the scanner exactly like the preview does.
+     Exposed on window so the per-Test "Generate OMR Sheet" screen
+     (omr.js) can download this SAME sheet for a linked test. ────── */
+  const OMR_JPG_SCALE = 2; // 2x resolution for a crisp print/scan
+
+  function examgrBuildSheetCanvas(ex) {
+    const canvas = document.createElement("canvas");
+    canvas.width = OMR_CANVAS_SIZE.width * OMR_JPG_SCALE;
+    canvas.height = OMR_CANVAS_SIZE.height * OMR_JPG_SCALE;
+    const ctx = canvas.getContext("2d");
+    ctx.scale(OMR_JPG_SCALE, OMR_JPG_SCALE);
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, OMR_CANVAS_SIZE.width, OMR_CANVAS_SIZE.height);
+    ctx.fillStyle = "#000";
+    ctx.strokeStyle = "#000";
+
+    // corner-registration markers (solid black squares)
+    OMR_MARKER_YS.forEach(y => OMR_MARKER_XS.forEach(x => ctx.fillRect(x, y, 20, 20)));
+
+    // header box: NAME / EXAM row + DATE/CLASS row
+    ctx.lineWidth = 1.6;
+    ctx.strokeRect(99, 49, 992, 92);
+    ctx.beginPath(); ctx.moveTo(99, 94); ctx.lineTo(1091, 94); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(595, 49); ctx.lineTo(595, 94); ctx.stroke();
+    ctx.textAlign = "left";
+    ctx.font = "24px Arial";
+    ctx.fillText("NAME :", 110, 78);
+    ctx.fillText(`EXAM : ${ex.examName || ""}`, 605, 78);
+    ctx.fillText(`DATE : ${ex.date || ""}     CLASS : ${ex.className || ""}`, 110, 123);
+
+    ctx.textAlign = "center";
+    ctx.font = "bold 30px Arial";
+    ctx.fillText("SAVYASACHI COACHING — OMR ANSWER SHEET", OMR_CANVAS_SIZE.width / 2, 34);
+
+    // Exam Set (A–E) row
+    ctx.font = "18px Arial";
+    ctx.fillText("Exam Set", 235, EXAM_SET_Y.label + 10);
+    ctx.font = "16px Arial";
+    SET_LETTERS.forEach((letter, i) => ctx.fillText(letter, EXAM_SET_CENTERS[i], EXAM_SET_Y.header + 4));
+    ctx.lineWidth = 1.7;
+    EXAM_SET_CENTERS.forEach(cx => { ctx.beginPath(); ctx.arc(cx, EXAM_SET_Y.bubble, 11, 0, 2 * Math.PI); ctx.stroke(); });
+
+    // Roll No block
+    const rollDigits = Math.max(1, Math.min(5, Number(ex.rollDigits) || 5));
+    const rollCenters = [190, 220, 250, 280, 310].slice(0, rollDigits);
+    ctx.font = "18px Arial";
+    ctx.fillText("Roll No", 250, 212);
+    ctx.lineWidth = 2;
+    for (let i = 0; i < rollDigits; i++) {
+      ctx.strokeRect(175 + i * 30, 220, 30, 30);
+      ctx.font = "16px Arial";
+      ctx.fillText(String(i + 1), 175 + i * 30 + 15, 239);
+    }
+    ctx.font = "17px Arial";
+    for (let d = 0; d <= 9; d++) {
+      const cy = 265 + d * 30;
+      ctx.textAlign = "right";
+      ctx.fillText(String(d), 166, cy + 4);
+      ctx.textAlign = "center";
+      ctx.lineWidth = 1.7;
+      rollCenters.forEach(cx => { ctx.beginPath(); ctx.arc(cx, cy, 11, 0, 2 * Math.PI); ctx.stroke(); });
+    }
+
+    // Exam name / class under column 0
+    ctx.font = "17px Arial";
+    ctx.fillText(ex.examName || "Exam", OMR_COLUMN_SPECS[0].subjectCenter, OMR_COLUMN_SPECS[0].subjectTop + 8);
+    ctx.fillText(ex.className || "", OMR_COLUMN_SPECS[0].subjectCenter, OMR_COLUMN_SPECS[0].sectionTop + 8);
+
+    // Question grid
+    const total = Math.max(1, Math.min(MAX_QUESTIONS, Number(ex.questions) || MAX_QUESTIONS));
+    let itemIndex = 0;
+    OMR_COLUMN_SPECS.forEach(col => {
+      col.groups.forEach(group => {
+        if (itemIndex >= total) return;
+        ctx.font = "16px Arial";
+        OPTION_LETTERS.forEach((label, i) => ctx.fillText(label, col.optionCenters[i], group.headerY + 4));
+        for (let r = 0; r < group.count && itemIndex < total; r++) {
+          const cy = group.rowStart + r * 30;
+          itemIndex++;
+          ctx.textAlign = "right";
+          ctx.font = "18px Arial";
+          ctx.fillText(String(itemIndex), col.qRight, cy + 4);
+          ctx.textAlign = "center";
+          ctx.lineWidth = 1.7;
+          OPTION_LETTERS.forEach((_, i) => { ctx.beginPath(); ctx.arc(col.optionCenters[i], cy, 11, 0, 2 * Math.PI); ctx.stroke(); });
+        }
+      });
+    });
+
+    return canvas;
+  }
+
+  function examgrBuildSheetJpgBlob(ex) {
+    return new Promise((resolve, reject) => {
+      try {
+        const canvas = examgrBuildSheetCanvas(ex);
+        canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error("JPG banane mein dikkat aayi.")), "image/jpeg", 0.92);
+      } catch (err) { reject(err); }
+    });
+  }
+  window.examgrBuildSheetJpgBlob = examgrBuildSheetJpgBlob;
+
+  async function examgrDownloadSheetJpg(ex, filenameBase) {
+    const blob = await examgrBuildSheetJpgBlob(ex);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = safeFileName(filenameBase || ex.examName || "omr") + "-omr-sheet.jpg";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+  window.examgrDownloadSheetJpg = examgrDownloadSheetJpg;
+
+  $id("examgr-sheet-jpg-btn")?.addEventListener("click", async () => {
     const ex = examMgrExams[examMgrSelectedId];
     if (!ex) return;
-    const sheetHtml = examgrBuildSheetHtml(ex);
-    const doc = `<!DOCTYPE html><html lang="hi"><head><meta charset="UTF-8"><meta name="viewport" content="width=${OMR_CANVAS_SIZE.width}, initial-scale=1.0"><title>${escHtml(ex.examName || "OMR Sheet")}</title><style>body{margin:0;background:#fff;}${EXAMGR_SHEET_CSS}</style></head><body>${sheetHtml}</body></html>`;
-    downloadBlob(doc, "text/html;charset=utf-8", safeFileName(ex.examName || "omr") + "-omr-sheet.html");
+    const btn = $id("examgr-sheet-jpg-btn");
+    const originalLabel = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "⏳ JPG Bana Rahe Hain...";
+    try {
+      await examgrDownloadSheetJpg(ex);
+    } catch (err) {
+      alert("JPG banane mein dikkat aayi: " + (err && err.message ? err.message : err));
+    } finally {
+      btn.disabled = false;
+      btn.textContent = originalLabel;
+    }
   });
 
   /* ── OMR Sheet → real PDF (vector, no html2canvas) ────────────────
@@ -2703,12 +2836,31 @@
     }
   }
 
+  // Permanently deletes one scanned result: removes it from the exam's
+  // `results` array AND deletes its full-quality photo document from
+  // the `scanPhotos` subcollection (examManagerExams/{examId}/scanPhotos/{resultId}).
+  // Previously only the results-array entry was removed — the photo
+  // doc was left behind in Firestore forever as orphaned data. Also
+  // covers a result that was re-scanned ("naya sheet" / rescan) and
+  // is being discarded — same cleanup applies either way.
+  async function examgrDeleteScanPhotoDoc(examId, resultId) {
+    const database = db();
+    if (!database) return;
+    try {
+      await database.collection(COLLECTION).doc(examId).collection("scanPhotos").doc(resultId).delete();
+    } catch (err) {
+      // Non-fatal — the result entry itself is the important part;
+      // an orphaned photo doc left behind on failure is harmless.
+      console.warn("[examgrDeleteScanPhotoDoc] photo cleanup failed:", err);
+    }
+  }
+
   $id("examgr-rd-delete-btn")?.addEventListener("click", async () => {
     const id = examMgrSelectedId;
     const ex = examMgrExams[id];
     const r = examgrReportList[examgrReportIndex];
     if (!ex || !r) return;
-    if (!confirm(`Roll No ${r.roll || "—"} ka result delete karein? Ye wapas nahi hoga.`)) return;
+    if (!confirm(`Roll No ${r.roll || "—"} ka result permanently delete karein? Ye wapas nahi hoga.`)) return;
 
     const results = Array.isArray(ex.results) ? ex.results : [];
     const pos = results.findIndex(x => x.id === r.id);
@@ -2717,6 +2869,7 @@
     ex.results = results;
     ex.scanned = results.length;
 
+    await examgrDeleteScanPhotoDoc(id, r.id);
     const ok = await examgrPersistResults(id, ex);
     if (!ok) return;
 

@@ -6510,6 +6510,86 @@ function sanitizeForFirestore(obj) {
   return JSON.parse(JSON.stringify(obj));
 }
 
+// ────────────────────────────────────────────────────────────────
+// Auto-sync: online Test → Exam Management (examManagerExams)
+// Jab bhi ek Test online save hota hai (draft nahi), wahi exam Exam
+// Management ki list mein bhi apne aap dikh jaata hai — usko offline
+// (OMR/paper) mein lene ke liye — aur uski Answer Key is Test ke
+// questions ke correct answers (q.ans, 0-based A/B/C/D index) se khud
+// bhar jaati hai. Exam Management ka OMR/Bubble Sheet fixed 100-question
+// layout hai, isliye 100 se zyada questions wale test ka answer key
+// pehle 100 tak hi bharta hai (online test khud is limit se prabhavit
+// nahi hota).
+// Ek hi Test ke baar-baar save hone par duplicate exam na bane, isliye
+// `linkedTestId` field se match karke existing exam ko update kiya
+// jaata hai, naya sirf pehli baar banta hai. Test delete hone par uska
+// linked exam jaan-bujhkar delete NAHI kiya jaata — usme pehle se
+// scan ho chuke offline results ho sakte hain jo khona nahi chahiye.
+// ────────────────────────────────────────────────────────────────
+const EXAMGR_SYNC_COLLECTION = "examManagerExams";
+const EXAMGR_SYNC_MAX_QUESTIONS = 100;
+const EXAMGR_SYNC_OPTION_LETTERS = ["A", "B", "C", "D"];
+
+async function syncTestToExamManager(testId, data, questions) {
+  if (data && data.isDraft) return; // draft (abhi paper generator mein ban raha) — sync tab hoga jab test final save hoga
+  const db = getDB(); if (!db) return;
+  try {
+    const qList = Array.isArray(questions) ? questions : (Array.isArray(data.questions) ? data.questions : []);
+    if (!qList.length) return;
+    const capped = qList.slice(0, EXAMGR_SYNC_MAX_QUESTIONS);
+    // Question ka correct-option field naam do jagah alag hai: admin ke
+    // seedhe "Create Test" form se ban raha question `answer` use karta
+    // hai (cloneQ), Questions Paper Generator (qgen-app.js) wala `ans`
+    // — dono ko yahan cover kiya gaya hai. Subjective/no-answer questions
+    // (jinme dono field missing/undefined hon) ke liye key null rehti hai.
+    const answerKey = capped.map(q => {
+      if (!q) return null;
+      const raw = (q.ans !== undefined && q.ans !== null) ? q.ans : q.answer;
+      if (raw === undefined || raw === null || raw === "") return null;
+      const idx = Number(raw);
+      return Number.isFinite(idx) ? (EXAMGR_SYNC_OPTION_LETTERS[idx] || null) : null;
+    });
+
+    const existingSnap = await db.collection(EXAMGR_SYNC_COLLECTION)
+      .where("linkedTestId", "==", testId).limit(1).get();
+
+    if (!existingSnap.empty) {
+      await existingSnap.docs[0].ref.update({
+        examName: data.title || "Untitled Test",
+        questions: capped.length,
+        answerKey,
+        answerKeys: { A: answerKey },
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+      });
+    } else {
+      const newId = db.collection(EXAMGR_SYNC_COLLECTION).doc().id;
+      await db.collection(EXAMGR_SYNC_COLLECTION).doc(newId).set({
+        examName: data.title || "Untitled Test",
+        className: "",
+        date: new Date().toISOString().slice(0, 10),
+        questions: capped.length,
+        sets: 1,
+        students: 0,
+        scanned: 0,
+        answerKey,
+        answerKeys: { A: answerKey },
+        results: [],
+        absentees: "",
+        webLink: "",
+        published: false,
+        rollDigits: 2,
+        linkedTestId: testId,
+        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+      });
+    }
+  } catch (err) {
+    // Non-fatal — Test khud save ho chuka hai, Exam Management sync
+    // fail hone se us save ko block nahi karna hai.
+    console.warn("[syncTestToExamManager] sync failed (non-fatal):", err);
+  }
+}
+
 async function saveTestOnline(id, data) {
   const db = getDB(); if (!db) return;
 
@@ -6566,6 +6646,10 @@ async function saveTestOnline(id, data) {
   meta.questionCount = questions.length;
   meta.chunkCount = chunks.length;
   await db.collection("tests").doc(id).set({ ...meta, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+
+  // Exam Management mein bhi mirror karo (answer key auto-fill ke saath)
+  // taaki yahi exam offline/OMR se bhi liya ja sake.
+  await syncTestToExamManager(id, data, questions);
 }
 
 async function loadTestQuestions(db, id, chunkCount) {
