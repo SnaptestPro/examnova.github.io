@@ -3603,8 +3603,7 @@ document.addEventListener('DOMContentLoaded',function(){
 </script>
 <script>
   // ══════════════════════════════════════════════════════════════
-  // PWA "Install App" popup — SABHI devices/browsers ke liye, HAR
-  // baar site khulne par dikhta hai (jab tak app install na ho jaaye)
+  // PWA "Install App" popup — SABHI devices/browsers ke liye
   // ------------------------------------------------------------------
   // - Chrome / Edge / Android / Samsung Internet / Brave / Opera:
   //   native "beforeinstallprompt" pakad kar seedha install-popup
@@ -3616,11 +3615,21 @@ document.addEventListener('DOMContentLoaded',function(){
   //   ek popup mein dikhate hain.
   // - Agar app pehle se installed hai (standalone mode), to kabhi
   //   popup nahi dikhega.
-  // - "Baad Mein" dabane par sirf ABHI ke liye band hota hai — agli
-  //   baar site kholne par (naya page-load) fir se dikhega, jaisa
-  //   chaha gaya hai.
+  // - v2 (24h cooldown fix, 2026-08-29): pehle ye HAR page-load par
+  //   dikhta tha, chahe "Baad Mein" abhi-abhi dabaya ho — is wajah se
+  //   poori screen (Admin tab button samet) block ho jaati thi jab tak
+  //   popup band na karo, jo baar-baar test/reload karne walon (jaise
+  //   admin khud, laptop browser par) ke liye bahut disruptive tha.
+  //   Ab har baar dikhne (auto ya manual, dono) ke waqt is waqt ka
+  //   timestamp localStorage mein save hota hai, aur agla AUTO-show
+  //   (DOMContentLoaded wala) sirf tab hota hai jab last-shown se 24
+  //   ghante ho chuke hon. Header ke "⬇️ App Install Karein" button se
+  //   MANUAL trigger is cooldown se kabhi affected nahi hota — wo
+  //   hamesha turant khulta hai.
   // ══════════════════════════════════════════════════════════════
   let deferredInstallPrompt = null;
+  const INSTALL_POPUP_LAST_SHOWN_KEY = 'savya_install_popup_last_shown';
+  const INSTALL_POPUP_COOLDOWN_MS = 24 * 60 * 60 * 1000; // 24 ghante
 
   function isStandaloneMode() {
     return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches)
@@ -3718,6 +3727,7 @@ document.addEventListener('DOMContentLoaded',function(){
       actionBtn.onclick = function () { modal.classList.add('hidden'); };
     }
     modal.classList.remove('hidden');
+    try { localStorage.setItem(INSTALL_POPUP_LAST_SHOWN_KEY, String(Date.now())); } catch (e) {}
   }
 
   function dismissAppInstallModal() {
@@ -3765,7 +3775,11 @@ document.addEventListener('DOMContentLoaded',function(){
     // upgrade kar deta hai (neeche dekhein) — bina user ko kuch bhi
     // dobara karne ki zaroorat ke.
     if (!isStandaloneMode()) {
-      showAppInstallModal();
+      let lastShown = 0;
+      try { lastShown = Number(localStorage.getItem(INSTALL_POPUP_LAST_SHOWN_KEY) || 0); } catch (e) {}
+      if (Date.now() - lastShown > INSTALL_POPUP_COOLDOWN_MS) {
+        showAppInstallModal();
+      }
     }
   });
 </script>
