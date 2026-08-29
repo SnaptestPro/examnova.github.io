@@ -2071,6 +2071,68 @@
   // (grid of small photos). Firestore caps a document at 1MB and a class
   // can have 100+ results saved on the SAME exam doc, so this has to
   // stay deliberately small — that budget is shared across every result.
+  // ────────────────────────────────────────────────────────────────
+  // Per-option bubble crops — small zoomed-in squares cut straight out
+  // of the scanned sheet, one per A/B/C/D, meant to sit ABOVE the
+  // option buttons on an Edit screen so a teacher can see exactly what
+  // the camera captured (a stray pencil dot vs a solid fill vs blank
+  // paper) instead of trusting the auto-detected letter blindly.
+  // Bubble positions come from examgrBubbleMap(ex) — the same fixed
+  // 1203×1536 template layout every scan gets warped to before
+  // grading — so this works off ANY image at ANY resolution as long as
+  // it's that same aligned/warped sheet (scannerRawCanvas during a
+  // live scan, or the saved photo later from Report Detail).
+  const EG_CROP_OUT_SIZE = 64;  // exported thumbnail px (CSS displays it smaller; kept 2x+ for sharpness)
+  const EG_CROP_RADIUS = 15;    // half-width of the cropped square, in canonical 1203×1536 px
+
+  function examgrBuildOptionCrops(sourceEl, ex) {
+    if (!sourceEl) return null;
+    const srcW = sourceEl.naturalWidth || sourceEl.width || OMR_CANVAS_SIZE.width;
+    const srcH = sourceEl.naturalHeight || sourceEl.height || OMR_CANVAS_SIZE.height;
+    if (!srcW || !srcH) return null;
+    const scaleX = srcW / OMR_CANVAS_SIZE.width;
+    const scaleY = srcH / OMR_CANVAS_SIZE.height;
+    const map = examgrBubbleMap(ex);
+
+    const cropCanvas = document.createElement("canvas");
+    cropCanvas.width = EG_CROP_OUT_SIZE;
+    cropCanvas.height = EG_CROP_OUT_SIZE;
+    const cctx = cropCanvas.getContext("2d");
+
+    const out = {};
+    Object.keys(map.questionBubbles).forEach(qStr => {
+      const q = Number(qStr);
+      out[q] = map.questionBubbles[q].map(b => {
+        const cx = b.x * scaleX, cy = b.y * scaleY;
+        const rx = EG_CROP_RADIUS * scaleX, ry = EG_CROP_RADIUS * scaleY;
+        cctx.clearRect(0, 0, EG_CROP_OUT_SIZE, EG_CROP_OUT_SIZE);
+        try {
+          cctx.drawImage(sourceEl, cx - rx, cy - ry, rx * 2, ry * 2, 0, 0, EG_CROP_OUT_SIZE, EG_CROP_OUT_SIZE);
+          return cropCanvas.toDataURL("image/jpeg", 0.7);
+        } catch (err) {
+          return null; // e.g. tainted/cross-origin source — caller just skips this thumbnail
+        }
+      });
+    });
+    return out;
+  }
+
+  // Builds "<crop-imgs row><A/B/C/D buttons row>" markup for one question.
+  // `crops` may be null/undefined (not ready yet) — falls back to just the
+  // plain buttons row so callers can render instantly and swap in crops
+  // once the source photo has loaded, instead of blocking on it.
+  function examgrAkeyRowHtml(q, selectedLetter, dataAttr, crops) {
+    const opts = OPTION_LETTERS.map(letter =>
+      `<button type="button" class="examgr-akey-opt${selectedLetter === letter ? " selected" : ""}" data-${dataAttr}="${q}" data-letter="${letter}">${letter}</button>`
+    ).join("");
+    const cropRow = (crops && crops[q])
+      ? `<div class="examgr-akey-croprow"><span></span>${crops[q].map(url =>
+          url ? `<img class="examgr-akey-crop-img" src="${url}" alt="">` : `<span class="examgr-akey-crop-img examgr-akey-crop-blank"></span>`
+        ).join("")}</div>`
+      : "";
+    return `${cropRow}<div class="examgr-akey-row"><span class="examgr-akey-qnum">${q}</span>${opts}</div>`;
+  }
+
   function examgrMakeThumb(canvas) {
     const scale = 90 / canvas.width;
     const t = document.createElement("canvas");
@@ -2983,13 +3045,15 @@
     const qlist = $id("examgr-edit-qlist");
     if (qlist) {
       const total = scannerGraded.perQuestion.length;
+      // scannerRawCanvas is the pristine warped scan BEFORE the
+      // green/red/gold grading overlay gets painted on top of
+      // scannerCaptureCanvas — cropping from it means each little
+      // per-option square shows exactly what the camera saw, not a
+      // dot the app added afterwards.
+      const crops = examgrBuildOptionCrops(scannerRawCanvas, ex);
       qlist.innerHTML = Array.from({ length: total }, (_, i) => {
         const q = i + 1;
-        const val = editDraftAnswers[q];
-        const opts = OPTION_LETTERS.map(letter =>
-          `<button type="button" class="examgr-akey-opt${val === letter ? " selected" : ""}" data-eq="${q}" data-letter="${letter}">${letter}</button>`
-        ).join("");
-        return `<div class="examgr-akey-row"><span class="examgr-akey-qnum">${q}</span>${opts}</div>`;
+        return examgrAkeyRowHtml(q, editDraftAnswers[q], "eq", crops);
       }).join("");
     }
 
@@ -3664,15 +3728,32 @@
 
     const qlistEl = $id("examgr-rd-edit-qlist");
     if (qlistEl) {
-      qlistEl.innerHTML = Array.from({ length: total }, (_, i) => {
-        const q = i + 1;
-        return `
-        <div class="examgr-akey-row">
-          <span class="examgr-akey-qnum">${q}</span>
-          ${OPTION_LETTERS.map(letter => `
-            <button type="button" class="examgr-akey-opt${editRdDraftAnswers[q] === letter ? " selected" : ""}" data-rq="${q}" data-letter="${letter}">${letter}</button>`).join("")}
-        </div>`;
-      }).join("");
+      qlistEl.innerHTML = Array.from({ length: total }, (_, i) => examgrAkeyRowHtml(i + 1, editRdDraftAnswers[i + 1], "rq", null)).join("");
+
+      // No sharp photo in memory yet at this point (only the tiny
+      // embedded list thumbnail, too low-res to crop a single bubble
+      // out of legibly) — fetch the full-quality saved photo, same one
+      // Report Detail lazy-swaps in, and once it's loaded re-render
+      // this same list with each question's 4 cropped bubbles added
+      // above its A/B/C/D buttons, so a teacher can see exactly what
+      // was marked instead of only trusting the auto-detected letter
+      // while correcting it.
+      const myIndex = examgrReportIndex;
+      const src = r.thumb || null;
+      examgrFetchFullPhoto(examMgrSelectedId, r.id).then(fullPhoto => {
+        const photoSrc = fullPhoto || src;
+        if (!photoSrc) return;
+        if (examgrReportIndex !== myIndex) return; // navigated away before this resolved
+        if ($id("examgr-report-edit-overlay")?.classList.contains("hidden")) return; // edit closed already
+        const img = new Image();
+        img.onload = () => {
+          if (examgrReportIndex !== myIndex) return;
+          if ($id("examgr-report-edit-overlay")?.classList.contains("hidden")) return;
+          const crops = examgrBuildOptionCrops(img, ex);
+          qlistEl.innerHTML = Array.from({ length: total }, (_, i) => examgrAkeyRowHtml(i + 1, editRdDraftAnswers[i + 1], "rq", crops)).join("");
+        };
+        img.src = photoSrc;
+      });
     }
 
     $id("examgr-report-detail-overlay")?.classList.add("hidden");
