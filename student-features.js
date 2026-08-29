@@ -589,7 +589,12 @@
       <div class="examgr-rd-info-row"><span>Roll No</span><span>${escHtml(r.roll || "—")}</span></div>
       <div class="examgr-rd-info-row"><span>Marks</span><span>${r.marks}/${r.totalQuestions} (${pct}%)</span></div>
       <div class="examgr-rd-info-row"><span>Correct / Wrong / Blank</span><span>${r.correct} / ${r.wrong} / ${r.blank}</span></div>
-      ${r.thumb ? `<div class="examgr-rd-sheet-img-wrap" style="margin-top:10px;"><img src="${r.thumb}" alt="Scanned sheet" style="width:100%;border-radius:8px;"></div>` : ""}
+      ${r.thumb ? `
+        <div class="examgr-rd-sheet-img-wrap" style="margin-top:10px;"><img src="${r.thumb}" alt="Scanned sheet" style="width:100%;border-radius:8px;"></div>
+        <div style="text-align:center;margin-top:8px;">
+          <a href="${r.thumb}" download="roll-${escHtml(r.roll || 'na')}-report.jpg" class="btn-secondary" style="display:inline-block;font-size:.8rem;padding:6px 14px;text-decoration:none;">⬇️ Photo Download Karein</a>
+        </div>
+      ` : ""}
     `;
     document.getElementById("my-paper-exam-detail-overlay")?.classList.remove("hidden");
   }

@@ -1549,13 +1549,11 @@
     });
   }
 
-  // Tiny (≤ ~90px-wide) low-quality thumbnail — LAST-RESORT FALLBACK only,
-  // used when Firebase Storage upload (see examgrUploadScanPhoto below)
-  // isn't available (offline, Storage not configured, upload failed).
-  // Firestore caps a document at 1MB and a class can have 100+ results
-  // saved on the SAME exam doc, so a full-resolution photo embedded
-  // directly in the doc is not an option — hence the fallback is
-  // deliberately tiny.
+  // Tiny (~90px-wide) low-quality thumbnail embedded directly in the exam
+  // doc's `results` array — used ONLY for the fast-loading Reports LIST
+  // (grid of small photos). Firestore caps a document at 1MB and a class
+  // can have 100+ results saved on the SAME exam doc, so this has to
+  // stay deliberately small — that budget is shared across every result.
   function examgrMakeThumb(canvas) {
     const scale = 90 / canvas.width;
     const t = document.createElement("canvas");
@@ -1565,42 +1563,55 @@
     return t.toDataURL("image/jpeg", 0.45);
   }
 
-  // Full-quality scan photo → Firebase Storage (NOT embedded in the
-  // Firestore doc), so Reports can show a sharp image instead of the old
-  // 90px/0.45-quality thumbnail. Capped at 1400px-wide/0.85-quality so a
-  // single photo stays a few hundred KB — the exam doc itself only ever
-  // stores the short download URL string, so the 1MB Firestore doc limit
-  // is no longer a concern no matter how many results get scanned.
-  // Falls back to the old embedded low-res thumbnail if Storage is
-  // unavailable/offline/upload fails, so saving a scan never breaks.
-  function examgrUploadScanPhoto(canvas, examId, resultId) {
-    return new Promise((resolve) => {
-      const storage = window.vishnuFirebase && window.vishnuFirebase.storage;
-      if (!storage) { resolve(examgrMakeThumb(canvas)); return; }
+  // Sharp photo (900px-wide, 0.8 quality — a few hundred KB) for the
+  // Report DETAIL screen. 100% FREE — no Firebase Storage/Blaze plan
+  // needed. The trick: instead of embedding this in the shared exam doc
+  // (where the 1MB limit is split across every result), it's saved as
+  // its OWN Firestore document in a subcollection:
+  //   examManagerExams/{examId}/scanPhotos/{resultId}
+  // Each subcollection doc gets its own independent 1MB budget, so one
+  // sharp photo per result is easily safe no matter how many results
+  // the exam has.
+  function examgrMakeFullQuality(canvas) {
+    const maxW = 900;
+    const scale = Math.min(1, maxW / canvas.width);
+    let c = canvas;
+    if (scale < 1) {
+      c = document.createElement("canvas");
+      c.width = Math.round(canvas.width * scale);
+      c.height = Math.round(canvas.height * scale);
+      c.getContext("2d").drawImage(canvas, 0, 0, c.width, c.height);
+    }
+    return c.toDataURL("image/jpeg", 0.8);
+  }
 
-      const maxW = 1400;
-      const scale = Math.min(1, maxW / canvas.width);
-      let uploadCanvas = canvas;
-      if (scale < 1) {
-        uploadCanvas = document.createElement("canvas");
-        uploadCanvas.width = Math.round(canvas.width * scale);
-        uploadCanvas.height = Math.round(canvas.height * scale);
-        uploadCanvas.getContext("2d").drawImage(canvas, 0, 0, uploadCanvas.width, uploadCanvas.height);
-      }
+  async function examgrSaveFullPhoto(examId, resultId, canvas) {
+    const database = db();
+    if (!database) return;
+    try {
+      await database.collection(COLLECTION).doc(examId)
+        .collection("scanPhotos").doc(resultId)
+        .set({ photo: examgrMakeFullQuality(canvas), savedAt: Date.now() });
+    } catch (err) {
+      // Non-fatal — Reports list thumbnail already saved fine; detail
+      // screen will just fall back to the small thumb if this failed.
+      console.warn("Full-quality photo save failed (non-fatal):", err);
+    }
+  }
 
-      uploadCanvas.toBlob(async (blob) => {
-        if (!blob) { resolve(examgrMakeThumb(canvas)); return; }
-        try {
-          const path = `examScans/${examId}/${resultId}.jpg`;
-          const snap = await storage.ref(path).put(blob, { contentType: "image/jpeg" });
-          const url = await snap.ref.getDownloadURL();
-          resolve(url);
-        } catch (err) {
-          console.warn("Scan photo upload failed, using low-res fallback thumb", err);
-          resolve(examgrMakeThumb(canvas));
-        }
-      }, "image/jpeg", 0.85);
-    });
+  // Fetches the sharp photo for one result from the scanPhotos
+  // subcollection. Returns null if not found/failed (caller falls back
+  // to the small embedded thumb).
+  async function examgrFetchFullPhoto(examId, resultId) {
+    const database = db();
+    if (!database) return null;
+    try {
+      const snap = await database.collection(COLLECTION).doc(examId)
+        .collection("scanPhotos").doc(resultId).get();
+      return snap.exists ? (snap.data().photo || null) : null;
+    } catch (err) {
+      return null;
+    }
   }
 
   // Short synthesized "shutter" beep at the exact auto-capture moment —
@@ -2021,10 +2032,6 @@
 
     const resultId = (Date.now().toString(36) + Math.random().toString(36).slice(2, 8));
 
-    btn.textContent = "⏳ Uploading photo...";
-    const thumbUrl = await examgrUploadScanPhoto(scannerCaptureCanvas, id, resultId);
-    btn.textContent = "⏳ Saving...";
-
     const resultObj = {
       id: resultId,
       roll: scannerDetected.roll || "",
@@ -2046,25 +2053,48 @@
       multiOptions: scannerGraded.perQuestion.map(pq =>
         pq.multiOptions && pq.multiOptions.length ? pq.multiOptions.map(o => OPTION_LETTERS[o.opt]).join(",") : null),
       scannedAt: Date.now(),
-      // Firebase Storage download URL (sharp, full-res) when upload
-      // succeeds; falls back to a tiny embedded base64 thumbnail if
-      // Storage was unavailable — see examgrUploadScanPhoto above.
-      thumb: thumbUrl
+      // Small embedded thumbnail for the Reports LIST (fast grid load).
+      // The sharp version for Report DETAIL is saved separately below —
+      // see examgrSaveFullPhoto — so this stays tiny on purpose.
+      thumb: examgrMakeThumb(scannerCaptureCanvas)
     };
 
     const database = db();
     let ok = false;
+    let pendingSync = false;
     if (database) {
       try {
-        await database.collection(COLLECTION).doc(id).update({
+        // Firestore ka .update() Promise sirf tabhi resolve hota hai jab
+        // SERVER confirm kar de — offline ya bahut weak internet mein ye
+        // kabhi resolve/reject hi nahi hota (kyunki offline persistence
+        // write ko local cache mein queue kar deta hai aur silently connection
+        // wapas aane ka wait karta hai), isliye button hamesha ke liye
+        // "⏳ Saving..." par atka reh jaata tha. 10s timeout race lagakar ab
+        // hum user ko fasne nahi dete — local write already ho chuki hoti
+        // hai (nीचे dekhein), bas server-confirmation background mein hoti
+        // rahegi aur internet aate hi apne aap sync ho jaayegi.
+        const updatePromise = database.collection(COLLECTION).doc(id).update({
           results: firebase.firestore.FieldValue.arrayUnion(resultObj),
           scanned: firebase.firestore.FieldValue.increment(1),
           updatedAt: firebase.firestore.FieldValue.serverTimestamp()
         });
+        const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve("TIMEOUT"), 10000));
+        const raceResult = await Promise.race([updatePromise, timeoutPromise]);
+
         if (!Array.isArray(ex.results)) ex.results = [];
         ex.results.push(resultObj);
         ex.scanned = (Number(ex.scanned) || 0) + 1;
         ok = true;
+
+        if (raceResult === "TIMEOUT") {
+          pendingSync = true;
+          // Update abhi bhi background mein chal raha hai (Firestore ise
+          // apne aap retry karta rahega) — agar wo baad mein fail ho jaaye
+          // to sirf console mein warn karo, user ko dobara disturb mat karo.
+          updatePromise.catch((err) => console.warn("Background save (post-timeout) fail hui:", err));
+        }
+
+        examgrSaveFullPhoto(id, resultId, scannerCaptureCanvas); // fire-and-forget, non-fatal if it fails
       } catch (err) {
         alert("Save nahi ho paya: " + (err.message || err));
       }
@@ -2075,6 +2105,10 @@
     btn.disabled = false;
     btn.textContent = originalLabel;
     if (!ok) return;
+
+    if (pendingSync) {
+      alert("⚠️ Internet slow/weak lag raha hai. Result aapke device mein save ho gaya hai — connection theek hote hi apne aap Firebase par sync ho jaayega. Agla student scan karne se pehle ek baar strong network (WiFi ya achhi signal) check kar lein.");
+    }
 
     renderExamMgrDetails();
     if (scannerReviewFooter) scannerReviewFooter.hidden = true;
@@ -2459,7 +2493,14 @@
         </tbody>
       </table>
 
-      ${r.thumb ? `<div class="examgr-rd-sheet-img-wrap"><img class="examgr-rd-sheet-img" id="examgr-rd-sheet-img" src="${r.thumb}" alt="Scanned sheet"></div>` : ""}
+      ${r.thumb ? `
+        <div class="examgr-rd-sheet-img-wrap">
+          <img class="examgr-rd-sheet-img" id="examgr-rd-sheet-img" src="${r.thumb}" alt="Scanned sheet">
+        </div>
+        <div style="text-align:center;margin:6px 0 4px;">
+          <a id="examgr-rd-download-link" class="btn-secondary" style="display:none;font-size:.8rem;padding:6px 14px;text-decoration:none;" download="roll-${escHtml(r.roll || 'na')}-report.jpg">⬇️ Photo Download Karein</a>
+        </div>
+      ` : ""}
 
       <table class="examgr-rd-table examgr-rd-qtable">
         <thead><tr><th>Q No</th><th>Attempted</th><th>Correct</th><th>Marks</th></tr></thead>
@@ -2474,6 +2515,19 @@
         </tbody>
       </table>
     `;
+
+    // Lazy-swap in the sharp (900px) photo once it loads — the small
+    // embedded thumb shows instantly above so there's no blank gap.
+    if (r.thumb) {
+      const myIndex = examgrReportIndex;
+      examgrFetchFullPhoto(examMgrSelectedId, r.id).then(fullPhoto => {
+        if (examgrReportIndex !== myIndex || !fullPhoto) return; // user navigated away, or none saved
+        const img = $id("examgr-rd-sheet-img");
+        const dl = $id("examgr-rd-download-link");
+        if (img) img.src = fullPhoto;
+        if (dl) { dl.href = fullPhoto; dl.style.display = "inline-block"; }
+      });
+    }
   }
 
   function examgrOpenReportDetail(idx) {
@@ -2536,6 +2590,10 @@
   async function examgrWriteScanReportDoc(mobile, ex, r) {
     const database = db();
     if (!database) return false;
+    // Pull the sharp (900px) photo saved at scan-time, if present, so the
+    // student sees the same quality as the admin Report Detail screen —
+    // falls back to the small embedded thumb if it wasn't saved/found.
+    const sharpPhoto = await examgrFetchFullPhoto(examMgrSelectedId, r.id);
     try {
       await database.collection("studentScanReports").doc(r.id).set({
         mobile,
@@ -2550,7 +2608,7 @@
         wrong: r.wrong,
         blank: r.blank,
         totalQuestions: r.totalQuestions,
-        thumb: r.thumb || null,
+        thumb: sharpPhoto || r.thumb || null,
         scannedAt: r.scannedAt || Date.now(),
         linkedAt: firebase.firestore.FieldValue.serverTimestamp()
       });

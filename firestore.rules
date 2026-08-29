@@ -108,6 +108,16 @@ service cloud.firestore {
     // banata/manage karta hai, students ka isse koi lena-dena nahi.
     match /examManagerExams/{docId} {
       allow read, write: if isAdmin();
+
+      // scanPhotos subcollection: sharp (900px) scanned OMR photos, one
+      // doc per result — kept OUT of the parent exam doc so each photo
+      // gets its own independent 1MB Firestore budget instead of sharing
+      // the parent doc's 1MB across every result. Same nested-rule
+      // requirement as tests/{docId}/qchunks above — a parent match does
+      // NOT cover a subcollection.
+      match /scanPhotos/{resultId} {
+        allow read, write: if isAdmin();
+      }
     }
 
     // app_settings holds sensitive things like the Groq AI API key —
