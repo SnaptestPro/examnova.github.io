@@ -1631,15 +1631,40 @@
     });
     const whiteField = egWhiteLevelField(gray, w, h, 5, 7, excludePoints, EG_WHITE_EXCLUDE_RADIUS);
 
-    // See the v13 comment block above EG_MARK_THRESHOLD — this is the
-    // single number that makes every absolute-pixel threshold below track
-    // THIS capture's actual exposure instead of assuming every photo of
-    // every sheet comes out equally bright.
-    const exposureScale = Math.min(EG_MAX_EXPOSURE_SCALE, Math.max(EG_MIN_EXPOSURE_SCALE, whiteField.median / EG_REFERENCE_WHITE));
-    const markThreshold = EG_MARK_THRESHOLD * exposureScale;
-    const coreMinForConfident = EG_CORE_MIN_FOR_CONFIDENT * exposureScale;
-    const coreThreshold = EG_CORE_THRESHOLD * exposureScale;
-    const coreMarginThreshold = EG_CORE_MARGIN * exposureScale;
+    // v14: LOCAL (per-bubble) exposure scaling, not one number for the
+    // WHOLE photo.
+    //
+    // v13 fixed capture-TO-capture inconsistency (same sheet, two
+    // different photos, two different OVERALL exposures) by scaling every
+    // threshold by one number derived from whiteField.median (a single
+    // summary of the WHOLE image's paper-white level). That's correct
+    // when a capture is uniformly brighter/dimmer end to end — but a
+    // hand-held phone scanning with its OWN flash held close to the paper
+    // does not light the sheet evenly: the half of the sheet nearer the
+    // flash/lens reads brighter (and lower-contrast — a close flash also
+    // partly washes out ink) than the far half, WITHIN the exact same
+    // photo. Reported symptom matched this precisely even after v13: the
+    // same single capture grades the first several rows cleanly, then a
+    // contiguous block further down the sheet turns into "multi mark"
+    // clusters (several options per question all crossing the same
+    // GLOBAL threshold at once) — or, in a flatter/dimmer capture, real
+    // marks failing to clear it anywhere (Roll No/Set/Marks all coming
+    // back empty). A single whole-image scale number can only correct a
+    // whole-photo shift; it can't correct a gradient WITHIN one photo.
+    //
+    // Fix: whiteField already computes a LOCAL paper-white value per bin
+    // (egWhiteLevelField — originally added for this exact reason, a
+    // shadow/angled light across the photo). Deriving the exposure scale
+    // from THAT local value at each bubble's own (x, y), instead of from
+    // the one whole-image median, means a bubble sitting in a
+    // brighter/washed-out region of THIS SAME capture gets its own
+    // correspondingly higher threshold, and a bubble sitting in a
+    // dimmer region gets its own lower one — tracking real ink-vs-paper
+    // contrast wherever that particular bubble happens to sit, instead of
+    // what the sheet averaged to overall.
+    function exposureScaleAt(x, y) {
+      return Math.min(EG_MAX_EXPOSURE_SCALE, Math.max(EG_MIN_EXPOSURE_SCALE, whiteField.at(x, y) / EG_REFERENCE_WHITE));
+    }
 
     function darkAt(x, y, radius) {
       return whiteField.at(x, y) - egSampleFillScore(gray, w, h, x, y, radius);
@@ -1658,18 +1683,26 @@
     //                     Used as the answer, but flagged for a quick
     //                     human glance rather than trusted silently.
     function pickBest(rawCandidates) {
-      const candidates = rawCandidates.map(c => ({
-        ...c,
-        broad: darkAt(c.x, c.y, EG_BUBBLE_RADIUS),
-        core: darkAt(c.x, c.y, EG_CORE_RADIUS)
-      }));
+      const candidates = rawCandidates.map(c => {
+        const scale = exposureScaleAt(c.x, c.y);
+        return {
+          ...c,
+          broad: darkAt(c.x, c.y, EG_BUBBLE_RADIUS),
+          core: darkAt(c.x, c.y, EG_CORE_RADIUS),
+          markThreshold: EG_MARK_THRESHOLD * scale,
+          coreMinForConfident: EG_CORE_MIN_FOR_CONFIDENT * scale,
+          coreThreshold: EG_CORE_THRESHOLD * scale,
+          coreMarginThreshold: EG_CORE_MARGIN * scale
+        };
+      });
       // "Genuinely filled" = broad coverage passes AND the centre itself
       // is actually inked — see EG_CORE_MIN_FOR_CONFIDENT above for why
-      // the second half matters. Both sides of this check use the
-      // exposure-scaled thresholds (see v13 note above), not the raw
-      // constants, so the same physical mark reads the same way whether
-      // this particular capture happened to come out brighter or dimmer.
-      const genuine = c => c.broad > markThreshold && c.core > coreMinForConfident;
+      // the second half matters. Both sides of this check use THIS
+      // candidate's own LOCAL exposure-scaled thresholds (see v14 note
+      // above), not one number for the whole photo, so the same physical
+      // mark reads the same way regardless of where on the sheet — and
+      // under however uneven THIS capture's own lighting happened to be.
+      const genuine = c => c.broad > c.markThreshold && c.core > c.coreMinForConfident;
 
       let best = null, second = -Infinity;
       const aboveThreshold = [];
@@ -1692,7 +1725,7 @@
         else if (c.core > coreSecond) { coreSecond = c.core; }
       });
       const coreMargin = coreBest ? coreBest.core - (coreSecond === -Infinity ? 0 : coreSecond) : 0;
-      if (coreBest && coreBest.core > coreThreshold && coreMargin > coreMarginThreshold) {
+      if (coreBest && coreBest.core > coreBest.coreThreshold && coreMargin > coreBest.coreMarginThreshold) {
         return { value: coreBest, margin: coreMargin, flag: "faint" };
       }
 
@@ -2653,15 +2686,34 @@
       try {
         scannerStream = await navigator.mediaDevices.getUserMedia({
           audio: false,
-          // HD quality: pehle 1280×1920 maangte the (jo detection ke
-          // 1203×1536 target se thoda hi zyada tha), ab ideal 1920×2560
-          // maangte hain taaki phone jitna bhi sharp camera feed de sake
-          // de, warp/crop se pehle hi zyada detail available rahe —
-          // isi se final scanned photo aur bubble-edges dono crisper
-          // aate hain. "ideal" hai, "exact" nahi, isliye jis phone mein
-          // itna high nahi milta wahan bhi camera fail nahi hoga, bas
-          // jo max mil sake wo milega.
-          video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 2560 } }
+          // v15: dialled back from ideal 1920×2560 to 1440×1920.
+          //
+          // 1920×2560 (~4.9 MP) sounded like a pure quality win — more
+          // detail before the warp/crop, crisper bubble edges — but it's
+          // a CONTINUOUS video stream, not a one-off photo: the phone's
+          // camera ISP has to keep producing ~4.9 MP frames the entire
+          // time the Scan Sheet screen stays open, not just at the
+          // capture instant. On a mid/low-end Android phone that sustained
+          // load is what was reported as "camera scanning slow ho jaati
+          // hai, teen-chaar scan ke baad poora hang" — it gets WORSE the
+          // longer the session runs because it's a running cost (heat +
+          // sustained CPU/ISP load), not a one-time one. Every full-res
+          // capture downstream (egWarpPerspective's getImageData +
+          // 1.85M-iteration warp loop, see its perf note) also scales
+          // directly with however many pixels this constraint actually
+          // negotiates, so the bigger request made every single scan's
+          // processing pause heavier too, compounding the same symptom.
+          //
+          // 1440×1920 (~2.76 MP, same 3:4 ratio so the aspect-ratio match
+          // to OMR_CANVAS_SIZE — 1203×1536 — that motivated the original
+          // bump is unchanged) is still a comfortable ~20-25% MORE detail
+          // than the 1203×1536 output actually needs, so bubble-edge
+          // sharpness after the warp is unaffected — it just stops asking
+          // the camera for roughly double the pixels it needs to sustain
+          // for no visible benefit. "ideal" hai, "exact" nahi, isliye jis
+          // phone mein itna bhi nahi milta wahan bhi camera fail nahi
+          // hoga, bas jo max mil sake wo milega.
+          video: { facingMode: { ideal: "environment" }, width: { ideal: 1440 }, height: { ideal: 1920 } }
         });
       } catch (error) {
         if (!["NotFoundError", "OverconstrainedError"].includes(error && error.name)) throw error;
