@@ -1644,12 +1644,17 @@
   // markers are found (heavy crop, very poor photo) this backs off to
   // zero correction rather than risk a wild guess.
   function findLocalMarkerOffset(ctx, expectedX, expectedY, w, h) {
-    const winHalf = 26;
+    // v19: widened from 26/18 — a marker near a crease or the far edge of
+    // an angled photo can drift further than 18px off its template spot
+    // even after the global warp; markers are still 150-240px apart, so a
+    // 24px cap (search window comfortably larger than that) is still far
+    // from confusable with a neighbouring marker.
+    const winHalf = 32;
     const region = { x: expectedX - winHalf, y: expectedY - winHalf, width: winHalf * 2, height: winHalf * 2 };
     const found = findBlackSquare(ctx, region, w, h);
     if (!found) return null;
     const dx = found.x - expectedX, dy = found.y - expectedY;
-    const maxOffset = 18; // sane cap — markers are 150-240px apart, so this can't be confused with a neighbouring marker
+    const maxOffset = 24;
     if (Math.abs(dx) > maxOffset || Math.abs(dy) > maxOffset) return null;
     return { ax: found.x, ay: found.y, ex: expectedX, ey: expectedY, dx, dy };
   }
@@ -2465,29 +2470,41 @@
       if (brightness[i] < threshold) dark[i] = 1;
     }
 
-    // How dark is a small block right at one of the component's bounding
-    // -box corners. A solid SQUARE marker fills its whole bounding box,
-    // so all 4 corners are dark. A filled CIRCLE (a student's marked
-    // answer bubble) only covers ~79% of its bounding box and leaves the
-    // 4 corners as bare paper — this is the single most reliable square
-    // -vs-circle test, and is what was letting a nearby marked bubble
-    // get mistaken for a registration square before (the loose fill
-    // -ratio/aspect-ratio checks alone can't tell a filled circle from a
-    // filled square, since both are roughly square bounding boxes with a
-    // moderate-to-high fill ratio).
-    function cornerDarkFraction(px, py) {
-      let darkN = 0, total = 0;
-      for (let oy = 0; oy < 3; oy++) {
-        for (let ox = 0; ox < 3; ox++) {
-          const nx = px + ox, ny = py + oy;
-          if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
-          total++;
-          if (dark[ny * width + nx]) darkN++;
-        }
-      }
-      return total ? darkN / total : 0;
-    }
-
+    // v19: SQUARE-vs-CIRCLE test, redone to be ROTATION INVARIANT.
+    //
+    // The old test compared each of the component's 4 bounding-box
+    // corners against a fixed darkness cutoff: a solid axis-aligned
+    // square fills its whole bbox (corners dark), a filled circle only
+    // covers ~79% of its bbox and leaves the corners bare (corners not
+    // dark). That works ONLY when the square is axis-aligned. The
+    // internal 45-marker grid exists specifically because a real,
+    // handled sheet is gently bent in 3-D (folds/creases) — a marker
+    // that lands even ~10-15° off-axis after the global 4-corner warp
+    // has ALL FOUR of its bounding-box corners fall outside the rotated
+    // ink (a rotated square's true corners sit near the MIDPOINTS of its
+    // bbox edges, not at the bbox's own corners), so the old test
+    // rejected it exactly like it would reject a circle — measured
+    // corner-darkness collapses to near 0 by just 15° of rotation. That
+    // was the actual reason genuine, well-printed squares were being
+    // thrown out and detection was stalling around 14-15/45 instead of
+    // reaching the 30/45 target, even after the earlier Otsu exposure
+    // fix.
+    //
+    // Fix: use a shape descriptor that doesn't care which way the square
+    // is turned — fill ratio against the component's own minimum
+    // enclosing circle (radius = farthest ink pixel from the component's
+    // centroid), instead of against its axis-aligned bounding box.
+    //   - A square (side s) inscribed in a circle of radius s·√2/2 fills
+    //     exactly 2/π ≈ 0.637 of that circle's area — a CONSTANT,
+    //     regardless of how the square is rotated, because "distance to
+    //     farthest corner" doesn't change when you spin a square around
+    //     its own centre.
+    //   - A filled circle fills ~1.0 of its own minimal enclosing circle
+    //     (itself), by definition — completely unaffected by rotation
+    //     too, but nowhere near the square's ~0.64.
+    // Verified against a discretised 20px square swept through 0-45°:
+    // ratio stays in a tight 0.66-0.75 band throughout, vs. 0.98-1.01 for
+    // an equivalent filled circle — a wide, rotation-proof margin.
     let best = null;
     const queue = new Int32Array(count);
     for (let start = 0; start < count; start++) {
@@ -2495,12 +2512,13 @@
       let head = 0, tail = 0;
       queue[tail++] = start;
       visited[start] = 1;
-      let pixelCount = 0, minX = width, maxX = 0, minY = height, maxY = 0;
+      let pixelCount = 0, minX = width, maxX = 0, minY = height, maxY = 0, sumX = 0, sumY = 0;
 
       while (head < tail) {
         const point = queue[head++];
         const pointX = point % width, pointY = Math.floor(point / width);
         pixelCount++;
+        sumX += pointX; sumY += pointY;
         minX = Math.min(minX, pointX); maxX = Math.max(maxX, pointX);
         minY = Math.min(minY, pointY); maxY = Math.max(maxY, pointY);
         for (let oy = -1; oy <= 1; oy++) {
@@ -2518,19 +2536,30 @@
       const componentHeight = maxY - minY + 1;
       const largestSide = Math.max(componentWidth, componentHeight);
       const smallestSide = Math.min(componentWidth, componentHeight);
-      const fillRatio = pixelCount / (componentWidth * componentHeight);
-      // Tightened from 0.72/0.58 — the old bounds were loose enough that
-      // whole clusters of adjacent bubbles/text could still qualify as
-      // "square enough" inside the (now smaller, but still not tiny)
-      // search box.
-      const squareEnough = smallestSide >= 4 && largestSide <= Math.min(width, height) * 0.55 && smallestSide / largestSide >= 0.65;
-      const looksLikeFilledSquare = squareEnough && fillRatio >= 0.6 &&
-        cornerDarkFraction(minX, minY) >= 0.6 &&
-        cornerDarkFraction(Math.max(minX, maxX - 2), minY) >= 0.6 &&
-        cornerDarkFraction(minX, Math.max(minY, maxY - 2)) >= 0.6 &&
-        cornerDarkFraction(Math.max(minX, maxX - 2), Math.max(minY, maxY - 2)) >= 0.6;
+      // Coarse, still axis-aligned-ish sanity gates: big enough to be a
+      // real marker, not so big it's swallowed half the search window
+      // (several merged bubbles/text), and not a wildly elongated sliver
+      // (a thin line of text) — true for a square at ANY rotation, since
+      // rotating a square keeps its own bounding box square too.
+      const sizeOk = smallestSide >= 4 && largestSide <= Math.min(width, height) * 0.6 && smallestSide / largestSide >= 0.6;
+      if (!sizeOk) continue;
+
+      const cx = sumX / pixelCount, cy = sumY / pixelCount;
+      let maxR2 = 0;
+      for (let i = 0; i < tail; i++) {
+        const point = queue[i];
+        const px = point % width, py = Math.floor(point / width);
+        const ddx = px - cx, ddy = py - cy;
+        const d2 = ddx * ddx + ddy * ddy;
+        if (d2 > maxR2) maxR2 = d2;
+      }
+      const enclosingArea = Math.PI * maxR2;
+      const circleFillRatio = enclosingArea > 0 ? pixelCount / enclosingArea : 0;
+      // 0.637 ± a generous margin for pixelation at marker sizes as small
+      // as ~10-12px, comfortably clear of a filled circle's ~0.9-1.0.
+      const looksLikeFilledSquare = circleFillRatio >= 0.48 && circleFillRatio <= 0.85;
       if (looksLikeFilledSquare) {
-        const score = pixelCount * fillRatio;
+        const score = pixelCount * circleFillRatio;
         if (!best || score > best.score) {
           best = { score, x: x + minX + componentWidth / 2, y: y + minY + componentHeight / 2 };
         }

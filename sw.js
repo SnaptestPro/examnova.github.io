@@ -1,4 +1,4 @@
-const CACHE_NAME = 'savyasachi-v80-multi-mark-false-positive-fix-20260830';
+const CACHE_NAME = 'savyasachi-v81-registration-marker-rotation-fix-20260830';
 
 // App-shell files — sab kuch jo student ko app chalane ke liye chahiye
 // (code + question-bank data + icons). Pehli visit par yeh sab download
