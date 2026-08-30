@@ -1,9 +1,9 @@
 {
-  "id": "/?owner=1",
+  "id": "/owner-app.html",
   "name": "EXAMNOVA Owner Panel",
   "short_name": "EXAMNOVA Owner",
   "description": "Owner Panel — saare institutes aur unke admins manage karein.",
-  "start_url": "/?owner=1",
+  "start_url": "/owner-app.html",
   "scope": "/",
   "display": "standalone",
   "display_override": ["standalone", "window-controls-overlay"],

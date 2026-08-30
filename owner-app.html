@@ -3,36 +3,36 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<title>EXAMNOVA — Owner App Install</title>
-<meta name="description" content="EXAMNOVA Owner Panel ko apne home screen par ek alag app ki tarah install karein." />
+<title>EXAMNOVA — Owner Panel</title>
+<meta name="description" content="EXAMNOVA Owner Panel — saare institutes aur unke admins manage karein." />
 
 <!-- ══════════════════════════════════════════════════════════════════
-     OWNER APP — separate installable PWA
+     OWNER APP — poori tarah ALAG, self-contained PWA
      ----------------------------------------------------------------
-     Ye page jaan-boojh kar index.html se ALAG rakha gaya hai, kyunki
-     ek hi HTML document mein do <link rel="manifest"> ek saath kaam
-     nahi karte — browser sirf EK manifest ko "is page ka installable
-     app" maanta hai. Isliye Owner ke liye ek chhota, alag "install
-     landing" page banaya gaya hai jo sirf OWNER wala manifest
-     (manifest-owner.webmanifest) link karta hai.
+     v24: Pehle ye sirf ek "install landing" page tha jo install/skip
+     ke baad index.html?owner=1 par le jaata tha — matlab Owner install
+     bhi asal mein Admin/Student wala hi poora app (index.html,
+     script.js, exam-manager.js, omr.js, wagera) load karta tha, sirf
+     ek overlay upar dikhta tha. Isi wajah se dono installs "ek jaisa"
+     dikhte the.
 
-     Is page ka apna native "Install" prompt milega (Chrome/Edge/
-     Android etc. par), jo home screen/desktop par EXAMNOVA se BILKUL
-     ALAG ek doosra app-icon banata hai ("EXAMNOVA Owner"). Us icon ko
-     tap karne par seedha /?owner=1 khulta hai (manifest ke start_url
-     ki wajah se) — Owner Panel turant, bina Admin Panel se login kiye.
+     Ab ye page khud hi poora Owner app hai — apna Firebase init, apna
+     owner-panel.js, apna chhota sa login/panel markup. Admin/Student
+     ki koi bhi file (script.js, exam-manager.js, omr.js, question
+     banks, wagera) yahan load hi nahi hoti. Manifest ka start_url ab
+     seedha isi file par point karta hai, isliye installed icon tap
+     karte hi (Android/Chrome) ya "Add to Home Screen" ke baad
+     (iOS) — dono jagah — seedha yahi page khulta hai. iOS ke liye ab
+     koi alag redirect-trick ki zaroorat nahi (pehle thi), kyunki ye
+     page khud hi apna destination hai.
 
      Student/Admin install abhi bhi index.html se hi hota hai (wahi
-     manifest.webmanifest), bilkul pehle jaisa — is file se uska koi
-     lena-dena nahi.
+     manifest.webmanifest) — is file se uska koi lena-dena nahi.
      ══════════════════════════════════════════════════════════════════ -->
 
 <link rel="manifest" href="/manifest-owner.webmanifest" />
 <link rel="icon" href="icon-192-owner.png" type="image/png" />
 
-<!-- iOS: in tags ke bina "Add to Home Screen" sirf plain bookmark
-     banata hai. In tags ke saath proper standalone app ki tarah
-     khulta hai, apna alag icon/title ke saath (index.html se alag). -->
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <meta name="apple-mobile-web-app-title" content="EXAMNOVA Owner" />
@@ -41,124 +41,113 @@
 <meta name="mobile-web-app-capable" content="yes" />
 <meta name="theme-color" content="#78550a" />
 
-<link rel="preconnect" href="https://fonts.googleapis.com" />
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet" />
+<!-- Sirf shared design-system classes (.card, .field-row, .btn-primary,
+     .section-title, .muted-text, .hidden, colors/fonts) ke liye —
+     Admin/Student ke tabs/panels wali koi bhi CSS (theme-picker,
+     creative-dashboard, exam-manager) yahan jaan-boojh kar NAHI
+     load ki gayi. -->
+<link rel="stylesheet" href="styles.css?v=8">
 
 <style>
-  * { box-sizing: border-box; }
-  body {
-    margin: 0;
-    min-height: 100vh;
-    font-family: 'Inter', system-ui, sans-serif;
-    background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 20px;
-  }
-  .card {
-    background: #fff;
-    border-radius: 18px;
-    max-width: 420px;
-    width: 100%;
-    padding: 28px 24px;
-    box-shadow: 0 12px 40px rgba(120, 85, 10, .18);
-    text-align: center;
-  }
-  .badge {
-    display: inline-block;
-    background: linear-gradient(135deg, #b48214, #78550a);
-    color: #fff;
-    font-weight: 700;
-    font-size: .72rem;
-    letter-spacing: .06em;
-    border-radius: 999px;
-    padding: 5px 14px;
-    margin-bottom: 14px;
-  }
-  .logo-img {
-    width: 68px;
-    height: 68px;
-    border-radius: 16px;
-    margin-bottom: 10px;
-  }
-  h1 {
-    font-size: 1.25rem;
-    color: #451a03;
-    margin: 0 0 8px;
-  }
-  p {
-    color: #57534e;
-    font-size: .9rem;
-    line-height: 1.55;
-    margin: 0 0 18px;
-  }
-  #install-btn {
-    background: linear-gradient(135deg, #b48214, #78550a);
-    color: #fff;
-    border: none;
-    border-radius: 12px;
-    padding: 13px 22px;
-    font-size: .95rem;
-    font-weight: 700;
-    cursor: pointer;
-    width: 100%;
-    margin-bottom: 12px;
-  }
-  #install-btn:disabled { opacity: .65; cursor: default; }
-  #status-text {
-    font-size: .82rem;
-    color: #7c5a10;
-    background: #fef3c7;
-    border-radius: 10px;
-    padding: 10px 12px;
-    margin-bottom: 14px;
-    line-height: 1.5;
-    display: none;
-  }
-  #status-text.show { display: block; }
-  .skip-link {
-    display: inline-block;
-    color: #78550a;
-    font-size: .85rem;
-    text-decoration: underline;
-    cursor: pointer;
-    background: none;
-    border: none;
-    font-family: inherit;
-  }
-  .back-link {
-    display: block;
-    margin-top: 16px;
-    color: #a8a29e;
-    font-size: .78rem;
-    text-decoration: none;
-  }
+  body { padding: 22px 12px 60px; }
+
+  .owner-shell { max-width: 640px; margin: 0 auto; }
+
+  .owner-header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+  .owner-header-logo { width: 46px; height: 46px; border-radius: 12px; flex-shrink: 0; }
+  .owner-header h1 { font-size: 1.2rem; color: var(--navy); margin: 0 0 2px; line-height: 1.25; }
+  .owner-header-badge { display: inline-block; background: linear-gradient(135deg, #b48214, #78550a); color: #fff; font-weight: 700; font-size: .62rem; letter-spacing: .05em; border-radius: 999px; padding: 2px 9px; margin-left: 6px; vertical-align: middle; }
+  .owner-header p { margin: 0; font-size: .82rem; color: #64748b; }
+
+  .owner-install-banner { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; background: linear-gradient(135deg, #fef3c7, #fde68a); border: 1px solid #fbbf24; border-radius: 12px; padding: 10px 14px; margin-bottom: 16px; font-size: .82rem; color: #78350f; line-height: 1.4; }
+  .owner-install-banner button { background: linear-gradient(135deg, #b48214, #78550a); color: #fff; border: none; border-radius: 9px; padding: 8px 14px; font-size: .82rem; font-weight: 700; cursor: pointer; white-space: nowrap; }
+  .owner-install-banner button:disabled { opacity: .6; cursor: default; }
+
+  .owner-card-shell { background: #fff; border-radius: 16px; padding: 22px 20px; box-shadow: 0 10px 36px rgba(15,15,30,.12); }
+
+  .owner-footer-link { display: block; text-align: center; margin-top: 18px; font-size: .8rem; color: #94a3b8; text-decoration: none; }
+
+  /* ── Owner panel component classes (moved here from index.html) ── */
+  .owner-inst-card{background:#f9fafb;border:1.5px solid #e5e7eb;border-radius:12px;padding:12px 14px;margin-bottom:12px;}
+  .owner-inst-card-orphan{background:#fffbeb;border-color:#fcd34d;}
+  .owner-inst-head{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px;}
+  .owner-inst-actions,.owner-admin-actions{display:flex;gap:6px;flex-wrap:wrap;}
+  .owner-admin-row{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:8px 10px;margin-bottom:6px;}
+  .owner-admin-email{font-size:.88rem;font-weight:600;color:#1e293b;display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+  .owner-badge{font-size:.7rem;font-weight:700;border-radius:999px;padding:2px 9px;}
+  .owner-badge-on{background:#dcfce7;color:#15803d;}
+  .owner-badge-off{background:#fee2e2;color:#b91c1c;}
+  .owner-mini-btn{background:#eef2ff;color:#3730a3;border:none;border-radius:8px;padding:6px 10px;font-size:.78rem;font-weight:600;cursor:pointer;}
+  .owner-mini-primary{background:#4f46e5;color:#fff;}
+  .owner-mini-danger{background:#fee2e2;color:#b91c1c;}
+  .owner-add-admin-form{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;}
+  .owner-add-admin-form input{flex:1;min-width:160px;padding:7px 10px;border:1px solid #d1d5db;border-radius:8px;font-size:.85rem;}
 </style>
 </head>
 <body>
 
-<div class="card">
-  <span class="badge">🏢 OWNER ONLY</span>
-  <br />
-  <img src="icon-192-owner.png" alt="EXAMNOVA Owner" class="logo-img" />
-  <h1>EXAMNOVA Owner App</h1>
-  <p>
-    Ye alag app hai — sirf product/institutes ke Owner ke liye. Install
-    karne ke baad home screen par ek naya icon banega ("EXAMNOVA Owner"),
-    jo seedha Owner login par khulega. Admin Panel se login karne ki
-    zaroorat nahi.
-  </p>
+<div class="owner-shell">
 
-  <button id="install-btn" type="button" disabled>⏳ Taiyaar ho raha hai…</button>
-  <div id="status-text"></div>
+  <div class="owner-header">
+    <img src="icon-192-owner.png" alt="" class="owner-header-logo" />
+    <div>
+      <h1>EXAMNOVA Owner<span class="owner-header-badge">OWNER ONLY</span></h1>
+      <p>Har institute ka admin yahan se dekhein aur control karein.</p>
+    </div>
+  </div>
 
-  <button type="button" class="skip-link" onclick="window.location.href='/?owner=1'">
-    Bina install kiye, seedha Owner Panel kholein →
-  </button>
+  <div id="install-banner" class="owner-install-banner hidden">
+    <span id="install-status-text"></span>
+    <button id="install-btn" type="button">⬇️ Install Karein</button>
+  </div>
 
-  <a class="back-link" href="/">← EXAMNOVA (Admin/Student) par wapas jaayein</a>
+  <div class="owner-card-shell">
+
+    <!-- Owner Login -->
+    <form id="owner-login-box" class="hidden" onsubmit="return ownerLogin(event)">
+      <h2 class="section-title">🔐 Owner Login</h2>
+      <p class="muted-text" style="margin-bottom:14px;">Sirf product owner ke liye — har institute ka admin yahan se manage hota hai.</p>
+      <div class="field-row">
+        <label>Owner Email</label>
+        <input id="owner-email" type="email" placeholder="Owner ka email" autocomplete="off" />
+      </div>
+      <div class="field-row">
+        <label>Password</label>
+        <input id="owner-password" type="password" placeholder="Password" autocomplete="off" />
+      </div>
+      <button type="submit" class="btn-primary">Login</button>
+    </form>
+
+    <!-- Owner Panel -->
+    <div id="owner-panel-box" class="hidden">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:6px;">
+        <h2 class="section-title" style="margin:0;">🏢 Owner Panel</h2>
+        <button type="button" class="owner-mini-btn" onclick="ownerLogout()">🚪 Logout</button>
+      </div>
+      <p class="muted-text" style="margin-bottom:14px;">Har institute ka admin yahan se dekhein aur control karein.</p>
+
+      <div class="card" style="margin-bottom:16px;padding:14px;">
+        <strong style="display:block;margin-bottom:8px;">+ Naya Institute</strong>
+        <form onsubmit="return ownerAddInstituteSubmit(event)" style="display:flex;gap:8px;flex-wrap:wrap;">
+          <input id="owner-new-institute-name" type="text" placeholder="Institute ka naam" required style="flex:1;min-width:160px;" />
+          <button type="submit" class="btn-primary" style="white-space:nowrap;">+ Add Karein</button>
+        </form>
+      </div>
+
+      <div id="owner-institutes-list"></div>
+    </div>
+
+  </div>
+
+  <a class="owner-footer-link" href="/">← EXAMNOVA (Admin/Student) site par jaayein</a>
 </div>
+
+<!-- Firebase SDKs (sirf jo Owner Panel ko chahiye — Storage nahi) -->
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+<script src="firebase-config.js"></script>
+<script src="owner-panel.js"></script>
 
 <script>
   function isStandaloneMode() {
@@ -166,94 +155,87 @@
       || window.navigator.standalone === true;
   }
 
-  // iOS "Add to Home Screen" ka apna manifest-support nahi hai — wahan
-  // installed icon hamesha ISI page (owner-app.html) ko relaunch karta
-  // hai, "start_url" ko nahi maanta. Isliye agar hum already standalone
-  // mode mein hain (matlab home-screen icon se hi khula hai), turant
-  // seedha Owner Panel par bhej dete hain — user ko ye landing page
-  // dobara dikhne ki zaroorat nahi.
-  if (isStandaloneMode()) {
-    window.location.replace('/?owner=1');
-  }
+  // ── Install-to-home-screen banner (sirf tab mein khula ho, already
+  //    installed/standalone na ho tab hi dikhta hai) ──────────────────
+  if (!isStandaloneMode()) {
+    let deferredPrompt = null;
+    const banner = document.getElementById('install-banner');
+    const installBtn = document.getElementById('install-btn');
+    const statusEl = document.getElementById('install-status-text');
 
-  let deferredPrompt = null;
+    function detectPlatformInstructions() {
+      const ua = window.navigator.userAgent || '';
+      const isIos = /iphone|ipad|ipod/i.test(ua);
+      const isAndroid = /android/i.test(ua);
+      const isFirefox = /firefox|fxios/i.test(ua);
+      const isSafari = /safari/i.test(ua) && !/crios|fxios|chrome|android|edg/i.test(ua);
 
-  function detectPlatformInstructions() {
-    const ua = window.navigator.userAgent || '';
-    const isIos = /iphone|ipad|ipod/i.test(ua);
-    const isAndroid = /android/i.test(ua);
-    const isFirefox = /firefox|fxios/i.test(ua);
-    const isSafari = /safari/i.test(ua) && !/crios|fxios|chrome|android|edg/i.test(ua);
-
-    if (isIos) return 'Neeche Share button ⬆️ par tap karein, phir "Add to Home Screen" chunein.';
-    if (isAndroid && isFirefox) return 'Upar-daayein 3-dot menu kholein aur "Install" ya "Add to Home screen" chunein.';
-    if (!isAndroid && !isIos && isFirefox) return 'Firefox is page ko app ki tarah install support nahi karta. Chrome ya Edge mein kholein.';
-    if (!isAndroid && !isIos && isSafari) return 'Menu bar mein File → "Add to Dock" chunein (Safari 17+), ya Chrome/Edge mein kholein.';
-    return 'Address bar ke daayein taraf install icon ⊕ par click karein, ya browser ke 3-dot menu mein "Install App" dhoondein. Agar pehle se install ho chuka hai, to home screen/app list mein "EXAMNOVA Owner" dhoondh kar seedha usi se kholein.';
-  }
-
-  function couldGetNativePrompt() {
-    const ua = window.navigator.userAgent || '';
-    const isIos = /iphone|ipad|ipod/i.test(ua);
-    const isFirefox = /firefox|fxios/i.test(ua);
-    const isSafari = /safari/i.test(ua) && !/crios|fxios|chrome|android|edg/i.test(ua);
-    return !isIos && !isFirefox && !isSafari;
-  }
-
-  const btn = document.getElementById('install-btn');
-  const statusEl = document.getElementById('status-text');
-
-  function showStatus(msg) {
-    statusEl.textContent = msg;
-    statusEl.classList.add('show');
-  }
-
-  function setFallbackReady() {
-    btn.textContent = '👍 Samajh Gaya';
-    btn.disabled = false;
-    showStatus(detectPlatformInstructions());
-    btn.onclick = function () { btn.textContent = '👍 Samajh Gaya'; };
-  }
-
-  window.addEventListener('beforeinstallprompt', function (e) {
-    e.preventDefault();
-    deferredPrompt = e;
-    btn.textContent = '⬇️ Owner App Install Karein';
-    btn.disabled = false;
-    statusEl.classList.remove('show');
-    btn.onclick = function () {
-      btn.disabled = true;
-      deferredPrompt.prompt();
-      deferredPrompt.userChoice.finally(function () {
-        deferredPrompt = null;
-      });
-    };
-  });
-
-  window.addEventListener('appinstalled', function () {
-    btn.textContent = '✅ Install Ho Gaya';
-    btn.disabled = true;
-    showStatus('EXAMNOVA Owner ab home screen par hai. Wahan se icon tap karke seedha Owner Panel khulega.');
-  });
-
-  document.addEventListener('DOMContentLoaded', function () {
-    if (isStandaloneMode()) return; // already redirected above
-    if (couldGetNativePrompt()) {
-      setTimeout(function () {
-        if (deferredPrompt) return; // beforeinstallprompt already handled it
-        setFallbackReady();
-      }, 3000);
-    } else {
-      setFallbackReady();
+      if (isIos) return 'Neeche Share button ⬆️ par tap karein, phir "Add to Home Screen" chunein.';
+      if (isAndroid && isFirefox) return 'Upar-daayein 3-dot menu kholein aur "Install" ya "Add to Home screen" chunein.';
+      if (!isAndroid && !isIos && isFirefox) return 'Firefox is page ko app ki tarah install support nahi karta. Chrome ya Edge mein kholein.';
+      if (!isAndroid && !isIos && isSafari) return 'Menu bar mein File → "Add to Dock" chunein (Safari 17+), ya Chrome/Edge mein kholein.';
+      return 'Address bar ke daayein taraf install icon ⊕ par click karein, ya browser ke 3-dot menu mein "Install App" dhoondein.';
     }
-  });
 
-  // Same service worker/scope as the main app — registering it here
-  // too so installability criteria are met even if this is the very
-  // first page someone opens on the site.
+    function couldGetNativePrompt() {
+      const ua = window.navigator.userAgent || '';
+      const isIos = /iphone|ipad|ipod/i.test(ua);
+      const isFirefox = /firefox|fxios/i.test(ua);
+      const isSafari = /safari/i.test(ua) && !/crios|fxios|chrome|android|edg/i.test(ua);
+      return !isIos && !isFirefox && !isSafari;
+    }
+
+    function showBanner(text, showButton) {
+      statusEl.textContent = text;
+      installBtn.style.display = showButton ? '' : 'none';
+      banner.classList.remove('hidden');
+    }
+
+    window.addEventListener('beforeinstallprompt', function (e) {
+      e.preventDefault();
+      deferredPrompt = e;
+      showBanner('EXAMNOVA Owner ko home screen par install karein — Admin/Student se bilkul alag icon.', true);
+      installBtn.onclick = function () {
+        installBtn.disabled = true;
+        deferredPrompt.prompt();
+        deferredPrompt.userChoice.finally(function () { deferredPrompt = null; });
+      };
+    });
+
+    window.addEventListener('appinstalled', function () {
+      banner.classList.add('hidden');
+    });
+
+    document.addEventListener('DOMContentLoaded', function () {
+      if (couldGetNativePrompt()) {
+        setTimeout(function () {
+          if (deferredPrompt) return; // beforeinstallprompt ne pehle hi handle kar diya
+          showBanner(detectPlatformInstructions(), false);
+        }, 3000);
+      } else {
+        showBanner(detectPlatformInstructions(), false);
+      }
+    });
+  }
+
+  // Same service worker/scope — installability + offline ke liye.
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/sw.js').catch(function () {});
   }
+
+  // ── Seedha Owner login/panel dikhao (persistent-login aware) ───────
+  // openOwnerOverlay() (owner-panel.js mein) khud check karta hai ki
+  // pehle se logged-in hai ya nahi (localStorage flag + Firebase Auth
+  // session) — agar haan, seedha Panel dikhata hai, warna Login form.
+  // Yahi wajah hai ki ye Admin Panel jaisa "ek baar login, phir login
+  // hi rehta hai" waala behaviour deta hai.
+  document.addEventListener('DOMContentLoaded', function () {
+    if (window.vishnuFirebase && window.vishnuFirebase.authReady) {
+      window.vishnuFirebase.authReady.then(function () { openOwnerOverlay(); });
+    } else {
+      openOwnerOverlay();
+    }
+  });
 </script>
 </body>
 </html>

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'examnova-v85-owner-app-separate-install-20260830';
+const CACHE_NAME = 'examnova-v86-owner-app-standalone-20260830';
 
 // App-shell files — sab kuch jo student ko app chalane ke liye chahiye
 // (code + question-bank data + icons). Pehli visit par yeh sab download
@@ -39,8 +39,9 @@ const urlsToCache = [
   '/manifest.webmanifest',
   '/screenshot-wide.jpg',
   '/screenshot-narrow.jpg',
-  // Owner App — separate installable PWA (see owner-app.html)
+  // Owner App — separate, self-contained installable PWA (see owner-app.html)
   '/owner-app.html',
+  '/owner-panel.js',
   '/manifest-owner.webmanifest',
   '/icon-192-owner.png',
   '/icon-512-owner.png',
