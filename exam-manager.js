@@ -171,7 +171,18 @@
   // average. Matching the trigger to the window size (4) removes that
   // dead ~260ms without changing how many frames get averaged into the
   // final corner position.
-  const SCANNER_CAPTURE_TRIGGER_FRAMES = 4;
+  //
+  // v21: set to 1 tick — capture fires the INSTANT all 4 corners first
+  // read green, no steady-hold wait at all. Explicitly asked for
+  // ("4 corner green hote hi turant scan ho, koi deri na ho"). Trade-off
+  // (see the v21 note further down, right where this constant is used):
+  // with only 1 tick there is nothing left to average or pick-sharpest
+  // from, so a single unlucky frame (mid-blink of hand tremor, one soft
+  // frame) is now captured as-is instead of being smoothed out the way
+  // v7/v8/v10 were originally built to do. If bad captures start
+  // showing up again, raise this back to 3-4 first before touching
+  // anything else.
+  const SCANNER_CAPTURE_TRIGGER_FRAMES = 1;
 
   function $id(id) { return document.getElementById(id); }
   function db() { return typeof getDB === "function" ? getDB() : null; }

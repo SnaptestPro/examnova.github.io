@@ -52,3 +52,40 @@ rotation-invariant square-vs-circle test, same 4-point homography and
 sharpest-frame capture logic (v7/v8/v10/v19). Camera resolution
 (v15, 1440×1920) and detection-tick interval (130ms) are also untouched,
 so the earlier hang/perf fixes aren't affected by this change.
+
+---
+
+## v21 — instant capture (no steady-hold wait at all)
+
+Explicitly requested next: "4 corner green hote hi turant scan ho jaana
+chahiye, koi deri na ho" — even the ~520ms of v20's 4-tick trigger should
+go away completely.
+
+`SCANNER_CAPTURE_TRIGGER_FRAMES` dropped from 4 → **1**. Capture now
+fires on the very first tick where all 4 corners read green — literally
+zero added wait beyond the ~130ms detection tick itself.
+
+**Trade-off, stated plainly:** the multi-tick wait wasn't only there to
+feel "steady" — it was doing two real jobs that a single-tick capture no
+longer gets:
+
+- **Position averaging (v8):** with only 1 ready tick, `scannerMarkerHistory`
+  has just 1 entry, so the 4 corner positions used for the perspective
+  warp are now that one frame's raw read, with none of the hand-tremor
+  jitter cancelled out by averaging several ticks together.
+- **Sharpest-of-window capture (v10):** with only 1 tick, there's no
+  "window" to pick the sharpest frame from — whatever frame is live the
+  instant all 4 corners first read green is what gets captured, even if
+  a slightly steadier/sharper frame would have arrived half a second
+  later.
+
+In practice: a sheet held genuinely still and well-lit should still
+scan cleanly, since there's little jitter/blur to average out in the
+first place. A sheet grabbed the instant it swings into frame, or
+scanned in low light (slower shutter → more motion blur per frame), is
+now more exposed to the exact failure modes v8/v10 were originally
+written to fix — mis-aligned corners or a blurry capture reading wrong
+values. If bad reads start showing up again, the first thing to try is
+raising `SCANNER_CAPTURE_TRIGGER_FRAMES` back up (2-4) before changing
+anything else — it's a single constant, right above where the capture
+loop reads it in `runScannerDetection()`.
