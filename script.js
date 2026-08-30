@@ -1730,7 +1730,15 @@ async function renderAdminWelcomeInstituteName() {
   } catch (e) {
     console.warn("[admin] institute name fetch failed (ignoring)", e);
   }
-  heading.textContent = name ? ("Welcome, " + name + " 👋") : "Welcome, Admin 👋";
+  heading.textContent = name ? ("Welcome, " + decorateInstituteNameForDisplay(name) + " 👋") : "Welcome, Admin 👋";
+}
+
+// Owner ne maanga hai ki har institute ka naam is decorative block-
+// character style mein dikhe — Owner Panel ke saath consistent rakhne
+// ke liye yahan bhi wahi wrapper. Ye sirf display ke liye hai; asli
+// stored `institutes/{id}.name` plain text hi rehta hai.
+function decorateInstituteNameForDisplay(name) {
+  return "█▓▒▒░░░" + String(name || "").toUpperCase() + "░░░▒▒▓█";
 }
 
 function enterAdminPanel() {

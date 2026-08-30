@@ -216,7 +216,7 @@ function ownerRenderList() {
       <div class="owner-inst-card">
         <div class="owner-inst-head">
           <div>
-            <strong>${ownerEsc(inst.name || "(naam nahi)")}</strong>
+            <strong>${ownerDecorateInstituteName(inst.name || "(naam nahi)")}</strong>
             <span class="owner-badge ${inst.active === false ? "owner-badge-off" : "owner-badge-on"}">${inst.active === false ? "Inactive" : "Active"}</span>
           </div>
           <div class="owner-inst-actions">
@@ -299,6 +299,17 @@ function ownerEsc(s) {
 }
 function ownerEscAttr(s) {
   return String(s == null ? "" : s).replace(/'/g, "\\'");
+}
+
+// ── Decorative institute-name display (v24_21) ─────────────────────
+// Owner ne khud maanga hai ki har institute ka naam Owner Panel mein
+// isi block-character style ke saath dikhe:
+// "█▓▒▒░░░NAAM░░░▒▒▓█". Ye SIRF DISPLAY par lagta hai — asli stored
+// `institutes/{id}.name` ab bhi plain text hi rehta hai (Rename box,
+// Add-Admin form waghera mein plain naam hi dikhta hai) — isse dobara
+// Rename karne par ye decoration doubled/nested nahi hoti.
+function ownerDecorateInstituteName(name) {
+  return "█▓▒▒░░░" + ownerEsc(String(name || "").toUpperCase()) + "░░░▒▒▓█";
 }
 
 // ── Add institute ───────────────────────────────────────────────────
