@@ -1,5 +1,5 @@
 /* ══════════════════════════════════════════════════════════════════
-   SAVYASACHI COACHING — EXAM MANAGER (OMR hub ka 5th section)
+   EXAMNOVA — EXAM MANAGER (OMR hub ka 5th section)
    ══════════════════════════════════════════════════════════════════
    Ye ek halka, self-contained bookkeeping tool hai offline/paper exams
    ke liye — question bank ya "Tests" collection se koi lena-dena nahi.
@@ -1017,7 +1017,7 @@
 
     ctx.textAlign = "center";
     ctx.font = "bold 30px Arial";
-    ctx.fillText("SAVYASACHI COACHING — OMR ANSWER SHEET", OMR_CANVAS_SIZE.width / 2, 34);
+    ctx.fillText("EXAMNOVA — OMR ANSWER SHEET", OMR_CANVAS_SIZE.width / 2, 34);
 
     // Exam Set (A–E) row
     ctx.font = "18px Arial";
@@ -1193,7 +1193,7 @@
     doc.text(`DATE : ${ex.date || ""}     CLASS : ${ex.className || ""}`, mmPos(110), mmPos(123));
 
     doc.setFontSize(pxFontToPt(24));
-    doc.text("SAVYASACHI COACHING — OMR ANSWER SHEET", mmPos(OMR_CANVAS_SIZE.width / 2), mmPos(30), { align: "center" });
+    doc.text("EXAMNOVA — OMR ANSWER SHEET", mmPos(OMR_CANVAS_SIZE.width / 2), mmPos(30), { align: "center" });
 
     // Exam Set (A–E) row
     doc.setFontSize(pxFontToPt(14));

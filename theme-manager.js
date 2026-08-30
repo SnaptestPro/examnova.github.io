@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  THEME MANAGER — 100 Live Theme Switcher
-//  Savyasachi Coaching Test
+//  EXAMNOVA Test
 // ═══════════════════════════════════════════════════════════════
 
 // Theme manager global object
@@ -16,7 +16,7 @@ window.ThemeManager = {
       return;
     }
     this.currentTheme = themeId;
-    localStorage.setItem('savyasachi_theme', themeId);
+    localStorage.setItem('examnova_theme', themeId);
 
     const root = document.documentElement;
     root.style.setProperty('--th-primary', theme.primary);
@@ -50,7 +50,7 @@ window.ThemeManager = {
 
   // Load saved theme on page load
   init() {
-    const saved = localStorage.getItem('savyasachi_theme');
+    const saved = localStorage.getItem('examnova_theme');
     if (saved && THEME_PALETTES.find(t => t.id === saved)) {
       this.apply(saved);
     } else {

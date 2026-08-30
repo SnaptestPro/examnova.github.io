@@ -1,5 +1,5 @@
 /* ══════════════════════════════════════════════════════════════════
-   SAVYASACHI — EXTRA STUDENT+ADMIN FEATURES
+   EXAMNOVA — EXTRA STUDENT+ADMIN FEATURES
    ══════════════════════════════════════════════════════════════════
    Ye file script.js ke baad load hoti hai aur usi ke globals
    (current, records, questionBank, $, getDB, escHtml, fillFilter,

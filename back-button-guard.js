@@ -1,5 +1,5 @@
 /* ════════════════════════════════════════════════════════════════
-   SAVYASACHI — ANDROID BACK BUTTON GUARD (v2)
+   EXAMNOVA — ANDROID BACK BUTTON GUARD (v2)
    ════════════════════════════════════════════════════════════════
    PROBLEM 1: App APK (TWA) ke andar back button dabate hi poora
    app band ho jata hai — chahe kahin bhi ho — kyunki app kabhi

@@ -1,5 +1,5 @@
 /* 
-  Savyasachi App 2.0 - Simple Login (No Firebase Auth)
+  EXAMNOVA App 2.0 - Simple Login (No Firebase Auth)
   Student: Sirf Naam + WhatsApp Number se test shuru karo
   Admin: Password se login karo (same as before)
 */
@@ -92,13 +92,13 @@ function exportToExcel() {
   const ws = XLSX.utils.aoa_to_sheet(wsData);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Results");
-  XLSX.writeFile(wb, "Savyasachi_Results.xlsx");
+  XLSX.writeFile(wb, "EXAMNOVA_Results.xlsx");
 }
 
 // PDF Export
 function exportToPdf() {
   const element = document.getElementById("records-list");
-  html2pdf().from(element).save("Savyasachi_Results.pdf");
+  html2pdf().from(element).save("EXAMNOVA_Results.pdf");
 }
 
 // WhatsApp Bulk API
@@ -122,7 +122,7 @@ function bulkSendWhatsApp() {
     const pct = r.percentage ? Math.round(r.percentage) : (maxScore > 0 ? Math.round((score / maxScore) * 100) : 0);
     const rankObj = ranked.find(row => row.name === (r.name || "Student"));
     const rank = rankObj ? rankObj.rank : "N/A";
-    const msg = "Hello " + (r.name || "Student") + ", your result for Savyasachi Test is out! Score: " + score + "/" + maxScore + " (" + pct + "%), Rank: " + rank + ". Check the portal for details.";
+    const msg = "Hello " + (r.name || "Student") + ", your result for EXAMNOVA Test is out! Score: " + score + "/" + maxScore + " (" + pct + "%), Rank: " + rank + ". Check the portal for details.";
     const url = "https://wa.me/" + fullPhone + "?text=" + encodeURIComponent(msg);
     return { name: r.name || "Student", phone: phoneDigits, url };
   });

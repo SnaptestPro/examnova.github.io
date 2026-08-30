@@ -1,5 +1,5 @@
 /**
- * Savyasachi Coaching - Draft Question Seeder
+ * EXAMNOVA - Draft Question Seeder
  *
  * Ye script questions ko Firestore ke draftQuestions collection me save karta hai.
  * Admin panel me "App Script Drafts" tab se approve/edit karke questionBank me bhej sakte hain.

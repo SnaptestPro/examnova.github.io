@@ -1,5 +1,5 @@
 /* ══════════════════════════════════════════════════════════════════
-   SAVYASACHI — OMR SHEET GENERATOR + MANUAL ANSWER ENTRY
+   EXAMNOVA — OMR SHEET GENERATOR + MANUAL ANSWER ENTRY
    ══════════════════════════════════════════════════════════════════
    1) Print/PDF OMR answer sheet for any existing Test (4 corner
       markers used for photo alignment, A–D bubbles per question).
@@ -351,7 +351,7 @@
       sections: [{
         properties: { page: { size: { width: mm(210), height: mm(297) }, margin: { top: mm(10), bottom: mm(10), left: mm(14), right: mm(14) } } },
         children: [
-          new D.Paragraph({ alignment: D.AlignmentType.CENTER, children: [new D.TextRun({ text: "SAVYASACHI COACHING — OMR उत्तर पत्रक", bold: true, size: 32 })] }),
+          new D.Paragraph({ alignment: D.AlignmentType.CENTER, children: [new D.TextRun({ text: "EXAMNOVA — OMR उत्तर पत्रक", bold: true, size: 32 })] }),
           new D.Paragraph({ spacing: { before: 100 }, children: [] }),
           headerBoxRow,
           new D.Paragraph({ spacing: { before: 150 }, children: [] }),

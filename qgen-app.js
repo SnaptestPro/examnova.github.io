@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════
 // APP LOGIC — qgen-app.js
-// savyasachitest.unaux.com
+// EXAMNOVA
 // ═══════════════════════════════════════════════
 
 // ⚠️ SECURITY: This API key is client-side visible. Restrict access

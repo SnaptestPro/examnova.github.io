@@ -74,20 +74,20 @@
       }, { passive: false });
     })();
   </script>
-  <title>Savyasachi Coaching Test – Board Exam Platform</title>
-  <meta name="description" content="Board Exam Practice Platform by Savyasachi Coaching. Bilingual (Hindi/English) MCQ tests with result sheet, solution review and chapter-wise analysis." />
+  <title>EXAMNOVA — Smart Tests • Better Preparation • Better Results</title>
+  <meta name="description" content="Smart Tests • Better Preparation • Better Results by EXAMNOVA. Bilingual (Hindi/English) MCQ tests with result sheet, solution review and chapter-wise analysis." />
 
   <!-- Open Graph -->
   <meta property="og:type" content="website" />
-  <meta property="og:title" content="Savyasachi Coaching Test – Board Exam Platform" />
-  <meta property="og:description" content="Practice board exam questions, take tests, and track your rank and progress with Savyasachi Coaching." />
+  <meta property="og:title" content="EXAMNOVA — Smart Tests • Better Preparation • Better Results" />
+  <meta property="og:description" content="Practice tests, track your rank, and prepare smarter with EXAMNOVA." />
   <meta property="og:image" content="icon-512.png" />
   <meta property="og:url" content="https://magnificent-malabi-e6a752.netlify.app/" />
 
   <!-- Twitter Card -->
   <meta name="twitter:card" content="summary_large_image" />
-  <meta name="twitter:title" content="Savyasachi Coaching Test – Board Exam Platform" />
-  <meta name="twitter:description" content="Practice board exam questions, take tests, and track your rank and progress with Savyasachi Coaching." />
+  <meta name="twitter:title" content="EXAMNOVA — Smart Tests • Better Preparation • Better Results" />
+  <meta name="twitter:description" content="Practice tests, track your rank, and prepare smarter with EXAMNOVA." />
   <meta name="twitter:image" content="icon-512.png" />
 
   <link rel="manifest" href="/manifest.webmanifest" />
@@ -100,7 +100,7 @@
        khulta hai, apna alag icon/status-bar ke saath. -->
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <meta name="apple-mobile-web-app-title" content="Savyasachi" />
+  <meta name="apple-mobile-web-app-title" content="EXAMNOVA" />
   <link rel="apple-touch-icon" sizes="192x192" href="icon-192.png" />
   <link rel="apple-touch-icon" sizes="512x512" href="icon-512.png" />
 
@@ -150,10 +150,10 @@
   <!-- HEADER -->
   <header class="site-header">
     <div class="logo-area">
-      <img src="savyasachi-coaching-logo.png" alt="Savyasachi Coaching" class="logo-img" />
+      <img src="examnova-logo.png" alt="EXAMNOVA" class="logo-img" />
       <div>
-        <div class="site-title">Savyasachi Coaching Test</div>
-        <div class="site-sub">Board Exam Practice Platform</div>
+        <div class="site-title">EXAMNOVA Test</div>
+        <div class="site-sub">Smart Tests • Better Preparation • Better Results</div>
       </div>
     </div>
     <nav class="main-tabs">
@@ -167,7 +167,7 @@
   <div id="app-install-modal" class="hidden" style="position:fixed;inset:0;background:rgba(15,15,30,.55);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;">
     <div style="background:#fff;border-radius:16px;max-width:380px;width:100%;padding:22px 20px;box-shadow:0 12px 40px rgba(0,0,0,.3);text-align:center;">
       <div style="font-size:2.4rem;line-height:1;margin-bottom:8px;">📲</div>
-      <h3 style="margin:0 0 8px;color:#1e1b4b;font-size:1.1rem;">Savyasachi Coaching App Install Karein</h3>
+      <h3 style="margin:0 0 8px;color:#1e1b4b;font-size:1.1rem;">EXAMNOVA App Install Karein</h3>
       <p id="app-install-modal-text" style="margin:0 0 16px;color:#374151;font-size:.9rem;line-height:1.5;"></p>
       <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
         <button id="app-install-modal-action-btn" type="button" style="background:linear-gradient(135deg,#16a34a,#15803d);color:#fff;border:none;border-radius:10px;padding:10px 20px;font-weight:600;cursor:pointer;font-size:.9rem;">⬇️ Install Karein</button>
@@ -1562,6 +1562,13 @@ B"></textarea>
             <button id="admin-logout-btn" type="button" class="btn-primary" style="background:linear-gradient(135deg,#64748b,#334155);">🚪 Admin Logout</button>
           </div>
         </div>
+        <div class="card" style="background:linear-gradient(135deg,#eef2ff,#e0e7ff);border:1.5px solid #a5b4fc;margin-bottom:12px;padding:12px 18px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+          <div>
+            <strong style="color:#3730a3;">🏢 Owner Panel</strong>
+            <p style="font-size:.82rem;color:#312e81;margin-top:3px;">Har institute ka admin add/manage karein (sirf product owner ke liye).</p>
+          </div>
+          <button type="button" class="btn-primary" style="background:linear-gradient(135deg,#4f46e5,#4338ca);" onclick="openOwnerOverlay()">🏢 Owner Panel Kholein</button>
+        </div>
       </div>
 
       <!-- OMR -->
@@ -1850,6 +1857,68 @@ B"></textarea>
 </div>
 <!-- /solution-screen -->
 
+<!-- ═══════════════ OWNER PANEL (full-screen overlay) ═══════════════
+     Admin Panel se bilkul alag, alag login — sirf OWNER_EMAIL wala
+     Firebase account (firestore.rules mein isOwner() dekhein) ise
+     use kar sakta hai. Khulta hai ?owner=1 URL se, ya Admin Settings
+     tab ke "Owner Panel" link se. -->
+<div id="owner-overlay-bg" class="hidden" style="position:fixed;inset:0;background:rgba(15,15,30,.6);z-index:10000;display:flex;align-items:flex-start;justify-content:center;overflow-y:auto;padding:24px 12px;">
+  <div style="background:#fff;border-radius:16px;max-width:640px;width:100%;padding:22px 20px;box-shadow:0 12px 40px rgba(0,0,0,.35);position:relative;">
+    <button type="button" onclick="closeOwnerOverlay()" style="position:absolute;top:14px;right:14px;background:#f3f4f6;border:none;border-radius:8px;width:32px;height:32px;cursor:pointer;font-size:1rem;">✕</button>
+
+    <!-- Owner Login -->
+    <form id="owner-login-box" class="hidden" onsubmit="return ownerLogin(event)">
+      <h2 class="section-title">🏢 Owner Login</h2>
+      <p class="muted-text" style="margin-bottom:14px;">Sirf product owner ke liye — har institute ka admin yahan se manage hota hai.</p>
+      <div class="field-row">
+        <label>Owner Email</label>
+        <input id="owner-email" type="email" placeholder="Owner ka email" autocomplete="off" />
+      </div>
+      <div class="field-row">
+        <label>Password</label>
+        <input id="owner-password" type="password" placeholder="Password" autocomplete="off" />
+      </div>
+      <button type="submit" class="btn-primary">Login</button>
+    </form>
+
+    <!-- Owner Panel -->
+    <div id="owner-panel-box" class="hidden">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:6px;">
+        <h2 class="section-title" style="margin:0;">🏢 Owner Panel</h2>
+        <button type="button" class="owner-mini-btn" onclick="ownerLogout()">🚪 Logout</button>
+      </div>
+      <p class="muted-text" style="margin-bottom:14px;">Har institute ka admin yahan se dekhein aur control karein.</p>
+
+      <div class="card" style="margin-bottom:16px;padding:14px;">
+        <strong style="display:block;margin-bottom:8px;">+ Naya Institute</strong>
+        <form onsubmit="return ownerAddInstituteSubmit(event)" style="display:flex;gap:8px;flex-wrap:wrap;">
+          <input id="owner-new-institute-name" type="text" placeholder="Institute ka naam" required style="flex:1;min-width:160px;" />
+          <button type="submit" class="btn-primary" style="white-space:nowrap;">+ Add Karein</button>
+        </form>
+      </div>
+
+      <div id="owner-institutes-list"></div>
+    </div>
+  </div>
+</div>
+
+<style>
+  .owner-inst-card{background:#f9fafb;border:1.5px solid #e5e7eb;border-radius:12px;padding:12px 14px;margin-bottom:12px;}
+  .owner-inst-card-orphan{background:#fffbeb;border-color:#fcd34d;}
+  .owner-inst-head{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px;}
+  .owner-inst-actions,.owner-admin-actions{display:flex;gap:6px;flex-wrap:wrap;}
+  .owner-admin-row{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:8px 10px;margin-bottom:6px;}
+  .owner-admin-email{font-size:.88rem;font-weight:600;color:#1e293b;display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+  .owner-badge{font-size:.7rem;font-weight:700;border-radius:999px;padding:2px 9px;}
+  .owner-badge-on{background:#dcfce7;color:#15803d;}
+  .owner-badge-off{background:#fee2e2;color:#b91c1c;}
+  .owner-mini-btn{background:#eef2ff;color:#3730a3;border:none;border-radius:8px;padding:6px 10px;font-size:.78rem;font-weight:600;cursor:pointer;}
+  .owner-mini-primary{background:#4f46e5;color:#fff;}
+  .owner-mini-danger{background:#fee2e2;color:#b91c1c;}
+  .owner-add-admin-form{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;}
+  .owner-add-admin-form input{flex:1;min-width:160px;padding:7px 10px;border:1px solid #d1d5db;border-radius:8px;font-size:.85rem;}
+</style>
+
 <!-- Firebase SDKs -->
 <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
@@ -1884,6 +1953,7 @@ B"></textarea>
 <script src="subject-resolver.js"></script>
 <script src="pdf-import.js"></script>
 <script src="script.js"></script>
+<script src="owner-panel.js"></script>
 <script src="upgrade.js"></script>
 <script src="whatsapp-poll-export.js"></script>
 <script src="student-features.js"></script>

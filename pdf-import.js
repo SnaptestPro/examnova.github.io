@@ -1,4 +1,4 @@
-// PDF text extract + MCQ question parser for Savyasachi Coaching
+// PDF text extract + MCQ question parser for EXAMNOVA
 (function () {
   const OPT_PATTERNS = [
     /^\(?\[?([A-Da-d])\)?\]?\s*[\.\):\-]\s*(.+)$/,

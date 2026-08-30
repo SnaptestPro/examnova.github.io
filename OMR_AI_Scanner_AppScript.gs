@@ -1,6 +1,6 @@
 /**
  * ╔══════════════════════════════════════════════════════════════════╗
- * ║   SAVYASACHI COACHING — AI-POWERED OMR SCANNER (Backend)         ║
+ * ║   EXAMNOVA — AI-POWERED OMR SCANNER (Backend)         ║
  * ║   Photo → Claude Vision API → detected answers (JSON)            ║
  * ╠══════════════════════════════════════════════════════════════════╣
  * ║  KYUN CHAHIYE:                                                    ║

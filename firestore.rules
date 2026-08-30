@@ -1,7 +1,7 @@
 rules_version = '2';
 
 // ══════════════════════════════════════════════════════════════════
-// SAVYASACHI — FIRESTORE SECURITY RULES
+// EXAMNOVA — FIRESTORE SECURITY RULES
 // ══════════════════════════════════════════════════════════════════
 // IMPORTANT — README pehle padhein: FIREBASE_SECURITY_SETUP.md
 //
@@ -15,21 +15,52 @@ rules_version = '2';
 //      Jab tak yahan email nahi daalenge, KOI BHI admin panel se
 //      likh/delete nahi kar payega — is file ko deploy karne ke baad
 //      ye pehla kaam hai jo karna hai.
+//   4) Neeche OWNER_EMAIL mein apna (product owner ka) email daal diya
+//      hai — sirf yehi ek email "Owner Panel" khol sakta hai jahan se
+//      har institute ka admin add/disable/remove aur uska password
+//      reset kiya ja sakta hai. Details: OWNER_PANEL_SETUP.md
 // ══════════════════════════════════════════════════════════════════
 
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // ── Owner (product/company owner — sabse upar ka role) ────────
+    // Ye admin se ALAG hai: owner kisi ek institute ka data nahi
+    // chalata, balki OWNER PANEL se ye control karta hai ki kaun-kaun
+    // se institutes hain aur unka admin kaun hai (naya admin add
+    // karna, kisi admin ko disable/remove karna, uska password reset
+    // bhejna). Sirf EK hardcoded email — kisi ko is se access nahi
+    // milta jab tak yahan email daal ke publish na karein.
+    function isOwner() {
+      return request.auth != null &&
+        request.auth.token.email != null &&
+        request.auth.token.email == "owner@example.com";
+    }
+
     // ── Admin allow-list ─────────────────────────────────────────
-    // Sirf inhi email addresses (Firebase Auth email/password accounts)
-    // ko admin maana jayega. Multiple admins ke liye comma se aur emails
-    // add kar sakte hain.
+    // Do tareeke se koi admin banta hai:
+    //   (a) LEGACY: neeche seedha email likh diya (purana single-admin
+    //       tareeka — backward compatibility ke liye rakha hai).
+    //   (b) OWNER PANEL se banaya gaya admin: Owner Panel jab kisi
+    //       institute ke liye naya admin banata hai, to woh email
+    //       `admins/{email}` collection mein ek doc { active: true }
+    //       ke saath likh deta hai. Wahi admin par yahan check hota
+    //       hai — aur "active" false karte hi (Owner "Disable" button
+    //       dabaye) us admin ka access turant band ho jaata hai, bina
+    //       Firebase Auth account delete kiye.
     function isAdmin() {
       return request.auth != null &&
         request.auth.token.email != null &&
-        request.auth.token.email in [
-          "vishnu1234stmp@gmail.com"
-        ];
+        (
+          request.auth.token.email in [
+            "vishnu1234stmp@gmail.com"
+          ]
+          ||
+          (
+            exists(/databases/$(database)/documents/admins/$(request.auth.token.email)) &&
+            get(/databases/$(database)/documents/admins/$(request.auth.token.email)).data.active == true
+          )
+        );
     }
 
     // Koi bhi signed-in visitor — chahe anonymous ho ya admin.
@@ -240,6 +271,21 @@ service cloud.firestore {
       allow get, create, update: if isSignedIn();
       allow list: if isAdmin();
       allow delete: if isAdmin();
+    }
+
+    // ── OWNER PANEL: institutes & their admins ─────────────────────
+    // Sirf owner in dono collections ko padh/likh sakta hai — koi
+    // admin (chahe apna hi record ho) inhe seedha nahi chhed sakta.
+    // Admin ki apni access `isAdmin()` ke andar wale `exists()`/`get()`
+    // check se hi tay hoti hai, is doc ko read kiye bina.
+    match /institutes/{instituteId} {
+      allow read, write: if isOwner();
+    }
+
+    // Doc ID = admin ka email address (isAdmin() function isi se
+    // seedha lookup karta hai — /admins/{unka-email}).
+    match /admins/{email} {
+      allow read, write: if isOwner();
     }
 
     // ── Default deny ──────────────────────────────────────────────

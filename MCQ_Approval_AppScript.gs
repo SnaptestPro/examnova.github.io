@@ -1,6 +1,6 @@
 /**
  * ╔══════════════════════════════════════════════════════════════════╗
- * ║   SAVYASACHI COACHING — MCQ Submission & Approval System        ║
+ * ║   EXAMNOVA — MCQ Submission & Approval System        ║
  * ║   Google Sheet → Firebase draftQuestions → Admin Approval       ║
  * ╠══════════════════════════════════════════════════════════════════╣
  * ║  ⚠️ SECURITY: Restrict Firestore Rules to authenticated users. ║
@@ -162,7 +162,7 @@ function setupSheet() {
   if (!infoSheet) infoSheet = ss.insertSheet("Instructions");
   infoSheet.clearContents();
   var instructions = [
-    ["📋 SAVYASACHI MCQ SUBMISSION SYSTEM — INSTRUCTIONS"],
+    ["📋 EXAMNOVA MCQ SUBMISSION SYSTEM — INSTRUCTIONS"],
     [""],
     ["★ = Required fields"],
     [""],

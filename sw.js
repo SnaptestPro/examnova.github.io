@@ -1,4 +1,4 @@
-const CACHE_NAME = 'savyasachi-v84-ocr-name-guess-link-suggest-20260830';
+const CACHE_NAME = 'examnova-v84-ocr-name-guess-link-suggest-20260830';
 
 // App-shell files — sab kuch jo student ko app chalane ke liye chahiye
 // (code + question-bank data + icons). Pehli visit par yeh sab download
@@ -35,7 +35,7 @@ const urlsToCache = [
   '/icon-512.png',
   '/icon-192-maskable.png',
   '/icon-512-maskable.png',
-  '/savyasachi-coaching-logo.png',
+  '/examnova-logo.png',
   '/manifest.webmanifest',
   '/screenshot-wide.jpg',
   '/screenshot-narrow.jpg'

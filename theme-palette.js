@@ -1,12 +1,12 @@
 // ═══════════════════════════════════════════════════════════════
-//  THEME PALETTE — 100 Live Themes for Savyasachi Coaching
+//  THEME PALETTE — 100 Live Themes for EXAMNOVA
 //  Auto-generated palette definitions
 // ═══════════════════════════════════════════════════════════════
 
 const THEME_PALETTES = [
   {
     "id": "savvy-default",
-    "name": "Savyasachi Default",
+    "name": "EXAMNOVA Default",
     "primary": "#1e1b4b",
     "secondary": "#3730a3",
     "accent": "#fbbf24",

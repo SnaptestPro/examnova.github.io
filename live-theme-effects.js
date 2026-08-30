@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  LIVE THEME EFFECTS — Animated Canvas Backgrounds
-//  Savyasachi Coaching Test
+//  EXAMNOVA Test
 //
 //  Draws a full-viewport <canvas> fixed BEHIND all page content
 //  (z-index:-1) so it shows through the site's translucent/blurred

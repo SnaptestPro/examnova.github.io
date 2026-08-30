@@ -1,8 +1,8 @@
 {
   "id": "/",
-  "name": "Savyasachi Coaching Board Exam Test",
-  "short_name": "Savyasachi",
-  "description": "Practice board exam questions, take tests, and track your rank on the leaderboard with Savyasachi Coaching.",
+  "name": "EXAMNOVA — Smart Tests • Better Preparation • Better Results",
+  "short_name": "EXAMNOVA",
+  "description": "Practice tests, track your rank on the leaderboard, and prepare smarter with EXAMNOVA.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
@@ -34,7 +34,7 @@
   },
   "protocol_handlers": [
     {
-      "protocol": "web+savyasachi",
+      "protocol": "web+examnova",
       "url": "/?q=%s"
     }
   ],
@@ -70,14 +70,14 @@
       "sizes": "1024x1024",
       "type": "image/jpeg",
       "form_factor": "wide",
-      "label": "Savyasachi Coaching Dashboard - Desktop View"
+      "label": "EXAMNOVA Dashboard - Desktop View"
     },
     {
       "src": "screenshot-narrow.jpg",
       "sizes": "1024x1024",
       "type": "image/jpeg",
       "form_factor": "narrow",
-      "label": "Savyasachi Coaching Test - Mobile View"
+      "label": "EXAMNOVA Test - Mobile View"
     }
   ],
   "shortcuts": [

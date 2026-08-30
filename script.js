@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════════
-   Savyasachi Coaching Test – Board Exam Platform
+   EXAMNOVA — Smart Tests • Better Preparation • Better Results
    script.js  |  Full App Logic
    ═══════════════════════════════════════════════════════════════ */
 
@@ -2308,7 +2308,7 @@ async function showResult() {
   const whatsBtn = $("#whatsapp-share-btn");
   if (whatsBtn) {
     whatsBtn.onclick = () => {
-      const msg = `🎯 *${current.test.title}* — Result\n👤 ${current.student.name || "Student"}\n📊 Score: ${fmtNum(score)}/${fmtNum(maxScore)} (${Math.round(pct)}%)\n✅ Correct: ${correct} | ❌ Wrong: ${wrong}\n🏅 Rank: ${rank}/${total2}\n\nTest karein: Savyasachi Coaching Platform`;
+      const msg = `🎯 *${current.test.title}* — Result\n👤 ${current.student.name || "Student"}\n📊 Score: ${fmtNum(score)}/${fmtNum(maxScore)} (${Math.round(pct)}%)\n✅ Correct: ${correct} | ❌ Wrong: ${wrong}\n🏅 Rank: ${rank}/${total2}\n\nTest karein: EXAMNOVA Platform`;
       const url = `https://api.whatsapp.com/send?text=${encodeURIComponent(msg)}`;
       window.open(url, "_blank");
     };
@@ -2326,7 +2326,7 @@ async function showResult() {
       const fullPhone = phone.startsWith("91") ? phone : "91" + phone;
       const grade = pct >= 90 ? "A+" : pct >= 80 ? "A" : pct >= 70 ? "B+" : pct >= 60 ? "B" : pct >= 50 ? "C" : "D";
       const passed = pct >= 33;
-      const msg = `🏫 *Savyasachi Coaching*\n\nNamaste! 🙏\n\nAapke bachche *${current.student.name || "Student"}* ka test result:\n\n📝 *Test:* ${current.test.title}\n🎯 *Score:* ${fmtNum(score)} / ${fmtNum(maxScore)}\n📊 *Pratishat:* ${Math.round(pct)}%\n🏅 *Grade:* ${grade}\n✅ *Sahi:* ${correct} | ❌ *Galat:* ${wrong}\n🥇 *Rank:* ${rank} / ${total2}\n\n${passed ? "Bahut achcha kiya! 👏🎉" : "Aur mehnat karein, agli baar zaroor achcha karenge! 💪"}\n\n— Savyasachi Coaching Team`;
+      const msg = `🏫 *EXAMNOVA*\n\nNamaste! 🙏\n\nAapke bachche *${current.student.name || "Student"}* ka test result:\n\n📝 *Test:* ${current.test.title}\n🎯 *Score:* ${fmtNum(score)} / ${fmtNum(maxScore)}\n📊 *Pratishat:* ${Math.round(pct)}%\n🏅 *Grade:* ${grade}\n✅ *Sahi:* ${correct} | ❌ *Galat:* ${wrong}\n🥇 *Rank:* ${rank} / ${total2}\n\n${passed ? "Bahut achcha kiya! 👏🎉" : "Aur mehnat karein, agli baar zaroor achcha karenge! 💪"}\n\n— EXAMNOVA Team`;
       const url = `https://wa.me/${fullPhone}?text=${encodeURIComponent(msg)}`;
       window.open(url, "_blank");
     };
@@ -3005,10 +3005,10 @@ async function deleteTest(id) {
   // Also drop a pending "emergency draft" in localStorage if it points at
   // this test, so a page reload can't resurrect it via recoverEmergencyDraft().
   try {
-    const raw = localStorage.getItem("savyasachi_emergency_draft");
+    const raw = localStorage.getItem("examnova_emergency_draft");
     if (raw) {
       const saved = JSON.parse(raw);
-      if (saved && saved.id === id) localStorage.removeItem("savyasachi_emergency_draft");
+      if (saved && saved.id === id) localStorage.removeItem("examnova_emergency_draft");
     }
   } catch(e) {}
 
@@ -4724,7 +4724,7 @@ function buildBoardResultSheetHTML({ testTitle, maxScore, date, rows, highlightN
     <div class="board-result-sheet">
       <div class="rs-topbar">
         <div class="rs-brand">
-          <img src="savyasachi-coaching-logo.png" alt="Savyasachi Coaching" class="rs-logo-circle" />
+          <img src="examnova-logo.png" alt="EXAMNOVA" class="rs-logo-circle" />
           <div class="rs-brand-text">
             <div class="rs-brand-hindi">सव्यसाची</div>
             <div class="rs-brand-sub">COACHING संस्थान</div>
@@ -5221,7 +5221,7 @@ function renderRecords() {
       const passed = pct >= 33;
       const rankObj = rankObj0;
       const rank = rankObj ? rankObj.rank : "-";
-      const msg = `🏫 *Savyasachi Coaching*\n\nNamaste! 🙏\n\n*${escHtml(r.name||"Student")}* ka result:\n\n📝 *Test:* ${escHtml(t.testTitle)}\n🎯 *Score:* ${fmtNum(r.score)} / ${fmtNum(maxScore)}\n📊 *Pratishat:* ${pct}%\n🏅 *Grade:* ${grade}\n🥇 *Rank:* ${rank} / ${testRecs.length}\n\n${passed?"Bahut achcha kiya! 👏🎉":"Mehnat karte rahein! 💪"}\n\n— Savyasachi Coaching Team`;
+      const msg = `🏫 *EXAMNOVA*\n\nNamaste! 🙏\n\n*${escHtml(r.name||"Student")}* ka result:\n\n📝 *Test:* ${escHtml(t.testTitle)}\n🎯 *Score:* ${fmtNum(r.score)} / ${fmtNum(maxScore)}\n📊 *Pratishat:* ${pct}%\n🏅 *Grade:* ${grade}\n🥇 *Rank:* ${rank} / ${testRecs.length}\n\n${passed?"Bahut achcha kiya! 👏🎉":"Mehnat karte rahein! 💪"}\n\n— EXAMNOVA Team`;
       const waUrl = fullPhone ? `https://wa.me/${fullPhone}?text=${encodeURIComponent(msg.replace(/\\n/g,"\n"))}` : "";
       return `<tr>
         <td style="padding:7px 10px">${escHtml(r.name||"-")}</td>
@@ -5254,7 +5254,7 @@ function renderRecords() {
     const absenteeRows = absentees.map(s => {
       const phone = normalizeMobile(s.mobile || "");
       const fullPhone = phone.length === 10 ? "91" + phone : phone;
-      const rmsg = `🏫 *Savyasachi Coaching*\n\nNamaste ${escHtml(s.name || "")}! 🙏\n\nAapne *${escHtml(t.testTitle)}* test abhi tak nahi diya hai. Kripya jald hi de dein taaki aap peeche na reh jaayein. 📝\n\n— Savyasachi Coaching Team`;
+      const rmsg = `🏫 *EXAMNOVA*\n\nNamaste ${escHtml(s.name || "")}! 🙏\n\nAapne *${escHtml(t.testTitle)}* test abhi tak nahi diya hai. Kripya jald hi de dein taaki aap peeche na reh jaayein. 📝\n\n— EXAMNOVA Team`;
       const waUrl = `https://wa.me/${fullPhone}?text=${encodeURIComponent(rmsg)}`;
       return `<tr>
         <td style="padding:6px 10px">${escHtml(s.name || "-")}</td>
@@ -7145,7 +7145,7 @@ window.addEventListener("beforeunload", () => {
 
   try {
     // Synchronous — always works even when page is closing
-    localStorage.setItem("savyasachi_emergency_draft", JSON.stringify(payload));
+    localStorage.setItem("examnova_emergency_draft", JSON.stringify(payload));
     _autoSaveDraftId = payload.id;
   } catch(e) { console.warn("[beforeunload] localStorage save failed", e); }
 });
@@ -7156,7 +7156,7 @@ const MAX_RECOVERY_RETRIES = 5;
 
 function recoverEmergencyDraft() {
   try {
-    const raw = localStorage.getItem("savyasachi_emergency_draft");
+    const raw = localStorage.getItem("examnova_emergency_draft");
     if (!raw) return;
     const saved = JSON.parse(raw);
     if (!saved || !saved.id) return;
@@ -7181,12 +7181,12 @@ function recoverEmergencyDraft() {
     // by this exact recovery step every time the admin panel loads.
     db.collection("deletedTests").doc(saved.id).get().then(delSnap => {
       if (delSnap.exists) {
-        localStorage.removeItem("savyasachi_emergency_draft");
+        localStorage.removeItem("examnova_emergency_draft");
         return;
       }
 
       saveTestOnline(saved.id, { ...saved, isDraft: true, recoveredAt: firebase.firestore.FieldValue.serverTimestamp() }).then(() => {
-        localStorage.removeItem("savyasachi_emergency_draft");
+        localStorage.removeItem("examnova_emergency_draft");
         _recoveryRetryCount = 0;
         showAutoSaveToast(
           "♻️ Recovered: \"" + saved.title + "\" (" +
@@ -7209,7 +7209,7 @@ function recoverEmergencyDraft() {
 
   } catch(e) {
     console.warn("[Recovery] Parse failed:", e);
-    localStorage.removeItem("savyasachi_emergency_draft");
+    localStorage.removeItem("examnova_emergency_draft");
   }
 }
 
