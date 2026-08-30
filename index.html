@@ -798,6 +798,20 @@
       </div>
       <button type="submit" class="btn-primary">Login</button>
       <button type="button" id="forgot-password-link" style="background:none;border:none;color:#2563eb;text-decoration:underline;cursor:pointer;margin-top:10px;font-size:.85rem;display:block;">🔑 Password bhool gaye?</button>
+
+      <!-- Owner ke liye — Owner ke paas Admin ka login/password nahi
+           hota (wo bilkul alag role hai, apne khud ke email/password se
+           login karta hai), isliye use Admin Panel ke andar login karke
+           Settings tak pahunchna possible hi nahi. Ye link isi Admin
+           LOGIN screen (jo bina kisi login ke, sirf "⚙️ Admin" tab
+           dabate hi khul jaata hai) par isliye rakha hai — taaki Owner
+           bina kisi Admin credential ke seedha apna panel tak pahunch
+           sake. Student/Admin isko normally kabhi use nahi karenge, aur
+           ye chhota/subtle hai (koi bada button nahi), isliye header
+           mein pehle jaisa clutter/confusion bhi nahi hota. -->
+      <a href="owner-app.html" target="_blank" rel="noopener" style="display:block;text-align:center;margin-top:14px;padding-top:12px;border-top:1px dashed rgba(0,0,0,.12);color:#78550a;font-size:.78rem;text-decoration:none;font-weight:600;">
+        🏢 Owner hain? Yahan se login karein →
+      </a>
     </form>
 
     <!-- ── ADMIN PANEL ── -->
