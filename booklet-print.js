@@ -62,7 +62,14 @@
         return getAllQuestionsFlat();
       }
     } catch (e) { /* isSectionMode/getAllQuestionsFlat not present */ }
-    return (window.paperQuestions || []);
+    // NOTE: qgen-app.js declares `let paperQuestions = []` at top level of a
+    // classic <script> — that does NOT attach it as `window.paperQuestions`
+    // (only `var`/`function` do). So we must reference the bare identifier
+    // here, not `window.paperQuestions` (which is always undefined).
+    try {
+      if (typeof paperQuestions !== 'undefined') return paperQuestions || [];
+    } catch (e) { /* paperQuestions not in scope */ }
+    return [];
   }
 
   // Render MCQ options WITHOUT the "correct answer" highlight — this is
