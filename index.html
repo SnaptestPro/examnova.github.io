@@ -145,6 +145,28 @@
 </head>
 <body>
 
+<!-- ═══════════════════════ SPLASH SCREEN ═══════════════════════
+     App open hote hi ye full-screen splash image sabse pehle dikhti
+     hai, phir kuch second baad khud fade-out ho ke home screen dikha
+     deti hai. Isse hata na jaaye — sirf image (splash-screen.jpg) ya
+     duration change karni ho to neeche ka JS timing (2200ms) badlein. -->
+<div id="app-splash-screen" style="position:fixed;inset:0;z-index:99999;background:#05030f;display:flex;align-items:center;justify-content:center;transition:opacity .5s ease;">
+  <img src="splash-screen.jpg" alt="EXAMNOVA" style="width:100%;height:100%;object-fit:cover;" />
+</div>
+<script>
+  (function () {
+    var SPLASH_DURATION_MS = 2200; // itni der splash dikhega
+    window.addEventListener("load", function () {
+      setTimeout(function () {
+        var el = document.getElementById("app-splash-screen");
+        if (!el) return;
+        el.style.opacity = "0";
+        setTimeout(function () { el.remove(); }, 500);
+      }, SPLASH_DURATION_MS);
+    });
+  })();
+</script>
+
 <!-- ═══════════════════════ HOME SCREEN ═══════════════════════ -->
 <div id="home-screen">
   <!-- HEADER -->
