@@ -135,6 +135,43 @@
   // right when it matters most.
   let scannerLastBestDrawAt = 0;
   const EG_BEST_FRAME_MIN_GAP_MS = 220;
+  // v20: CORNER-FLICKER GRACE + FASTER LOCK
+  //
+  // Reported: "scanning slow hai, kabhi ek corner red ho jaata hai" — the
+  // square detector itself (v19's rotation-invariant fill-ratio test) is
+  // accurate, but it is a per-tick, all-or-nothing read: a SINGLE bad tick
+  // for just ONE corner (autofocus hunting for a frame, a hand-tremor
+  // micro-blur, a stray reflection) makes findBlackSquare return nothing
+  // for that one corner that one time. Before this fix, that single miss
+  // immediately dropped detectedCount below 4, painted that corner red,
+  // and reset scannerStableFrames all the way to 0 — so a genuinely
+  // well-aligned sheet that had 5-6 good ticks in a row before one bad
+  // tick had to start the whole 6-tick streak over from scratch. That is
+  // what reads as "slow to lock" even though the sheet never actually
+  // moved.
+  //
+  // Fix (grace): remember each corner's last-known position for up to
+  // GRACE_MAX_MISS_TICKS consecutive ticks after it stops being detected.
+  // While within that short grace window the corner still counts as
+  // "found" (using its last known position, kept fresh at most ~260ms
+  // old) instead of instantly failing the whole frame. This does NOT
+  // relax what counts as a valid marker — findBlackSquare's own
+  // detection logic (Otsu threshold, rotation-invariant shape test) is
+  // completely unchanged; a corner that's ACTUALLY gone (sheet pulled
+  // away, corner rotated out of frame) still ages out and turns red once
+  // the grace ticks run out.
+  const scannerCornerGrace = {};
+  const GRACE_MAX_MISS_TICKS = 2; // ~2 × 130ms ≈ 260ms of tolerance per corner
+  // Fix (faster trigger): scannerStableFrames required 6 consecutive
+  // ready ticks (~780ms) to fire capture, but the position-averaging
+  // window (EG_MARKER_HISTORY_SIZE, below) only ever keeps the last 4
+  // ready frames anyway — ticks 5 and 6 were pure extra wait with no
+  // extra averaging benefit, since by tick 4 the history is already full
+  // and every later tick just displaces the oldest one out of the
+  // average. Matching the trigger to the window size (4) removes that
+  // dead ~260ms without changing how many frames get averaged into the
+  // final corner position.
+  const SCANNER_CAPTURE_TRIGGER_FRAMES = 4;
 
   function $id(id) { return document.getElementById(id); }
   function db() { return typeof getDB === "function" ? getDB() : null; }
@@ -2322,6 +2359,9 @@
       const dot = corner.querySelector(".examgr-scan-dot");
       if (dot) { dot.style.left = "50%"; dot.style.top = "50%"; }
     });
+    // v20: clear stale grace state so a new scan session (new sheet)
+    // never inherits a "last known position" from the PREVIOUS sheet.
+    Object.keys(scannerCornerGrace).forEach(key => { delete scannerCornerGrace[key]; });
   }
 
   function stopScannerCamera() {
@@ -3054,10 +3094,28 @@
     const detectedMarkers = {};
     let detectedCount = 0;
     scanCornerEls.forEach(corner => {
+      const key = corner.dataset.marker;
       const region = scanRegionForCorner(corner, mapping, analysisScale);
       const candidate = findBlackSquare(analysisContext, region, analysisWidth, analysisHeight);
-      const position = updateScannerCorner(region, candidate, mapping, analysisScale);
-      if (position) { detectedMarkers[corner.dataset.marker] = position; detectedCount++; }
+      let position = updateScannerCorner(region, candidate, mapping, analysisScale);
+      if (position) {
+        // Fresh, real detection this tick — reset this corner's grace clock.
+        scannerCornerGrace[key] = { position, missTicks: 0 };
+      } else {
+        // v20: this tick's real detection failed — before giving up on
+        // this corner (and turning it red / breaking the streak), check
+        // whether it was seen recently enough to still trust its last
+        // known spot for a couple more ticks.
+        const grace = scannerCornerGrace[key];
+        if (grace && grace.missTicks < GRACE_MAX_MISS_TICKS) {
+          grace.missTicks++;
+          position = grace.position;
+          corner.classList.add("is-detected"); // keep it showing green, not red
+        } else {
+          delete scannerCornerGrace[key];
+        }
+      }
+      if (position) { detectedMarkers[key] = position; detectedCount++; }
     });
 
     const ready = detectedCount === 4;
@@ -3073,7 +3131,10 @@
       // best, so this stays lightweight even at ~7-8 ticks/sec.
       const sharpness = egQuickSharpness(scannerAnalysisCanvas);
       if (sharpness > scannerBestSharpness) {
-        const nearCapture = scannerStableFrames >= 4; // last couple of ticks before the 6-frame trigger
+        // v20: trigger is now SCANNER_CAPTURE_TRIGGER_FRAMES (4, was 6) —
+        // "near capture" means the tick right before that fires, so the
+        // true best/final frame is always saved right when it matters.
+        const nearCapture = scannerStableFrames >= SCANNER_CAPTURE_TRIGGER_FRAMES - 1;
         if (nearCapture || now - scannerLastBestDrawAt >= EG_BEST_FRAME_MIN_GAP_MS) {
           scannerBestSharpness = sharpness;
           scannerLastBestDrawAt = now;
@@ -3108,7 +3169,7 @@
       scannerLastBestDrawAt = 0;
     }
     setScannerStatus(ready ? "Sab 4 markers mil gaye. Steady rakhein, auto-scan ho raha hai..." : "Kaale OMR squares ko blue corner box ke andar align karein.", detectedCount, ready);
-    if (ready && scannerStableFrames >= 6) {
+    if (ready && scannerStableFrames >= SCANNER_CAPTURE_TRIGGER_FRAMES) {
       scannerCapturing = true;
       // Average of the last EG_MARKER_HISTORY_SIZE ready frames, not just
       // this single frame — see the v8 comment above egQuadIsSane.

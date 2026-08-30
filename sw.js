@@ -1,4 +1,4 @@
-const CACHE_NAME = 'savyasachi-v81-registration-marker-rotation-fix-20260830';
+const CACHE_NAME = 'savyasachi-v82-scan-corner-flicker-lock-speed-fix-20260830';
 
 // App-shell files — sab kuch jo student ko app chalane ke liye chahiye
 // (code + question-bank data + icons). Pehli visit par yeh sab download
