@@ -1,4 +1,4 @@
-const CACHE_NAME = 'savyasachi-v83-instant-corner-lock-scan-20260830';
+const CACHE_NAME = 'savyasachi-v84-ocr-name-guess-link-suggest-20260830';
 
 // App-shell files — sab kuch jo student ko app chalane ke liye chahiye
 // (code + question-bank data + icons). Pehli visit par yeh sab download

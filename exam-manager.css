@@ -346,6 +346,11 @@
 }
 .examgr-scan-graded-head strong { font-size: .92rem; }
 
+/* v22: OCR name-guess line, sits right under the graded header */
+.examgr-scan-name-guess {
+  font-size: .78rem; padding: 2px 12px 10px; margin-top: -4px;
+}
+
 /* ---------- Blurry/dark capture warning (shown between the graded
    head and the photo, only after a capture that failed the quality
    check — see EG_MIN_ACCEPTABLE_SHARPNESS / EG_MIN_ACCEPTABLE_WHITE) ---------- */

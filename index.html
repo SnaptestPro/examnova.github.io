@@ -122,6 +122,11 @@
        hain — behavior same rehta hai, sirf shuruaati load fast ho jaata
        hai. -->
   <script defer src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- v22: free/offline-friendly handwriting OCR for the Scan Sheet
+       Naam (OCR guess) feature — see exam-manager.js's examgrRunNameOcr.
+       Loaded here (defer) so it's ready by the time Scan Sheet is first
+       opened without slowing down the initial page load. -->
+  <script defer src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script defer src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <script defer src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
   <!-- Standalone jsPDF (exposes window.jspdf.jsPDF). Used by the Exam
@@ -609,6 +614,12 @@
           <span>Set <strong id="examgr-scan-g-set">None</strong></span>
           <span>Marks <strong id="examgr-scan-g-marks">0.0</strong></span>
         </div>
+        <!-- v22: shows the background OCR guess of the handwritten name
+             box while it's running ("⏳ Naam padha ja raha hai...") and
+             then the recognized text once done — purely informational
+             here; the actual suggested student match happens in the
+             Link-to-Student step (examgr-link-student-overlay) below. -->
+        <div class="examgr-scan-name-guess muted-text" id="examgr-scan-name-guess" hidden></div>
 
         <!-- Quality warning: shown after capture when the picked frame is
              still blurry and/or too dark, so a bad scan gets caught here

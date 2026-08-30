@@ -135,6 +135,14 @@
   // right when it matters most.
   let scannerLastBestDrawAt = 0;
   const EG_BEST_FRAME_MIN_GAP_MS = 220;
+  // v22: NAME OCR state — a background guess of the handwritten name,
+  // read from OMR_NAME_BOX (see its comment) via Tesseract.js (free,
+  // client-side, no server/billing needed — accuracy on real handwriting
+  // is moderate, treat it as a SUGGESTION for the Link-to-Student step
+  // below, never an auto-decision).
+  let scannerOcrWorker = null;      // reused across scans this session — loading Tesseract's language model fresh every scan would be slow
+  let scannerOcrNamePromise = null; // the in-flight recognize() call for the current capture, if any
+  let scannerOcrNameGuess = "";     // resolved raw text once OCR finishes ("" if not run / failed / nothing legible)
   // v20: CORNER-FLICKER GRACE + FASTER LOCK
   //
   // Reported: "scanning slow hai, kabhi ek corner red ho jaata hai" — the
@@ -766,6 +774,16 @@
   const OMR_CANVAS_SIZE = { width: 1203, height: 1536 };
   const OMR_MARKER_XS = [105, 345, 585, 825, 1065];
   const OMR_MARKER_YS = [195, 345, 495, 645, 795, 945, 1095, 1245, 1395];
+
+  // v22: NAME write-in box — the header box already prints "NAME :" at
+  // (110, 78) inside the left header cell (box spans x:99-595, y:49-94;
+  // see examgrBuildSheetCanvas below). This is the blank area to the
+  // RIGHT of that label where a student actually writes their name by
+  // hand, in the SAME OMR_CANVAS_SIZE coordinate space scannerCaptureCanvas
+  // is warped to — so this rectangle can be cropped straight out of a
+  // captured scan without any extra alignment work of its own; it rides
+  // on the exact same 4-corner homography every bubble already uses.
+  const OMR_NAME_BOX = { x: 175, y: 52, width: 415, height: 40 };
 
   // Exam Set (A–E) bubble row — sits in the gap between the header box
   // (ends y=141) and the Roll No block (starts y=199). Registered here
@@ -2393,6 +2411,14 @@
     scannerLastDetectionAt = 0;
     scannerDetected = null;
     scannerGraded = null;
+    // v22: clear the previous sheet's OCR guess so it can't leak onto
+    // the next one (e.g. if OCR is still slow-resolving when a new scan
+    // starts, resetting the promise reference means its eventual result
+    // is simply ignored — examgrShowNameGuess for THIS scan already
+    // overwrote the display).
+    scannerOcrNamePromise = null;
+    scannerOcrNameGuess = "";
+    examgrShowNameGuess("");
     if (scannerCaptureEl) { scannerCaptureEl.hidden = true; scannerCaptureEl.removeAttribute("src"); }
     if (scannerOverlayUi) scannerOverlayUi.hidden = false;
     if (scannerPermissionEl) scannerPermissionEl.hidden = true;
@@ -2670,6 +2696,122 @@
     return avg;
   }
 
+  // ────────────────────────────────────────────────────────────────
+  // v22: HANDWRITTEN-NAME OCR + fuzzy match against registered students
+  //
+  // Free/offline-friendly (Tesseract.js, client-side, no billing) — this
+  // is explicitly a SUGGESTION helper for the Link-to-Student step, not
+  // an auto-linker. Handwriting OCR (unlike printed text) is genuinely
+  // unreliable, so every result here is a "best guess" the admin still
+  // sees and confirms — never a silent decision.
+  // ────────────────────────────────────────────────────────────────
+  const OCR_UPSCALE = 3; // handwriting OCR reads noticeably better on a bigger crop than on the small printed box itself
+
+  function examgrCropNameBoxCanvas(sourceCanvas) {
+    const box = OMR_NAME_BOX;
+    const out = document.createElement("canvas");
+    out.width = box.width * OCR_UPSCALE;
+    out.height = box.height * OCR_UPSCALE;
+    const ctx = out.getContext("2d");
+    ctx.imageSmoothingEnabled = true;
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, out.width, out.height);
+    ctx.drawImage(sourceCanvas, box.x, box.y, box.width, box.height, 0, 0, out.width, out.height);
+    return out;
+  }
+
+  // Loaded lazily (only once Scan Sheet is actually opened, not on every
+  // page load) and kept alive for the rest of the session — creating a
+  // fresh Tesseract worker downloads its language-data file, which would
+  // otherwise repeat on every single scan.
+  async function examgrGetOcrWorker() {
+    if (scannerOcrWorker) return scannerOcrWorker;
+    if (typeof Tesseract === "undefined") return null; // CDN blocked/offline — OCR quietly skipped, rest of scanning is unaffected
+    try {
+      scannerOcrWorker = await Tesseract.createWorker("eng");
+      return scannerOcrWorker;
+    } catch (err) {
+      console.warn("OCR worker start nahi ho paya:", err);
+      scannerOcrWorker = null;
+      return null;
+    }
+  }
+
+  async function examgrRunNameOcr(sourceCanvas) {
+    try {
+      const worker = await examgrGetOcrWorker();
+      if (!worker) return "";
+      const cropped = examgrCropNameBoxCanvas(sourceCanvas);
+      const { data } = await worker.recognize(cropped);
+      const raw = ((data && data.text) || "")
+        .replace(/[\r\n]+/g, " ")
+        .replace(/[^A-Za-z.\s]/g, " ") // names only — strips stray marks/noise Tesseract sometimes reads as digits/symbols
+        .replace(/\s+/g, " ")
+        .trim();
+      return raw;
+    } catch (err) {
+      console.warn("Naam OCR nahi ho paya:", err);
+      return "";
+    }
+  }
+
+  function examgrShowNameGuess(text) {
+    const el = $id("examgr-scan-name-guess");
+    if (!el) return;
+    if (!text) { el.hidden = true; el.textContent = ""; return; }
+    el.hidden = false;
+    el.textContent = `📝 Naam (OCR guess): ${text}`;
+  }
+
+  // Classic edit-distance — cheap enough for short name strings, used
+  // only to RANK the already-small registered-students list, not for
+  // anything performance-sensitive.
+  function examgrLevenshtein(a, b) {
+    const m = a.length, n = b.length;
+    if (!m) return n;
+    if (!n) return m;
+    let prev = new Array(n + 1), curr = new Array(n + 1);
+    for (let j = 0; j <= n; j++) prev[j] = j;
+    for (let i = 1; i <= m; i++) {
+      curr[0] = i;
+      for (let j = 1; j <= n; j++) {
+        const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+        curr[j] = Math.min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + cost);
+      }
+      const tmp = prev; prev = curr; curr = tmp;
+    }
+    return prev[n];
+  }
+
+  function examgrNormalizeNameForMatch(s) {
+    return (s || "").toLowerCase().replace(/[^a-z\s]/g, "").replace(/\s+/g, " ").trim();
+  }
+
+  // 1.0 = identical (after normalizing case/punctuation), 0 = nothing in
+  // common. OCR misreads a letter or two even on a decent capture, so
+  // this deliberately tolerates a few character-level errors rather than
+  // requiring an exact/substring match.
+  function examgrNameSimilarity(a, b) {
+    const na = examgrNormalizeNameForMatch(a), nb = examgrNormalizeNameForMatch(b);
+    if (!na || !nb) return 0;
+    const dist = examgrLevenshtein(na, nb);
+    return 1 - dist / Math.max(na.length, nb.length);
+  }
+
+  // Top matches from the registered-students directory for a raw OCR
+  // guess, best first. 0.35 floor keeps obviously-unrelated names out of
+  // the list; still deliberately lenient (see examgrNameSimilarity) since
+  // this is ranking suggestions for a human to confirm, not deciding.
+  function examgrBestNameMatches(guessText, limit) {
+    if (!guessText) return [];
+    const students = examgrSavedStudentsForNameSearch();
+    return students
+      .map(s => ({ name: s.name, mobile: s.mobile, score: examgrNameSimilarity(guessText, s.name) }))
+      .filter(s => s.score >= 0.35)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, limit || 3);
+  }
+
   // [top-left, top-right, bottom-left, bottom-right] should form a
   // reasonably large, correctly-ordered quad fully inside the video
   // frame. Runs before the homography solve so a bad/garbled marker read
@@ -2881,6 +3023,19 @@
     if (scannerGSet) scannerGSet.textContent = "None";
     if (scannerGMarks) scannerGMarks.textContent = "0.0";
 
+    // v22: kick off name OCR in the background right away, in PARALLEL
+    // with bubble grading below — it's slower than grading (Tesseract
+    // takes a second or two even on a small crop) so starting it here
+    // instead of after grading gives it the most possible head-start
+    // before the admin reaches the Link-to-Student step.
+    scannerOcrNameGuess = "";
+    examgrShowNameGuess("⏳ Naam padha ja raha hai...");
+    scannerOcrNamePromise = examgrRunNameOcr(scannerCaptureCanvas).then(text => {
+      scannerOcrNameGuess = text;
+      examgrShowNameGuess(text);
+      return text;
+    });
+
     requestAnimationFrame(() => {
       // Passes through the grayscale buffer egWarpPerspective already
       // built (see its perf note) so this doesn't re-read the whole
@@ -2939,6 +3094,15 @@
     // later. Cheap after the first call (see ensureExamResultsLoaded).
     await ensureExamResultsLoaded(id, ex);
 
+    // v22: give the background name-OCR a short grace window to finish
+    // if it hasn't already — by the time an admin reviews + taps Save it
+    // usually has, this is just a safety cap (3s) so a slow/failed OCR
+    // never blocks Save for long. Proceeds with whatever's available
+    // either way (scannerOcrNameGuess stays "" if nothing came back).
+    if (scannerOcrNamePromise) {
+      await Promise.race([scannerOcrNamePromise, new Promise(resolve => setTimeout(resolve, 3000))]);
+    }
+
     // Duplicate Roll No check — ek roll number do alag students ka nahi ho
     // sakta, isliye ab admin se har baar OK/Cancel poochne ke bajaye ye
     // AUTOMATIC rule follow karte hain: jis attempt mein MAXIMUM marks hain
@@ -2994,6 +3158,10 @@
       multiOptions: scannerGraded.perQuestion.map(pq =>
         pq.multiOptions && pq.multiOptions.length ? pq.multiOptions.map(o => OPTION_LETTERS[o.opt]).join(",") : null),
       scannedAt: Date.now(),
+      // v22: raw handwriting-OCR guess of the name box, if any (used to
+      // suggest a Link-to-Student match; never trusted blindly — see
+      // examgrOpenLinkStudentForScan below).
+      ocrNameGuess: scannerOcrNameGuess || null,
       // Small embedded thumbnail for the Reports LIST (fast grid load).
       // The sharp version for Report DETAIL is saved separately below —
       // see examgrSaveFullPhoto — so this stays tiny on purpose.
@@ -3299,6 +3467,17 @@
 
   function examgrCloseScanner() {
     stopScannerCamera();
+    // v22: free the Tesseract worker's WASM memory once the admin
+    // actually leaves the Scan Sheet screen (not between consecutive
+    // scans in the same session — see resumeScannerDetectionLoop, which
+    // never calls this). Re-created lazily via examgrGetOcrWorker() the
+    // next time Scan Sheet is opened.
+    if (scannerOcrWorker) {
+      try { scannerOcrWorker.terminate(); } catch (err) { /* already gone, nothing to clean up */ }
+      scannerOcrWorker = null;
+    }
+    scannerOcrNamePromise = null;
+    scannerOcrNameGuess = "";
     $id("examgr-scan-overlay")?.classList.add("hidden");
     $id("examgr-details-overlay")?.classList.remove("hidden");
     renderExamMgrDetails();
@@ -3724,6 +3903,36 @@
         const status = $id("examgr-link-status");
         if (mobileInput && !mobileInput.value) mobileInput.value = priorLinked.linkedMobile;
         if (status) status.textContent = `Is roll ko pehle isi exam mein ${priorLinked.linkedMobile} se link kiya gaya tha — confirm karke "Link Karein" dabayen.`;
+      }
+    }
+
+    // v22: if the roll-based prefill above didn't already fill the
+    // mobile field, try the OCR name guess as a second, lower-confidence
+    // shortcut — fuzzy-matched against the registered students list.
+    // ALWAYS shown as a suggestion to confirm, never auto-linked: even
+    // a strong-looking match just prefills the fields, "Link Karein"
+    // still has to be tapped explicitly.
+    const mobileInput = $id("examgr-link-mobile-input");
+    const nameInput = $id("examgr-link-name-input");
+    const status = $id("examgr-link-status");
+    if (mobileInput && !mobileInput.value && resultObj.ocrNameGuess) {
+      const matches = examgrBestNameMatches(resultObj.ocrNameGuess, 3);
+      const top = matches[0], second = matches[1];
+      // Only auto-fill the actual student fields when the top match is
+      // both reasonably confident AND clearly ahead of the runner-up —
+      // an ambiguous top-two (e.g. two similar names) is exactly the
+      // case where guessing wrong would be worse than not guessing.
+      if (top && top.score >= 0.6 && (!second || top.score - second.score >= 0.15)) {
+        if (nameInput) nameInput.value = top.name;
+        mobileInput.value = top.mobile;
+        if (status) status.textContent = `📝 OCR se padha: "${resultObj.ocrNameGuess}" → sabse mila-julta registered student: ${top.name}. Sheet se milaan karke "Link Karein" dabayen, ya neeche naam badal kar dobara dhoondein.`;
+      } else if (nameInput) {
+        // No confident single match — hand the raw guess to the normal
+        // name-search box instead, so its existing suggestion list still
+        // gives the admin a starting point without picking for them.
+        nameInput.value = resultObj.ocrNameGuess;
+        nameInput.dispatchEvent(new Event("input"));
+        if (status) status.textContent = `📝 OCR se padha: "${resultObj.ocrNameGuess}" — neeche list se sahi student chunein, ya naam type karke dhoondein.`;
       }
     }
   }
