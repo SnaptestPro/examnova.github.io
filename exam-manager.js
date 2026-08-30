@@ -1767,7 +1767,9 @@
 
     // pickBest now returns THREE possible outcomes instead of two:
     //  - flag: null    -> normal confident pick (or nothing marked at all)
-    //  - flag: "multi" -> two or more options both look genuinely filled;
+    //  - flag: "multi" -> two or more options both look SOLIDLY, genuinely
+    //                     filled (a stricter bar than the normal single
+    //                     -mark check — see genuineForMulti below, v18);
     //                     we can't safely guess which one the student
     //                     meant, so every one of them is reported back
     //                     (via multiOptions) instead of silently picking one.
@@ -1799,10 +1801,35 @@
       // under however uneven THIS capture's own lighting happened to be.
       const genuine = c => c.broad > c.markThreshold && c.core > c.coreMinForConfident;
 
+      // v18 fix — reported bug: a completely BLANK bubble sitting right
+      // next to a student's real, solidly-filled mark was getting pulled
+      // into `multiOptions` too, and painted with its own "please
+      // double-check" blue ring in the review overlay, even though
+      // nothing was actually shaded there. Root cause: `genuine()`'s core
+      // bar (`coreMinForConfident`, 20) is DELIBERATELY lenient, because
+      // exposure scaling already has to squeeze a real full mark down
+      // close to it in a dim capture — that's fine for deciding the ONE
+      // single best pick, but it's too forgiving to also decide "yes, a
+      // SECOND competing option is genuinely filled too". A little dust,
+      // a hair-thin shadow, or plain JPEG block noise sitting right at a
+      // blank bubble's exact centre can nudge just past 20 without any
+      // real ink ever having touched that bubble.
+      //
+      // A real second mark (student genuinely bubbled two options) reads
+      // with core darkness on the same order as any normal confident
+      // mark — comfortably past `coreThreshold` (55, the same "genuinely
+      // solid ink" bar already used a few lines down for the faint-mark
+      // fallback) — while a stray-artifact false positive typically only
+      // barely nudges past 20. So membership in the MULTI set specifically
+      // requires this stricter bar; the original lenient `genuine()` is
+      // still exactly what decides a normal single confident pick below,
+      // completely unchanged.
+      const genuineForMulti = c => c.broad > c.markThreshold && c.core > c.coreThreshold;
+
       let best = null, second = -Infinity;
       const aboveThreshold = [];
       candidates.forEach(c => {
-        if (genuine(c)) aboveThreshold.push(c);
+        if (genuineForMulti(c)) aboveThreshold.push(c);
         if (!best || c.broad > best.broad) { second = best ? best.broad : second; best = c; }
         else if (c.broad > second) { second = c.broad; }
       });
@@ -1864,6 +1891,19 @@
       // exposure capture with no feedback to the person scanning.
       whiteMedian: whiteField.median
     };
+  }
+
+  // Ek roll number do students ka nahi ho sakta — jab wahi roll number
+  // dobara scan ho (galti se dobara scan, ya kisi doosre student ne wahi
+  // roll bhar diya), ye purane save-hue attempt(s) aur naye scan ke marks
+  // compare karke batata hai kaunsa "valid" rahega: hamesha jisme SABSE
+  // ZYADA marks hain wahi — baaki discard. Pure function (koi DOM/Firestore
+  // yahan nahi) taaki standalone test ho sake — see
+  // test_registration_min_markers_and_duplicate_roll.js.
+  function egResolveDuplicateRoll(dupExisting, newMarks) {
+    const prevBestMarks = Math.max(...dupExisting.map(d => Number(d.marks || 0)));
+    if (newMarks <= prevBestMarks) return { action: "discard", prevBestMarks, newMarks };
+    return { action: "replace", prevBestMarks, newMarks };
   }
 
   // Scores a detection against the exam's Answer Key (the key for the
@@ -1962,17 +2002,34 @@
         const px = optsPx[pq.detectedOpt];
         dot(px.x, px.y, 9, GREEN, true);
       } else if (pq.status === "wrong") {
-        const px = optsPx[pq.detectedOpt];
-        dot(px.x, px.y, 9, RED, true);
+        // v18 fix — reported bug: a multi-marked question (forced "wrong"
+        // regardless of which letter it matches, see examgrGradeSheet) was
+        // only ever getting a RED dot on pickBest's single darkest pick;
+        // every OTHER option the student also filled in got nothing but a
+        // blue "double-check" ring — no red, no colour at all — which read
+        // as "this bubble is fine" at a glance even though the whole
+        // response is void. Every option the student actually marked for a
+        // multi-marked question is equally wrong, so every one of them
+        // (via multiOptions) now gets its own red dot, not just the
+        // darkest one. A normal (non-multi) wrong answer is unaffected —
+        // still exactly one red dot on the single option that was marked.
+        const redIdxs = (pq.flag === "multi" && Array.isArray(pq.multiOptions) && pq.multiOptions.length)
+          ? pq.multiOptions.map(o => o.opt)
+          : [pq.detectedOpt];
+        redIdxs.forEach(idx => {
+          const px = optsPx[idx];
+          if (px) dot(px.x, px.y, 9, RED, true);
+        });
         // Skip the usual pale "this was the right answer" gold dot when it
-        // would land on the exact same bubble as the red dot above — this
-        // now happens for a multi-marked question forced to "wrong" whose
-        // darkest pick happens to be the correct letter (see
-        // examgrGradeSheet). That bubble is already unambiguous (red dot +
-        // a blue multi-ring from the flag loop below); a gold dot stacked
-        // on the identical spot only adds visual clutter, not information.
+        // would land on a bubble already painted red above — this happens
+        // whenever the correct letter is either the plain wrong pick, or
+        // (for a multi-marked question) one of the several bubbles the
+        // student filled in. That bubble is already unambiguous (red dot,
+        // plus a blue multi-ring from the flag loop below for a multi
+        // question); a gold dot stacked on the identical spot only adds
+        // visual clutter, not information.
         const correctIdx = pq.correctLetter ? OPTION_LETTERS.indexOf(pq.correctLetter) : -1;
-        if (pq.correctLetter && correctIdx !== pq.detectedOpt) {
+        if (pq.correctLetter && !redIdxs.includes(correctIdx)) {
           const cpx = optsPx[correctIdx];
           if (cpx) paleDot(cpx.x, cpx.y, 6, GOLD);
         }
@@ -2334,6 +2391,60 @@
     };
   }
 
+  // A single FIXED brightness cutoff (68) for "is this pixel ink or
+  // paper" only works when every region findBlackSquare ever looks at
+  // happens to be lit/exposed the same way. In practice it isn't: a
+  // phone flash lights the near half of the sheet brighter than the far
+  // half, an internal marker can sit in a soft shadow cast by the
+  // student's own hand/the phone body, and overall exposure varies
+  // capture-to-capture. A marker whose actual ink pixels come out at,
+  // say, 78 (still visibly black to the eye, just not <68 in THIS
+  // capture's exposure) was silently invisible to the blob detector —
+  // exactly the failure mode behind internal registration squares
+  // reading well below the 45 that are actually printed.
+  //
+  // Fix: Otsu's method — a standard, cheap (single histogram pass +
+  // 256-step search) way to pick the brightness threshold that best
+  // splits THIS region's own pixels into two groups, by maximising the
+  // between-class variance. Since each findBlackSquare call already
+  // only looks at one small local window (a ~52×52 search box around
+  // one expected marker, or one corner's live-video search box), the
+  // window's own histogram is exactly the right thing to threshold
+  // against — it's self-calibrating to whatever this specific patch of
+  // the photo's lighting happens to be, the same "compare only against
+  // itself" philosophy already used for egQuickSharpness elsewhere.
+  // Clamped to [45, 100] so a degenerate window (all-paper with no real
+  // marker in view, or a heavy shadow with no clean white paper to
+  // contrast against) can't wander to a nonsensical extreme — 68 (the
+  // old fixed value) sits in the middle of that band as the safe
+  // fallback baseline.
+  function egOtsuThreshold(brightness, count) {
+    const hist = new Float64Array(256);
+    for (let i = 0; i < count; i++) hist[brightness[i] < 0 ? 0 : (brightness[i] > 255 ? 255 : brightness[i] | 0)]++;
+    let sumAll = 0;
+    for (let t = 0; t < 256; t++) sumAll += t * hist[t];
+    let wB = 0, sumB = 0, best = 68, bestVar = -1;
+    for (let t = 0; t < 256; t++) {
+      wB += hist[t];
+      if (wB === 0) continue;
+      const wF = count - wB;
+      if (wF === 0) break;
+      sumB += t * hist[t];
+      const mB = sumB / wB;
+      const mF = (sumAll - sumB) / wF;
+      const diff = mB - mF;
+      const varBetween = wB * wF * diff * diff;
+      if (varBetween > bestVar) { bestVar = varBetween; best = t; }
+    }
+    // Otsu's sweep treats the "dark" class as brightness <= t, but the
+    // caller classifies with strict "< threshold" — off by one at the
+    // boundary would silently drop every pixel that landed EXACTLY at
+    // the optimal cut (a real risk: a uniformly-inked square often has
+    // most of its pixels clustered at/near one value). +1 aligns the
+    // two conventions so that boundary pixels are correctly kept dark.
+    return Math.min(100, Math.max(45, best + 1));
+  }
+
   function findBlackSquare(context, region, canvasWidth, canvasHeight) {
     const x = Math.max(0, Math.min(canvasWidth - 1, region.x));
     const y = Math.max(0, Math.min(canvasHeight - 1, region.y));
@@ -2344,10 +2455,14 @@
     const dark = new Uint8Array(count);
     const visited = new Uint8Array(count);
 
+    const brightness = new Float64Array(count);
     for (let i = 0; i < count; i++) {
       const offset = i * 4;
-      const brightness = pixels[offset] * 0.2126 + pixels[offset + 1] * 0.7152 + pixels[offset + 2] * 0.0722;
-      if (brightness < 68) dark[i] = 1;
+      brightness[i] = pixels[offset] * 0.2126 + pixels[offset + 1] * 0.7152 + pixels[offset + 2] * 0.0722;
+    }
+    const threshold = egOtsuThreshold(brightness, count);
+    for (let i = 0; i < count; i++) {
+      if (brightness[i] < threshold) dark[i] = 1;
     }
 
     // How dark is a small block right at one of the component's bounding
@@ -2530,11 +2645,28 @@
   // instead of silently producing a wrong/incomplete result.
   const EG_DARK_WHITE_WARN = 120; // whiteMedian this low means exposureScaleAt() is already sitting at/near its clamped floor (EG_MIN_EXPOSURE_SCALE * EG_REFERENCE_WHITE ≈ 94) — genuinely too dark, not adaptive-threshold noise
   const EG_HIGH_BLANK_RATE_WARN = 0.35; // ≥35% blank on one sheet is far more likely a bad capture (angle/glare/focus) than a genuinely under-attempted exam
+  // Total internal registration squares printed on the sheet (see
+  // egBuildLocalRegistrationField's v16 comment — OMR_MARKER_XS × OMR_MARKER_YS
+  // = 5×9 = 45). MIN_POINTS=8 there only gates whether local per-point warp
+  // correction is trusted at all; it says nothing about whether THIS capture
+  // is actually good enough to grade with confidence. A crop that's cutting
+  // off sheet edges, a heavy shadow across half the photo, or a bad angle
+  // can easily still clear 8 while missing most of the grid — the bubble
+  // positions in that missed region are then relying on distant markers
+  // extrapolating across a wide gap, which is exactly where a mis-warped
+  // bubble (and a wrong grade) is most likely. Below EG_MIN_REG_MARKERS_WARN
+  // found, warn and offer Retake instead of silently trusting a sparse read.
+  const EG_TOTAL_REG_MARKERS = OMR_MARKER_XS.length * OMR_MARKER_YS.length; // 45
+  const EG_MIN_REG_MARKERS_WARN = 30;
 
   function examgrCaptureQualityIssues(detected, graded) {
     const issues = [];
     if (typeof detected.whiteMedian === "number" && detected.whiteMedian <= EG_DARK_WHITE_WARN) {
       issues.push("Photo bahut dark lag rahi hai — 🔦 Flash ON karke dobara scan karein.");
+    }
+    const regFound = detected.map && Array.isArray(detected.map.regFieldPoints) ? detected.map.regFieldPoints.length : null;
+    if (regFound !== null && regFound < EG_MIN_REG_MARKERS_WARN) {
+      issues.push(`Sirf ${regFound}/${EG_TOTAL_REG_MARKERS} registration squares mil paaye (kam se kam ${EG_MIN_REG_MARKERS_WARN} chahiye) — sheet poori tarah frame mein, seedhi aur achhi light mein rakh kar dobara scan karein.`);
     }
     if (Array.isArray(detected.rollDigitsDetected) && detected.rollDigitsDetected.some(d => d === null)) {
       issues.push("Roll No ke kuch digits saaf nahi padhe gaye — Edit se check kar lein ya Retake karein.");
@@ -2727,28 +2859,36 @@
     // later. Cheap after the first call (see ensureExamResultsLoaded).
     await ensureExamResultsLoaded(id, ex);
 
-    // Duplicate Roll No check — same sheet scanned twice by mistake (or
-    // camera bumped and auto-captured again) used to silently create a
-    // second result with no warning at all. ex.results is this exam's
-    // authoritative local cache after ensureExamResultsLoaded above, so
-    // this is a plain in-memory check, no extra Firestore read needed.
+    // Duplicate Roll No check — ek roll number do alag students ka nahi ho
+    // sakta, isliye ab admin se har baar OK/Cancel poochne ke bajaye ye
+    // AUTOMATIC rule follow karte hain: jis attempt mein MAXIMUM marks hain
+    // wahi is roll number ke liye valid maana jaata hai. ex.results is this
+    // exam's authoritative local cache after ensureExamResultsLoaded above,
+    // so this is a plain in-memory check, no extra Firestore read needed.
     const rollDetected = (scannerDetected.roll || "").trim();
     const dupExisting = rollDetected && rollDetected.indexOf("?") === -1 && Array.isArray(ex.results)
       ? ex.results.filter(existing => (existing.roll || "").trim() === rollDetected)
       : [];
     if (dupExisting.length) {
-      const prev = dupExisting[dupExisting.length - 1];
-      const proceed = confirm(
-        `⚠️ Roll No ${rollDetected} ka result pehle se maujood hai (Marks: ${Number(prev.marks || 0).toFixed(1)}, Set: ${prev.setLetter || "—"}).\n\n` +
-        `OK = phir bhi ek ALAG/naya result save karein\n` +
-        `Cancel = rok kar Roll No check karein`
-      );
-      if (!proceed) {
+      const decision = egResolveDuplicateRoll(dupExisting, Number(scannerGraded.marks || 0));
+      if (decision.action === "discard") {
+        // Existing attempt already scores equal or higher for this roll —
+        // it stays the valid one; this new (lower/equal) scan is discarded
+        // rather than creating a second entry for the same student.
         btn.disabled = false;
         btn.textContent = originalLabel;
-        setScannerStatus(`Roll No ${rollDetected} pehle se scanned hai — Cancel karke roll number check karein.`, 4, false);
+        alert(`⚠️ Roll No ${rollDetected} ka result pehle se hai (${decision.prevBestMarks.toFixed(1)} marks). Ye naya scan (${decision.newMarks.toFixed(1)} marks) usse zyada nahi hai, isliye save nahi hua — purana (zyada marks wala) hi valid rahega.`);
+        setScannerStatus(`Roll No ${rollDetected} pehle se ${decision.prevBestMarks.toFixed(1)} marks ke saath valid hai.`, 4, false);
         return;
       }
+      // This new scan scores higher — it becomes the valid result for this
+      // roll number, so every older duplicate gets removed (both locally
+      // and in Firestore) leaving exactly one entry behind.
+      for (const old of dupExisting) {
+        const pos = ex.results.findIndex(x => x.id === old.id);
+        if (pos !== -1) ex.results.splice(pos, 1);
+      }
+      await Promise.all(dupExisting.map(old => examgrDeleteResult(id, old.id, ex.results.length)));
     }
 
     const resultId = (Date.now().toString(36) + Math.random().toString(36).slice(2, 8));
