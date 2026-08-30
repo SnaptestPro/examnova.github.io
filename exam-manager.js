@@ -247,7 +247,23 @@
     }
     if (listEl) listEl.innerHTML = '<div class="examgr-empty">⏳ Exams load ho rahe hain...</div>';
     try {
-      const snap = await database.collection(COLLECTION).get();
+      // Multi-tenant: pehle apna instituteId resolve/confirm karo (agar
+      // pehli baar hai to script.js legacy-migration bhi isi ke andar
+      // ek hi baar chala deta hai), phir SIRF apne institute ke exams
+      // query karo — kisi doosre admin ka exam yahan kabhi nahi aayega.
+      const instituteId = (typeof ensureAdminInstituteResolved === "function")
+        ? await ensureAdminInstituteResolved()
+        : null;
+      let snap;
+      if (instituteId) {
+        snap = await database.collection(COLLECTION).where("instituteId", "==", instituteId).get();
+      } else {
+        // instituteId resolve nahi ho paaya (offline/auth issue) — kuch
+        // mat dikhao, taaki galti se kisi aur ka data flash na ho.
+        examMgrExams = {};
+        if (listEl) listEl.innerHTML = '<div class="examgr-empty">⚠️ Aapka institute pehchana nahi gaya — dobara login karke try karein.</div>';
+        return;
+      }
       examMgrExams = {};
       snap.forEach(doc => { examMgrExams[doc.id] = doc.data(); });
       renderExamMgrList();
@@ -319,6 +335,7 @@
     const database = db();
     if (!database) { alert("Firebase se connect nahi ho paya — internet check karein."); return null; }
     const id = database.collection(COLLECTION).doc().id;
+    const myInstituteId = (typeof getCurrentAdminInstituteId === "function") ? getCurrentAdminInstituteId() : null;
     const payload = {
       examName: fields.examName,
       className: fields.className || "",
@@ -334,6 +351,7 @@
       webLink: "",
       published: false,
       rollDigits: Math.max(1, Math.min(5, Number(fields.rollDigits) || 2)),
+      ...(myInstituteId ? { instituteId: myInstituteId } : {}),
       createdAt: firebase.firestore.FieldValue.serverTimestamp(),
       updatedAt: firebase.firestore.FieldValue.serverTimestamp()
     };

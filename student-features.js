@@ -710,7 +710,7 @@
     return excluded;
   }
 
-  async function computeFullLeaderboard() {
+  async function computeFullLeaderboard(onlyCurrentAdminInstitute) {
     // Same aggregation as computeTopStudents() lekin poori list deta hai
     // (top 3 tak crop nahi karta) — Admin ke "Top Performers" tab ke liye,
     // taaki admin dekh sake ki total marks kis-kis test se ban rahe hain.
@@ -728,6 +728,15 @@
       all = records || [];
     }
     const excludedTestIds = getLeaderboardExcludedTestIds(typeof tests !== "undefined" ? tests : null);
+
+    // Multi-tenant: Admin ke "Top Performers" tab mein sirf apne institute
+    // ke tests ke records count hone chahiye — kisi doosre admin ka data
+    // nahi. Student ka apna dashboard-podium (renderTopStudentsPodium)
+    // isse ALAG hai — ye flag pass nahi karta, isliye student ko hamesha
+    // poori (sabhi institutes ki) list dikhti rehti hai jaisa pehle thi.
+    if (onlyCurrentAdminInstitute && typeof isOwnedByCurrentAdmin === "function" && typeof tests !== "undefined") {
+      all = all.filter(r => r.testId && isOwnedByCurrentAdmin(tests[r.testId]));
+    }
 
     // STEP 1 — Agar koi student wahi test kai baar de chuka hai (retake),
     // to Result Sheet ki tarah sirf uska SABSE ACHHA attempt rakho — baaki
@@ -805,7 +814,7 @@
     box.innerHTML = '<p class="muted-text">Loading…</p>';
     let list = [];
     try {
-      list = await computeFullLeaderboard();
+      list = await computeFullLeaderboard(true);
     } catch (e) {
       box.innerHTML = `<p style="color:#dc2626;">Load nahi ho paya: ${escHtml(e.message || String(e))}</p>`;
       return;

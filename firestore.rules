@@ -63,6 +63,20 @@ service cloud.firestore {
         );
     }
 
+    // ── Multi-tenant: is admin ka apna institute kaunsa hai ────────
+    // Owner Panel se bane admin ke `admins/{email}` doc mein instituteId
+    // already hota hai. Legacy admin ke liye app khud (script.js,
+    // resolveCurrentAdminInstitute()) pehle login par ek instituteId
+    // bana kar isi doc mein likh deta hai — isliye ye function har
+    // admin ke liye kaam karta hai, chahe wo Owner Panel se bana ho ya
+    // purana/legacy ho.
+    function adminInstituteId() {
+      return isAdmin() &&
+        exists(/databases/$(database)/documents/admins/$(request.auth.token.email))
+        ? get(/databases/$(database)/documents/admins/$(request.auth.token.email)).data.instituteId
+        : null;
+    }
+
     // Koi bhi signed-in visitor — chahe anonymous ho ya admin.
     // (App load hote hi anonymous sign-in ho jata hai, isliye ye
     //  practically "app se aaya hua request" ke barabar hai, random
@@ -80,8 +94,29 @@ service cloud.firestore {
     }
 
     match /tests/{docId} {
+      // Read khula rehta hai (isSignedIn()) — students ko sabhi tests
+      // dikhne zaroori hain taaki wo attempt kar sakein. Institute-wise
+      // isolation sirf ADMIN ke apne management view (Tests list, Edit,
+      // Delete) mein hai — write side par.
       allow read: if isSignedIn();
-      allow write: if isAdmin();
+
+      // Naya test — sirf apne institute ke instituteId ke saath ban
+      // sakta hai (ya instituteId field hi na ho, purane app-version
+      // compatibility ke liye).
+      allow create: if isAdmin() && (
+        !('instituteId' in request.resource.data) ||
+        request.resource.data.instituteId == adminInstituteId()
+      );
+
+      // Edit/Delete — sirf wahi admin kar sakta hai jiska instituteId us
+      // test ke instituteId se match kare. Purane (migrate hone se pehle)
+      // instituteId-less docs par abhi bhi access hai — taaki koi turant
+      // lock-out na ho jaaye, migration hote hi ye apne aap tight ho
+      // jaata hai.
+      allow update, delete: if isAdmin() && (
+        !('instituteId' in resource.data) ||
+        resource.data.instituteId == adminInstituteId()
+      );
 
       // ── Nested subcollection fix ──────────────────────────────────
       // Test ke questions "tests/{id}/qchunks/{chunkId}" subcollection
@@ -138,7 +173,30 @@ service cloud.firestore {
     // paper exams (naam, answer key, scan-count, reports) — sirf admin
     // banata/manage karta hai, students ka isse koi lena-dena nahi.
     match /examManagerExams/{docId} {
-      allow read, write: if isAdmin();
+      // Institute-wise isolation: apna institute ke exams hi read/write
+      // ho sakte hain. Purane (migrate hone se pehle) instituteId-less
+      // docs par abhi bhi access hai, taaki koi turant lock-out na ho —
+      // pehli login par app khud unhe migrate kar deta hai (script.js,
+      // resolveCurrentAdminInstitute()).
+      allow read: if isAdmin() && (
+        !('instituteId' in resource.data) ||
+        resource.data.instituteId == adminInstituteId()
+      );
+      allow create: if isAdmin() && (
+        !('instituteId' in request.resource.data) ||
+        request.resource.data.instituteId == adminInstituteId()
+      );
+      allow update: if isAdmin() && (
+        !('instituteId' in resource.data) ||
+        resource.data.instituteId == adminInstituteId()
+      ) && (
+        !('instituteId' in request.resource.data) ||
+        request.resource.data.instituteId == adminInstituteId()
+      );
+      allow delete: if isAdmin() && (
+        !('instituteId' in resource.data) ||
+        resource.data.instituteId == adminInstituteId()
+      );
 
       // scanPhotos subcollection: sharp (900px) scanned OMR photos, one
       // doc per result — kept OUT of the parent exam doc so each photo
@@ -280,12 +338,38 @@ service cloud.firestore {
     // check se hi tay hoti hai, is doc ko read kiye bina.
     match /institutes/{instituteId} {
       allow read, write: if isOwner();
+
+      // ── Legacy-admin self-migration ──────────────────────────────
+      // Purana admin (Owner Panel se nahi, seedha ADMIN_EMAILS list se
+      // aaya hua) ke paas koi instituteId nahi hoti. App khud (script.js,
+      // resolveCurrentAdminInstitute()) pehli login par uske liye ek
+      // institute record banata hai — taaki wo Owner Panel mein bhi
+      // dikhe aur uska purana data isolate ho sake. Sirf CREATE allowed
+      // hai (apna record ek baar banane ke liye), update/delete nahi —
+      // aur ID hamesha "legacy_" se shuru hona zaroori hai (Owner Panel
+      // ke ".add()" se bane real institute IDs kabhi is prefix se
+      // shuru nahi hote), taaki koi admin kisi real/doosre institute ko
+      // kabhi chhed na sake.
+      allow read: if isAdmin();
+      allow create: if isAdmin() && instituteId.matches('^legacy_.*');
     }
 
     // Doc ID = admin ka email address (isAdmin() function isi se
     // seedha lookup karta hai — /admins/{unka-email}).
     match /admins/{email} {
       allow read, write: if isOwner();
+
+      // Admin apna khud ka record padh sake (apna instituteId maalum
+      // karne ke liye). Legacy admin (jiska record abhi tak hai hi
+      // nahi) ke liye khud bana/update bhi kar sakta hai — sirf apne
+      // hi email wale doc par, sirf "legacy_" institute ke saath, aur
+      // ek baar instituteId set hone ke baad khud se badal nahi sakta
+      // (privilege-escalation se bachne ke liye).
+      allow read: if isAdmin() && request.auth.token.email == email;
+      allow create: if isAdmin() && request.auth.token.email == email &&
+        request.resource.data.instituteId.matches('^legacy_.*');
+      allow update: if isAdmin() && request.auth.token.email == email &&
+        resource.data.instituteId == request.resource.data.instituteId;
     }
 
     // ── Default deny ──────────────────────────────────────────────

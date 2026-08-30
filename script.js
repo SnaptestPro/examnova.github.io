@@ -1285,7 +1285,7 @@ window.backToTestsHub = backToTestsHub;
 
 function updateTestsHubCount() {
   const el = $("#tests-hub-count");
-  if (el) el.textContent = Object.keys(tests || {}).length || "";
+  if (el) el.textContent = Object.values(tests || {}).filter(t => isOwnedByCurrentAdmin(t)).length || "";
 }
 
 // ── Records sub-hub: "Password Reset / Students Directory / Result
@@ -1463,6 +1463,213 @@ function clearAdminLoggedIn() {
   try { localStorage.removeItem(ADMIN_LOGIN_KEY); } catch (e) {}
 }
 
+/* ══════════════════════════════════════════
+   ADMIN DEACTIVATION (Owner Panel se "Disable")
+   ------------------------------------------
+   Owner jab kisi admin ko deactivate karta hai (admins/{email}.active
+   = false), do cheezein honi chahiye:
+     1) Wo admin AGLI baar login hi na kar paaye — saaf message ke
+        saath ki ID deactivate hai, Owner se contact karein.
+     2) Agar wo admin us waqt app USE hi kar raha ho (already logged
+        in), to turant (real-time) automatically logout ho jaaye aur
+        yahi message dikhe — abhi tak use karte rehna na pade.
+══════════════════════════════════════════ */
+const ADMIN_DEACTIVATION_CONTACT_MOBILE = "9525208263";
+const ADMIN_DEACTIVATED_MESSAGE =
+  "⛔ Aapka ID deactivate kar diya gaya hai (Your ID is deactivated).\n\n" +
+  "Owner se contact karein: 📞 " + ADMIN_DEACTIVATION_CONTACT_MOBILE;
+
+// true = deactivate hai (login block karo), false = sab theek hai.
+async function isAdminAccountDeactivated(email) {
+  const db = getDB();
+  if (!db || !email) return false;
+  try {
+    const doc = await db.collection("admins").doc(email).get();
+    if (doc.exists && doc.data().active === false) return true;
+    return false;
+  } catch (err) {
+    // Deactivate admin ke liye Firestore rules is doc ka READ bhi deny
+    // kar deti hain (isAdmin() hi false ho jaata hai active:false hote
+    // hi) — isliye ek "permission-denied" error khud deactivation ka
+    // pakka signal hai (basharte ye woh EK hardcoded super-admin email
+    // na ho, jiske liye admins/doc exist hi nahi karta — uske liye
+    // "not-found" jaisa kuch nahi, seedha exists:false milta hai, error
+    // nahi — is catch block mein sirf genuine permission-denied cases
+    // aate hain).
+    if (String(err.code || "").toLowerCase().includes("permission")) return true;
+    console.warn("[admin-active-check] failed (ignoring, non-permission error)", err);
+    return false;
+  }
+}
+
+// Admin panel ke andar hote hue REAL-TIME deactivation detect karta hai.
+// startAdminSyncs() se ek hi baar shuru hota hai.
+let _adminActiveWatchUnsub = null;
+function watchAdminActiveStatus() {
+  if (_adminActiveWatchUnsub) return; // already watching is session mein
+  const auth = getAuth();
+  const email = auth && auth.currentUser && auth.currentUser.email;
+  const db = getDB();
+  if (!email || !db) return;
+  _adminActiveWatchUnsub = db.collection("admins").doc(email).onSnapshot(
+    snap => {
+      if (snap.exists && snap.data().active === false) forceAdminLogoutDeactivated();
+    },
+    err => {
+      // Deactivate hote hi rules is doc ka access hi deny kar dete
+      // hain — onSnapshot isi wajah se turant "permission-denied"
+      // error deta hai. Yahi hamara real-time signal hai.
+      if (String(err.code || "").toLowerCase().includes("permission")) forceAdminLogoutDeactivated();
+    }
+  );
+}
+
+function forceAdminLogoutDeactivated() {
+  if (_adminActiveWatchUnsub) { try { _adminActiveWatchUnsub(); } catch (e) {} _adminActiveWatchUnsub = null; }
+  clearAdminLoggedIn();
+  const auth = getAuth();
+  try { if (auth && auth.currentUser) auth.signOut().catch(() => {}); } catch (e) {}
+  alert(ADMIN_DEACTIVATED_MESSAGE);
+  // Poora page reload — in-memory admin data/listeners saaf karke
+  // seedha login screen par bhej deta hai.
+  location.href = location.pathname;
+}
+
+/* ══════════════════════════════════════════
+   MULTI-TENANT: INSTITUTE ISOLATION
+   ------------------------------------------
+   Har admin ek instituteId se bandha hota hai. Isi ID se Tests, Exam
+   Manager, Records aur Leaderboard sirf APNE institute ka data dikhate
+   hain — kisi doosre admin ka nahi. Owner Panel se bane admin ke paas
+   ye ID pehle se `admins/{email}` doc mein hoti hai. Legacy admin
+   (jo purane ADMIN_EMAILS system se aata hai, Owner Panel se nahi bana)
+   ke liye ye code khud ek institute record bana deta hai pehli baar
+   login karte hi — taaki wo Owner Panel mein bhi dikhe aur uska purana
+   (bina instituteId wala) data usi ke naam migrate ho jaaye.
+══════════════════════════════════════════ */
+let CURRENT_ADMIN_INSTITUTE_ID = null;
+const ADMIN_INSTITUTE_LOCAL_KEY = "savya_admin_institute_id";
+
+function getCurrentAdminInstituteId() {
+  if (CURRENT_ADMIN_INSTITUTE_ID) return CURRENT_ADMIN_INSTITUTE_ID;
+  try { return localStorage.getItem(ADMIN_INSTITUTE_LOCAL_KEY) || null; } catch (e) { return null; }
+}
+
+// Ek test/exam is admin ka apna hai ya nahi — instituteId match karke.
+// instituteId abhi resolve NAHI hua ho to safe default "false" (kuch mat
+// dikhao) rakha hai, taaki login ke turant baad ek pal ke liye bhi kisi
+// doosre admin ka data flash na ho jaaye.
+function isOwnedByCurrentAdmin(obj) {
+  const myInst = getCurrentAdminInstituteId();
+  if (!myInst) return false;
+  if (!obj) return false;
+  return (obj.instituteId || null) === myInst;
+}
+
+function legacyInstituteIdForEmail(email) {
+  return "legacy_" + String(email || "").toLowerCase().replace(/[^a-z0-9]/g, "_");
+}
+
+let _adminInstituteResolvePromise = null;
+// Admin panel khulte hi (startAdminSyncs se) ek hi baar chalta hai —
+// dobara call hone par wahi cached Promise wapas mil jaata hai.
+function ensureAdminInstituteResolved() {
+  if (!_adminInstituteResolvePromise) _adminInstituteResolvePromise = resolveCurrentAdminInstitute();
+  return _adminInstituteResolvePromise;
+}
+
+async function resolveCurrentAdminInstitute() {
+  try {
+    if (window.vishnuFirebase && window.vishnuFirebase.authReady) {
+      await window.vishnuFirebase.authReady;
+    }
+  } catch (e) {}
+
+  const auth = getAuth();
+  const email = auth && auth.currentUser && auth.currentUser.email;
+  if (!email) return null;
+  const db = getDB();
+  if (!db) return getCurrentAdminInstituteId();
+
+  try {
+    const adminDoc = await db.collection("admins").doc(email).get();
+    let instituteId;
+
+    if (adminDoc.exists && adminDoc.data().instituteId) {
+      // Owner Panel se bana admin — instituteId pehle se maujood hai.
+      instituteId = adminDoc.data().instituteId;
+    } else {
+      // Legacy admin — apna institute record khud bana lo.
+      instituteId = legacyInstituteIdForEmail(email);
+      const instRef = db.collection("institutes").doc(instituteId);
+      const instSnap = await instRef.get();
+      if (!instSnap.exists) {
+        await instRef.set({
+          name: "My Institute (" + email + ")",
+          active: true,
+          legacy: true,
+          createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+      }
+      // admins/{email} doc bhi bana/update karo taaki Owner Panel ki
+      // admins list mein bhi ye admin dikhe.
+      await db.collection("admins").doc(email).set({
+        email, instituteId,
+        instituteName: "My Institute (" + email + ")",
+        active: true,
+        legacy: true,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+      }, { merge: true });
+
+      // One-time migration: purana (instituteId-less) Tests/Exam-Manager
+      // data isi legacy institute ko de do — sirf ek baar (localStorage
+      // flag se), taaki dobara login par poora collection scan na ho.
+      const migratedFlagKey = "savya_legacy_migrated_" + instituteId;
+      let alreadyMigrated = false;
+      try { alreadyMigrated = localStorage.getItem(migratedFlagKey) === "true"; } catch (e) {}
+      if (!alreadyMigrated) {
+        try {
+          await migrateLegacyInstituteData(instituteId);
+          localStorage.setItem(migratedFlagKey, "true");
+        } catch (e) { console.warn("[institute] legacy migration failed", e); }
+      }
+    }
+
+    CURRENT_ADMIN_INSTITUTE_ID = instituteId;
+    try { localStorage.setItem(ADMIN_INSTITUTE_LOCAL_KEY, instituteId); } catch (e) {}
+    return instituteId;
+  } catch (err) {
+    console.warn("[institute] resolve failed", err);
+    return getCurrentAdminInstituteId();
+  }
+}
+
+// Purane (bina instituteId) Tests aur Exam Manager exams ko legacy admin
+// ke institute se jod deta hai.
+async function migrateLegacyInstituteData(instituteId) {
+  const db = getDB();
+  if (!db) return;
+  try {
+    const snap = await db.collection("tests").get();
+    const batch = db.batch();
+    let count = 0;
+    snap.forEach(doc => {
+      if (!doc.data().instituteId) { batch.update(doc.ref, { instituteId }); count++; }
+    });
+    if (count) await batch.commit();
+  } catch (e) { console.warn("[migrate] tests failed", e); }
+
+  try {
+    const snap = await db.collection("examManagerExams").get();
+    const batch = db.batch();
+    let count = 0;
+    snap.forEach(doc => {
+      if (!doc.data().instituteId) { batch.update(doc.ref, { instituteId }); count++; }
+    });
+    if (count) await batch.commit();
+  } catch (e) { console.warn("[migrate] examManagerExams failed", e); }
+}
+
 let _adminSyncsStarted = false;
 function startAdminSyncs() {
   if (_adminSyncsStarted) return; // dobara panel kholne par dobara subscribe na ho
@@ -1471,6 +1678,17 @@ function startAdminSyncs() {
   syncTrashBin();
   syncPdfDrafts();
   syncAppScriptDrafts();
+  watchAdminActiveStatus();
+
+  // Institute resolve hote hi jo bhi views instituteId ke hisaab se
+  // filter hoti hain, unhe ek baar refresh kar do (pehle load pe wo
+  // "loading" ya khaali state mein hoti hain jab tak ID nahi milti).
+  ensureAdminInstituteResolved().then(() => {
+    if (typeof renderTestList === "function") renderTestList();
+    if (typeof renderRecords === "function") renderRecords();
+    if (typeof loadExamManagerExams === "function") loadExamManagerExams();
+    if (typeof renderAdminLeaderboard === "function") renderAdminLeaderboard();
+  }).catch(() => {});
 }
 
 function enterAdminPanel() {
@@ -1494,6 +1712,7 @@ function enterAdminPanel() {
 // dono) end kar sakta hai.
 function logoutAdmin() {
   if (!confirm("Admin session se logout karein?")) return;
+  if (_adminActiveWatchUnsub) { try { _adminActiveWatchUnsub(); } catch (e) {} _adminActiveWatchUnsub = null; }
   try {
     const auth = getAuth();
     if (auth && auth.currentUser) auth.signOut().catch(() => {});
@@ -1521,6 +1740,18 @@ async function loginAdmin(e) {
   if (candidateEmail) {
     try {
       await auth.signInWithEmailAndPassword(candidateEmail, enteredPass);
+      // Owner ne is admin ko deactivate kiya ho to yahin rok do — login
+      // hone hi na dein. (Deactivate hote hi Firestore rules is admin
+      // ke apne "admins/{email}" doc ka READ bhi deny kar dete hain,
+      // isliye deactivation ka signal ya to "active:false" data ke
+      // roop mein aata hai, ya seedha "permission-denied" error ke
+      // roop mein — dono cases yahan cover kiye gaye hain.)
+      const blocked = await isAdminAccountDeactivated(candidateEmail);
+      if (blocked) {
+        await auth.signOut().catch(() => {});
+        alert(ADMIN_DEACTIVATED_MESSAGE);
+        return;
+      }
       rememberAdminEmail(candidateEmail);
       enterAdminPanel();
       return;
@@ -2905,7 +3136,9 @@ function closeTestAnalysisOverlay() {
 function renderTestList() {
   updateTestsHubCount();
   $("#test-list").innerHTML = "";
-  Object.entries(tests).forEach(([id, t]) => {
+  Object.entries(tests)
+    .filter(([, t]) => isOwnedByCurrentAdmin(t))
+    .forEach(([id, t]) => {
     const item = document.createElement("div");
     item.className = "item";
     const draftBadge = t.isDraft ? '<span class="draft-badge">DRAFT</span>' : '';
@@ -3443,6 +3676,13 @@ async function saveTest(e) {
     sections: testSections.map(s => ({ id: s.id, title: s.title, marksPerQuestion: s.marksPerQuestion ?? null })),
     questions: draftQuestions.map(cloneQ)
   };
+  // instituteId sirf tabhi stamp karo jab resolve ho chuka ho — agar abhi
+  // tak null hai (bahut jaldi save kar diya, resolve hone se pehle) to
+  // field hi mat daalo, taaki firestore.rules ka "instituteId-less =
+  // backward-compatible access" wala fallback sahi se kaam kare, warna
+  // "instituteId: null" khud apne aap ko baad mein lock kar sakta hai.
+  const myInstituteIdForSave = getCurrentAdminInstituteId();
+  if (myInstituteIdForSave) t.instituteId = myInstituteIdForSave;
   const wasEdit = Boolean(editingTestId);
   try {
     remoteTests[id] = t;
@@ -4868,7 +5108,8 @@ function renderGradeTestSelect() {
   const manualTestIds = new Set(
     Object.keys(tests).filter(id => getTestSubjectiveMarks(tests[id]) > 0 && records.some(r => r.testId === id))
   );
-  const testIds = [...new Set([...pendingTestIds, ...manualTestIds])];
+  const testIds = [...new Set([...pendingTestIds, ...manualTestIds])]
+    .filter(id => isOwnedByCurrentAdmin(tests[id]));
   sel.innerHTML = '<option value="">— Test chunein —</option>';
   testIds.forEach(id => {
     const t = tests[id];
@@ -5153,7 +5394,12 @@ function renderRecords() {
     list.innerHTML = '<p class="empty-state">Abhi tak koi record nahi hai.</p>';
     return;
   }
-  let tests = getTestsWithResults();
+  // NOTE: "tests" neeche shadow ho raha hai (getTestsWithResults() ka
+  // result) — instituteId-ownership check ke liye asli global tests
+  // object yahan pehle hi capture kar lete hain.
+  const _globalTestsMetaForRecords = window.tests || {};
+  let tests = getTestsWithResults()
+    .filter(t => isOwnedByCurrentAdmin(_globalTestsMetaForRecords[t.testId]));
 
   // Registered-students list is needed to work out who's ABSENT for each
   // test (registered but no record) — load it once in the background if
@@ -6545,12 +6791,18 @@ async function syncTestToExamManager(testId, data, questions) {
     const existingSnap = await db.collection(EXAMGR_SYNC_COLLECTION)
       .where("linkedTestId", "==", testId).limit(1).get();
 
+    // Linked online-Test se hi instituteId le lo (wahi is exam ka asli
+    // owner hai) — taaki Exam Manager mein ye mirror bhi sirf usi admin
+    // ko dikhe jisne Test banaya tha.
+    const mirrorInstituteId = data && data.instituteId ? data.instituteId : getCurrentAdminInstituteId();
+
     if (!existingSnap.empty) {
       await existingSnap.docs[0].ref.update({
         examName: data.title || "Untitled Test",
         questions: capped.length,
         answerKey,
         answerKeys: { A: answerKey },
+        ...(mirrorInstituteId ? { instituteId: mirrorInstituteId } : {}),
         updatedAt: firebase.firestore.FieldValue.serverTimestamp()
       });
     } else {
@@ -6571,6 +6823,7 @@ async function syncTestToExamManager(testId, data, questions) {
         published: false,
         rollDigits: 2,
         linkedTestId: testId,
+        ...(mirrorInstituteId ? { instituteId: mirrorInstituteId } : {}),
         createdAt: firebase.firestore.FieldValue.serverTimestamp(),
         updatedAt: firebase.firestore.FieldValue.serverTimestamp()
       });
