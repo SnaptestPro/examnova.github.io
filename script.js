@@ -1696,7 +1696,41 @@ function startAdminSyncs() {
     if (typeof renderRecords === "function") renderRecords();
     if (typeof loadExamManagerExams === "function") loadExamManagerExams();
     if (typeof renderAdminLeaderboard === "function") renderAdminLeaderboard();
+    renderAdminWelcomeInstituteName();
   }).catch(() => {});
+}
+
+// ── Welcome banner par apna institute ka naam dikhana ──────────────
+// Pehle "Welcome, Admin" hamesha generic tha — koi confirm nahi ho
+// pata tha ki login us waqt kis institute ke roop mein hua hai (jo
+// email-mismatch jaisi galtiyan turant pakadne mein help karta hai:
+// agar galat institute ka naam dikhe, admin turant Owner se contact
+// kar sakta hai). Institute ka naam `institutes/{instituteId}.name`
+// se aata hai (canonical, agar Owner Panel se rename ho to yahan bhi
+// turant update ho jayega) — agar wo doc kisi wajah se na mile
+// (offline / abhi tak resolve nahi hua), to admin ke apne doc mein
+// stamped `instituteName` fallback ke roop mein use hota hai.
+async function renderAdminWelcomeInstituteName() {
+  const heading = document.querySelector("#admin-dashboard-home .cd-hero-text h2");
+  if (!heading) return;
+  const db = getDB();
+  const auth = getAuth();
+  const email = auth && auth.currentUser && auth.currentUser.email;
+  const instituteId = getCurrentAdminInstituteId();
+  let name = "";
+  try {
+    if (db && instituteId) {
+      const instDoc = await db.collection("institutes").doc(instituteId).get();
+      if (instDoc.exists && instDoc.data().name) name = instDoc.data().name;
+    }
+    if (!name && db && email) {
+      const adminDoc = await db.collection("admins").doc(email).get();
+      if (adminDoc.exists && adminDoc.data().instituteName) name = adminDoc.data().instituteName;
+    }
+  } catch (e) {
+    console.warn("[admin] institute name fetch failed (ignoring)", e);
+  }
+  heading.textContent = name ? ("Welcome, " + name + " 👋") : "Welcome, Admin 👋";
 }
 
 function enterAdminPanel() {
