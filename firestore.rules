@@ -62,7 +62,20 @@ service cloud.firestore {
         ? get(/databases/$(database)/documents/admins/$(request.auth.token.email)).data.active
         : null;
     }
-    function isAdmin() {
+
+    // ⚠️ FIX (v24_16): pehle isAdmin() sirf admin ke APNE doc ka `active`
+    // field dekhta tha — Owner Panel ke Institute-level "Deactivate"
+    // button (jo `institutes/{id}.active = false` likhta hai) ka is par
+    // koi asar hi nahi padta tha. Matlab ek poora institute deactivate
+    // karne ke baad bhi uska admin poora access rakhta reh sakta tha —
+    // aur isi wajah se koi real-time force-logout bhi trigger nahi hota
+    // tha (wo sirf admin-doc ke `active:false`/permission-denied par
+    // depend karta hai, script.js dekhein). Ab isAdminEmailAllowed() —
+    // sirf email/admin-doc wala purana check — ko isAdmin() se ALAG kiya
+    // gaya hai (taaki adminInstituteId() ise call kar sake bina circular
+    // function-call error ke), aur isAdmin() khud ab institute active
+    // bhi check karta hai.
+    function isAdminEmailAllowed() {
       return request.auth != null &&
         request.auth.token.email != null &&
         (
@@ -85,10 +98,31 @@ service cloud.firestore {
     // admin ke liye kaam karta hai, chahe wo Owner Panel se bana ho ya
     // purana/legacy ho.
     function adminInstituteId() {
-      return isAdmin() &&
+      return isAdminEmailAllowed() &&
         exists(/databases/$(database)/documents/admins/$(request.auth.token.email))
         ? get(/databases/$(database)/documents/admins/$(request.auth.token.email)).data.instituteId
         : null;
+    }
+
+    // Admin ka apna institute record active hai ya nahi.
+    //   - Koi instituteId hi nahi (legacy, migrate hone se pehle) →
+    //     true maan lo (backward compat, jaisa baaki purana code karta
+    //     hai — isse koi turant lock-out nahi hota).
+    //   - instituteId hai par institute doc hi maujood nahi (orphan,
+    //     "🗑️ Remove" se hata diya gaya) → true maan lo — ye jaan-boojh
+    //     kar hai, kyunki Owner Panel ka apna documentation kehta hai
+    //     "institute hatane se admin ka access khud disable nahi hota".
+    //   - Institute doc hai aur `active` explicitly false hai (Owner ne
+    //     Deactivate dabaya) → sirf tabhi false.
+    function adminInstituteActive() {
+      return adminInstituteId() == null ||
+        !exists(/databases/$(database)/documents/institutes/$(adminInstituteId()))
+        ? true
+        : get(/databases/$(database)/documents/institutes/$(adminInstituteId())).data.active != false;
+    }
+
+    function isAdmin() {
+      return isAdminEmailAllowed() && adminInstituteActive();
     }
 
     // Koi bhi signed-in visitor — chahe anonymous ho ya admin.

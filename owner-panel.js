@@ -309,13 +309,47 @@ async function ownerRecreateInstituteSubmit(e, instituteId, email) {
   return false;
 }
 
+// ── Fix (v24_16): intermittent "Missing or insufficient permissions" ──
+// Owner Panel ke writes sirf isOwner() (exact email match) par depend
+// karte hain, jo deterministic hai — isliye agar wahi button kabhi
+// kaam karta hai kabhi nahi, iski sabse aam wajah ye hai ki Firestore
+// ke paas us waqt owner ka STALE ID token tha (auth state theek hai,
+// lekin token cache mein purana/expired). Firebase SDK usually khud
+// refresh karta hai, par kabhi-kabhi ek stale token slip ho jaata hai
+// — khaaskar jab tab bahut der se khula pada ho ya laptop sleep se
+// wapas aaya ho. Fix: permission-denied milte hi ek baar force token
+// refresh karke write khud-ba-khud dobara try karo, tabhi user ko error
+// dikhao jab retry ke baad bhi fail ho — aur us error mein ab ye bhi
+// batao ki us waqt Firestore ke hisaab se sign-in kis email se tha,
+// taaki agar dobara aaye to turant pata chal jaaye ki auth-drop hua ya
+// kuch aur.
+async function ownerRetryOnPermissionDenied(writeFn) {
+  try {
+    await writeFn();
+  } catch (err) {
+    const isPermission = String(err && err.code || "").toLowerCase().includes("permission");
+    const auth = ownerGetAuth();
+    if (isPermission && auth && auth.currentUser) {
+      try {
+        await auth.currentUser.getIdToken(true); // force refresh, stale-token slip fix karta hai
+        await writeFn();
+        return; // retry ke baad chal gaya — user ko kuch dikhane ki zaroorat nahi
+      } catch (retryErr) {
+        err = retryErr;
+      }
+    }
+    const whoAmI = auth && auth.currentUser
+      ? (auth.currentUser.isAnonymous ? "anonymous session (owner login drop ho gaya)" : auth.currentUser.email)
+      : "koi bhi login nahi (signed out)";
+    alert("Update nahi hua: " + (err.message || err) + "\n\n(Us waqt sign-in tha: " + whoAmI + ")");
+  }
+}
+
 async function ownerToggleInstitute(id, makeActive) {
   const db = ownerGetDb();
-  try {
-    await db.collection("institutes").doc(id).update({ active: makeActive });
-  } catch (err) {
-    alert("Update nahi hua: " + (err.message || err));
-  }
+  await ownerRetryOnPermissionDenied(() =>
+    db.collection("institutes").doc(id).update({ active: makeActive })
+  );
 }
 
 async function ownerDeleteInstitute(id) {
@@ -412,11 +446,9 @@ async function ownerAddAdminSubmit(e, instituteId, instituteName) {
 // turant band ho jaata hai. Yahi is button ka "delete jaisa" asar hai.
 async function ownerToggleAdmin(email, makeActive) {
   const db = ownerGetDb();
-  try {
-    await db.collection("admins").doc(email).update({ active: makeActive });
-  } catch (err) {
-    alert("Update nahi hua: " + (err.message || err));
-  }
+  await ownerRetryOnPermissionDenied(() =>
+    db.collection("admins").doc(email).update({ active: makeActive })
+  );
 }
 
 async function ownerResetAdminPassword(email) {
