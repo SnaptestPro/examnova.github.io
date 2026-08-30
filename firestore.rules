@@ -48,18 +48,32 @@ service cloud.firestore {
     //       hai — aur "active" false karte hi (Owner "Disable" button
     //       dabaye) us admin ka access turant band ho jaata hai, bina
     //       Firebase Auth account delete kiye.
+    //
+    // ⚠️ FIX (v24_12): pehle LEGACY email ko bina kisi condition ke
+    // hardcoded "true" mil jaata tha — matlab Owner Panel se ise
+    // "Disable" karne ka (admins/{email}.active = false likhne ka)
+    // koi asar hi nahi hota tha, kyunki neeche wala hardcoded check
+    // active field dekhta hi nahi tha. Ab legacy email ko bhi access
+    // milta hai SIRF tab tak jab tak uske admins/{email} doc mein
+    // explicitly active:false na likha ho — Owner "Disable" dabaye to
+    // ye legacy admin bhi turant, sach mein, block ho jaata hai.
+    function adminDocActive() {
+      return exists(/databases/$(database)/documents/admins/$(request.auth.token.email))
+        ? get(/databases/$(database)/documents/admins/$(request.auth.token.email)).data.active
+        : null;
+    }
     function isAdmin() {
       return request.auth != null &&
         request.auth.token.email != null &&
         (
-          request.auth.token.email in [
-            "vishnu1234stmp@gmail.com"
-          ]
-          ||
           (
-            exists(/databases/$(database)/documents/admins/$(request.auth.token.email)) &&
-            get(/databases/$(database)/documents/admins/$(request.auth.token.email)).data.active == true
+            request.auth.token.email in [
+              "vishnu1234stmp@gmail.com"
+            ]
+            && adminDocActive() != false
           )
+          ||
+          adminDocActive() == true
         );
     }
 

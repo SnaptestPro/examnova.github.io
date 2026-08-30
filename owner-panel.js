@@ -201,11 +201,31 @@ function ownerRenderList() {
     html += `
       <div class="owner-inst-card owner-inst-card-orphan">
         <div class="owner-inst-head"><strong>⚠️ Bina institute ke admins</strong></div>
-        <div class="owner-admin-list">${orphanAdmins.map(ownerAdminRowHtml).join("")}</div>
+        <div class="owner-admin-list">${orphanAdmins.map(ownerOrphanAdminBlockHtml).join("")}</div>
       </div>`;
   }
 
   box.innerHTML = html;
+}
+
+// Orphan admin = jiska institute record delete/remove ho gaya (admin ka
+// apna `admins/{email}` doc abhi bhi hai, uska `instituteId` field bhi
+// abhi bhi wahi purani ID rakhta hai — bas us ID ka institute doc ab
+// nahi hai). Aisi admin row ke saath ek "🔁 Institute Wapas Banayein"
+// mini-form bhi dikhate hain (agar stale instituteId maujood hai), jo
+// institute ko EXACT USI purani ID se dobara banata hai — naye
+// ".add()" se random nayi ID se NAHI, isliye is admin ka purana
+// Tests/Exam Manager data (jo isi instituteId se tagged hai) turant
+// khud-ba-khud dobara connect ho jaata hai, kuch migrate/tootna nahi
+// padta.
+function ownerOrphanAdminBlockHtml(a) {
+  const row = ownerAdminRowHtml(a);
+  if (!a.instituteId) return row; // kabhi kisi institute se juda hi nahi tha — recreate karne ko kuch nahi
+  return row + `
+    <form class="owner-add-admin-form" onsubmit="return ownerRecreateInstituteSubmit(event, '${ownerEscAttr(a.instituteId)}', '${ownerEscAttr(a.email)}')" style="margin:-4px 0 14px;">
+      <input type="text" placeholder="Institute ka naam (wapas banane ke liye)" required style="flex:1;min-width:160px;" />
+      <button type="submit" class="owner-mini-btn owner-mini-primary">🔁 Institute Wapas Banayein</button>
+    </form>`;
 }
 
 function ownerAdminRowHtml(a) {
@@ -248,6 +268,43 @@ async function ownerAddInstituteSubmit(e) {
   } catch (err) {
     console.error(err);
     alert("Institute add nahi hua: " + (err.message || err));
+  }
+  return false;
+}
+
+// ── Recreate a removed institute for an orphan admin ─────────────────
+// Institute card "🗑️ Remove" karne se sirf institute DOC delete hota
+// hai — us institute ke admin ka `admins/{email}` doc (aur usme purani
+// instituteId) waisa hi rehta hai (jaan-boojh kar, taaki ek click se
+// accidental data-loss na ho). Ye function usi purani instituteId se
+// institute doc WAPAS bana deta hai (.doc(id).set(), naya .add() nahi)
+// — isse admin ka purana Tests/Exam Manager data turant reconnect ho
+// jaata hai — aur saath hi admin ko activate bhi kar deta hai, taaki
+// "institute remove + admin disable" wali state ek hi click mein wapas
+// normal ho jaaye.
+async function ownerRecreateInstituteSubmit(e, instituteId, email) {
+  e.preventDefault();
+  const form = e.target;
+  const input = form.querySelector('input[type="text"]');
+  const name = (input?.value || "").trim();
+  if (!name) { alert("Institute ka naam likhein."); return false; }
+
+  const db = ownerGetDb();
+  const btn = form.querySelector('button[type="submit"]');
+  if (btn) { btn.disabled = true; btn.textContent = "Recreate ho raha hai..."; }
+
+  try {
+    await db.collection("institutes").doc(instituteId).set({
+      name,
+      active: true,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    await db.collection("admins").doc(email).update({ active: true, instituteName: name });
+    alert("✅ Institute wapas ban gaya (\"" + name + "\") aur " + email + " activate ho gaya.");
+  } catch (err) {
+    console.error(err);
+    alert("Nahi hua: " + (err.message || err));
+    if (btn) { btn.disabled = false; btn.textContent = "🔁 Institute Wapas Banayein"; }
   }
   return false;
 }
@@ -439,6 +496,7 @@ window.closeOwnerOverlay = closeOwnerOverlay;
 window.ownerLogin = ownerLogin;
 window.ownerLogout = ownerLogout;
 window.ownerAddInstituteSubmit = ownerAddInstituteSubmit;
+window.ownerRecreateInstituteSubmit = ownerRecreateInstituteSubmit;
 window.ownerToggleInstitute = ownerToggleInstitute;
 window.ownerDeleteInstitute = ownerDeleteInstitute;
 window.ownerAddAdminSubmit = ownerAddAdminSubmit;
