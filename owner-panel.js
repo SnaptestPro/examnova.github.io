@@ -39,11 +39,50 @@ let _ownerAdminsCache = {};       // email -> {email, instituteId, instituteName
 let _ownerListenersStarted = false;
 let _ownerSecondaryAppCounter = 0;
 
+// ── FIX (v24_17): Owner Panel apna ALAG, isolated login session use karta hai ──
+// ROOT CAUSE jo is se pehle mila: Owner Panel aur Admin Panel dono isi ek
+// hi page par hain aur pehle dono ek hi shared `window.vishnuFirebase.auth`
+// (Firebase ka default/primary app) use karte the. Firebase Auth ke ek app
+// instance mein EK waqt sirf EK hi "currentUser" ho sakta hai — isliye agar
+// isi browser mein (chahe kisi doosre tab mein bhi) Admin Panel se
+// `vks1234stm@gmail.com` jaisa koi ADMIN login hota tha, to wo shared session
+// ko silently OVERWRITE kar deta tha. Owner Panel ka UI khula/cached rehta
+// tha (isliye kuch galat nahi lagta tha), lekin uske baad har write asal mein
+// us admin ke naam se jaati thi — isliye "Missing or insufficient
+// permissions" (jaisa debug message ne confirm kiya: "Us waqt sign-in tha:
+// vks1234stm@gmail.com").
+//
+// FIX: Owner Panel ab apna ek ALAG, persistent secondary Firebase App
+// instance use karta hai (`ownerEnsureApp()` neeche) — bilkul us tarah jaise
+// "Add Admin" wala code pehle se ek TEMPORARY secondary app use karta tha
+// (naya admin account banane ke liye, taaki owner ka session disturb na ho).
+// Farak sirf itna hai ki ye wala persistent hai (poori Owner session ke
+// liye) aur apna khud ka Firebase Auth + Firestore rakhta hai — isliye ab
+// isi browser mein Admin Panel se koi bhi login/logout ho, Owner Panel ka
+// session bilkul untouched rehta hai.
+let _ownerApp = null;
+let _ownerAuthInstance = null;
+let _ownerDbInstance = null;
+function ownerEnsureApp() {
+  if (_ownerApp) return;
+  try {
+    _ownerApp = firebase.initializeApp(firebase.app().options, "owner-panel-session");
+  } catch (e) {
+    // Agar (rare) pehle se bana hua mil jaaye (e.g. hot-reload), usi ko use kar lo.
+    _ownerApp = firebase.app("owner-panel-session");
+  }
+  _ownerAuthInstance = _ownerApp.auth();
+  _ownerDbInstance = _ownerApp.firestore();
+}
+
 function ownerGetAuth() {
-  return window.vishnuFirebase && window.vishnuFirebase.auth ? window.vishnuFirebase.auth : null;
+  ownerEnsureApp();
+  return _ownerAuthInstance;
 }
 function ownerGetDb() {
-  return window.vishnuFirebase && window.vishnuFirebase.db ? window.vishnuFirebase.db : null;
+  ownerEnsureApp();
+  return _ownerDbInstance;
+
 }
 function ownerIsLoggedInFlag() {
   try { return localStorage.getItem(OWNER_LOGIN_KEY) === "true"; } catch (e) { return false; }
@@ -68,7 +107,7 @@ function ownerIsEmailLike(v) {
 function openOwnerOverlay() {
   document.getElementById("owner-overlay-bg")?.classList.remove("hidden");
   const auth = ownerGetAuth();
-  if (ownerIsLoggedInFlag() && auth && auth.currentUser) {
+  if (ownerIsLoggedInFlag() && auth && auth.currentUser && auth.currentUser.email === ownerGetRememberedEmail()) {
     ownerShowPanel();
   } else {
     ownerShowLogin();
