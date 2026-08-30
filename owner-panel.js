@@ -220,6 +220,7 @@ function ownerRenderList() {
             <span class="owner-badge ${inst.active === false ? "owner-badge-off" : "owner-badge-on"}">${inst.active === false ? "Inactive" : "Active"}</span>
           </div>
           <div class="owner-inst-actions">
+            <button type="button" class="owner-mini-btn" onclick="ownerRenameInstitute('${inst.id}', '${ownerEscAttr(inst.name || "")}')">✏️ Rename</button>
             <button type="button" class="owner-mini-btn" onclick="ownerToggleInstitute('${inst.id}', ${inst.active === false})">${inst.active === false ? "▶️ Activate" : "⏸️ Deactivate"}</button>
             <button type="button" class="owner-mini-btn owner-mini-danger" onclick="ownerDeleteInstitute('${inst.id}')">🗑️ Remove</button>
           </div>
@@ -259,7 +260,17 @@ function ownerRenderList() {
 // padta.
 function ownerOrphanAdminBlockHtml(a) {
   const row = ownerAdminRowHtml(a);
-  if (!a.instituteId) return row; // kabhi kisi institute se juda hi nahi tha — recreate karne ko kuch nahi
+  if (!a.instituteId) {
+    // Kabhi kisi institute se juda hi nahi tha (instituteId field hi
+    // nahi hai) — "wapas banayein" ka matlab nahi (kuch tha hi nahi
+    // recreate karne ko), isliye ALAG form: naya institute banao aur
+    // isi admin ko usse jodo, ek hi click mein.
+    return row + `
+      <form class="owner-add-admin-form" onsubmit="return ownerAssignNewInstituteSubmit(event, '${ownerEscAttr(a.email)}')" style="margin:-4px 0 14px;">
+        <input type="text" placeholder="Institute ka naam (is admin ke liye)" required style="flex:1;min-width:160px;" />
+        <button type="submit" class="owner-mini-btn owner-mini-primary">🏢 Institute Naam Set Karein</button>
+      </form>`;
+  }
   return row + `
     <form class="owner-add-admin-form" onsubmit="return ownerRecreateInstituteSubmit(event, '${ownerEscAttr(a.instituteId)}', '${ownerEscAttr(a.email)}')" style="margin:-4px 0 14px;">
       <input type="text" placeholder="Institute ka naam (wapas banane ke liye)" required style="flex:1;min-width:160px;" />
@@ -348,6 +359,42 @@ async function ownerRecreateInstituteSubmit(e, instituteId, email) {
   return false;
 }
 
+// ── Naya institute banao aur ise ek admin se jodo (jiska instituteId
+// bilkul bhi set nahi hai) ──────────────────────────────────────────
+// Alag se naya institute doc banata hai (naya ".add()" ID) aur usi
+// email ke admin doc mein wo instituteId + naam stamp kar deta hai —
+// isse aisa admin bhi turant kisi institute se jud jaata hai jise
+// pehle kabhi koi institute name mila hi nahi tha.
+async function ownerAssignNewInstituteSubmit(e, email) {
+  e.preventDefault();
+  const form = e.target;
+  const input = form.querySelector('input[type="text"]');
+  const name = (input?.value || "").trim();
+  if (!name) { alert("Institute ka naam likhein."); return false; }
+
+  const db = ownerGetDb();
+  const btn = form.querySelector('button[type="submit"]');
+  if (btn) { btn.disabled = true; btn.textContent = "Set ho raha hai..."; }
+
+  try {
+    const instRef = await db.collection("institutes").add({
+      name,
+      active: true,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    await db.collection("admins").doc(email).update({
+      instituteId: instRef.id,
+      instituteName: name
+    });
+    alert("✅ \"" + name + "\" institute ban gaya aur " + email + " ab isse juda hai.");
+  } catch (err) {
+    console.error(err);
+    alert("Nahi hua: " + (err.message || err));
+    if (btn) { btn.disabled = false; btn.textContent = "🏢 Institute Naam Set Karein"; }
+  }
+  return false;
+}
+
 // ── Fix (v24_16): intermittent "Missing or insufficient permissions" ──
 // Owner Panel ke writes sirf isOwner() (exact email match) par depend
 // karte hain, jo deterministic hai — isliye agar wahi button kabhi
@@ -382,6 +429,32 @@ async function ownerRetryOnPermissionDenied(writeFn) {
       : "koi bhi login nahi (signed out)";
     alert("Update nahi hua: " + (err.message || err) + "\n\n(Us waqt sign-in tha: " + whoAmI + ")");
   }
+}
+
+// ── Rename institute ────────────────────────────────────────────────
+// "My Institute (email)" jaisa default naam tab ban jaata hai jab
+// koi admin email pehli baar seedha Admin Panel se login karta hai
+// bina Owner Panel se pehle proper naam ke saath banaye gaye
+// (legacy self-migration, script.js resolveCurrentAdminInstitute()) —
+// app khud ek placeholder naam de deta hai taaki kaam rukta na rahe.
+// Ye button us placeholder ko asli naam se badalne ke liye hai — ID
+// (aur us se juda saara Tests/Exam Manager data) bilkul wahi rehta
+// hai, sirf display naam badalta hai.
+async function ownerRenameInstitute(id, currentName) {
+  const newName = prompt("Institute ka naya naam likhein:", currentName || "");
+  if (newName === null) return; // cancel
+  const trimmed = newName.trim();
+  if (!trimmed) { alert("Naam khaali nahi ho sakta."); return; }
+  const db = ownerGetDb();
+  await ownerRetryOnPermissionDenied(async () => {
+    await db.collection("institutes").doc(id).update({ name: trimmed });
+    // Admin doc mein bhi stamped copy hai (Welcome banner isse padhta
+    // hai fallback ke roop mein) — usse bhi sync kar do.
+    const admins = Object.values(_ownerAdminsCache).filter(a => a.instituteId === id);
+    await Promise.all(admins.map(a =>
+      db.collection("admins").doc(a.email).update({ instituteName: trimmed }).catch(() => {})
+    ));
+  });
 }
 
 async function ownerToggleInstitute(id, makeActive) {
@@ -568,6 +641,8 @@ window.ownerLogin = ownerLogin;
 window.ownerLogout = ownerLogout;
 window.ownerAddInstituteSubmit = ownerAddInstituteSubmit;
 window.ownerRecreateInstituteSubmit = ownerRecreateInstituteSubmit;
+window.ownerAssignNewInstituteSubmit = ownerAssignNewInstituteSubmit;
+window.ownerRenameInstitute = ownerRenameInstitute;
 window.ownerToggleInstitute = ownerToggleInstitute;
 window.ownerDeleteInstitute = ownerDeleteInstitute;
 window.ownerAddAdminSubmit = ownerAddAdminSubmit;
