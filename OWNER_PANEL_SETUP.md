@@ -10,28 +10,38 @@ Owner Panel ek naya, sabse upar ka role hai:
 
 ---
 
-## 1) Apna Owner email set karein (ZAROORI — pehla step)
+## 1) Owner email — already set ✅
 
-`firestore.rules` file mein `isOwner()` function dhundein:
+`firestore.rules` mein `isOwner()` function ab pehle se hi aapke email
+ke saath set hai:
 
 ```
 function isOwner() {
   return request.auth != null &&
     request.auth.token.email != null &&
-    request.auth.token.email == "owner@example.com";
+    request.auth.token.email == "vishnu1234stm@gmail.com";
 }
 ```
 
-`"owner@example.com"` ki jagah apna **asli email** likhein — yehi ek
-email Owner Panel khol payega. Save karke Firebase Console →
-Firestore Database → Rules mein publish karein (ya `firebase deploy
---only firestore:rules` CLI se, agar aap CLI use karte hain).
+Bas isse Firebase Console → Firestore Database → Rules mein paste
+karke **Publish** karna hai (ya `firebase deploy --only
+firestore:rules` CLI se, agar aap CLI use karte hain) — tabhi ye
+active hoga.
 
 ## 2) Apna Owner account banayein
 
-Firebase Console → **Authentication → Users → Add user** mein wahi
-email + ek strong password se ek account bana lein. (Ye bilkul admin
-account jaisa hi hai — bas iska email `isOwner()` se match karta hai.)
+Firebase Console → **Authentication → Users → Add user** mein:
+
+- Email: `vishnu1234stm@gmail.com`
+- Password: `thevishnusharma`
+
+daal ke account bana lein. (Security ke liye baad mein Owner Panel se
+login karke ye password khud change kar sakte hain — Firebase
+Console mein user ka password edit karne ka option bhi hai.)
+
+⚠️ Ek baar app live/public ho jaaye to `thevishnusharma` jaisa simple
+password badal lena behtar rahega, kyunki ye Owner account hai — isi
+se saare institutes ke admin control hote hain.
 
 ## 3) Owner Panel kholein
 

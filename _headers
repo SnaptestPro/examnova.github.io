@@ -5,6 +5,13 @@
   Cache-Control: no-cache, no-store, must-revalidate
   Content-Type: application/manifest+json
 
+/manifest-owner.webmanifest
+  Cache-Control: no-cache, no-store, must-revalidate
+  Content-Type: application/manifest+json
+
+/owner-app.html
+  Cache-Control: no-cache, no-store, must-revalidate
+
 /index.html
   Cache-Control: no-cache, no-store, must-revalidate
 

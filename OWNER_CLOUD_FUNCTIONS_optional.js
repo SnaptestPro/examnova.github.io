@@ -25,7 +25,7 @@ admin.initializeApp();
 
 // Yahan bhi wahi Owner email daalein jo firestore.rules ke isOwner()
 // mein daala tha — dono jagah SAME email hona zaroori hai.
-const OWNER_EMAIL = "owner@example.com";
+const OWNER_EMAIL = "vishnu1234stm@gmail.com";
 
 function assertOwner(context) {
   if (!context.auth || context.auth.token.email !== OWNER_EMAIL) {

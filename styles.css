@@ -109,6 +109,7 @@ button:active {
 }
 .main-tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
 }
 .tab {
@@ -1162,7 +1163,7 @@ h4 { color: var(--navy); font-size: .95rem; font-weight: 700; margin-bottom: 10p
     gap: 4px;
   }
   .main-tabs .tab {
-    flex: 1;
+    flex: 1 1 45%;
     text-align: center;
     padding: 10px 4px;
     font-size: .78rem;

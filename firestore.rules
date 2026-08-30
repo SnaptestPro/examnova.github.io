@@ -34,7 +34,7 @@ service cloud.firestore {
     function isOwner() {
       return request.auth != null &&
         request.auth.token.email != null &&
-        request.auth.token.email == "owner@example.com";
+        request.auth.token.email == "vishnu1234stm@gmail.com";
     }
 
     // ── Admin allow-list ─────────────────────────────────────────

@@ -160,6 +160,13 @@
       <button id="student-tab" class="tab active">📝 Student</button>
       <button id="admin-tab" class="tab">⚙️ Admin</button>
       <button id="install-app-btn" class="tab hidden" style="background:linear-gradient(135deg,#16a34a,#15803d);color:#fff;">⬇️ App Install Karein</button>
+      <!-- Owner ke liye alag install button — isse admin/student wale app se BILKUL alag ek
+           doosra installable app milta hai (apna manifest: manifest-owner.webmanifest, apna
+           icon/name), jo seedha Owner login khol deta hai. Isse Owner ko kabhi Admin Panel
+           mein login karke "Settings → Owner Panel" tak jaane ki zaroorat nahi padti — yahin
+           se, website par hi, seedha install/access mil jaata hai. Poora install flow
+           owner-app.html mein hai (details wahan comments mein). -->
+      <button id="install-owner-app-btn" class="tab" style="background:linear-gradient(135deg,#b48214,#78550a);color:#fff;" onclick="window.location.href='owner-app.html'">🏢 Owner App Install Karein</button>
     </nav>
   </header>
 
