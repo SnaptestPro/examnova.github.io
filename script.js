@@ -1659,15 +1659,23 @@ async function migrateLegacyInstituteData(instituteId) {
     if (count) await batch.commit();
   } catch (e) { console.warn("[migrate] tests failed", e); }
 
-  try {
-    const snap = await db.collection("examManagerExams").get();
-    const batch = db.batch();
-    let count = 0;
-    snap.forEach(doc => {
-      if (!doc.data().instituteId) { batch.update(doc.ref, { instituteId }); count++; }
-    });
-    if (count) await batch.commit();
-  } catch (e) { console.warn("[migrate] examManagerExams failed", e); }
+  // ⚠️ examManagerExams ke liye WAISA hi bulk-migrate jaan-boojh kar NAHI
+  // kiya (v24_15 fix) — "tests" se alag, iska read rule instituteId par
+  // depend karta hai (multi-tenant isolation), aur Firestore data-dependent
+  // read-rule wali collection par bina .where() ke poora `.get()` list-query
+  // karne hi nahi deta (proof nahi kar paata ki har doc rule pass karega) —
+  // ye hamesha "missing or insufficient permissions" dega, chahe rules sahi
+  // se publish ho chuke hoon. Pehle ye call yahan tha, lekin catch() mein
+  // chup-chaap fail ho jaata tha — kuch migrate nahi karta tha, bas har us
+  // login par ek guaranteed-fail network round-trip jodta tha jiske liye
+  // ye ek-baar-wala migration flag set nahi tha (fresh browser/device, ya
+  // localStorage clear hone par) — isi se admin login "slow" mehsoos hota
+  // tha. Purane (bina instituteId) examManagerExams docs abhi bhi individually
+  // readable hain (firestore.rules ke backward-compat OR-check se), bas Exam
+  // Manager ki list mein tab tak nahi dikhenge jab tak unhe instituteId na
+  // mil jaaye — agar koi purana exam wapas list mein chahiye, Firebase
+  // Console → Firestore Database → examManagerExams collection mein us
+  // document ko manually kholkar `instituteId` field add kar dena kaafi hai.
 }
 
 let _adminSyncsStarted = false;

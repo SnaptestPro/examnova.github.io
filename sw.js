@@ -1,4 +1,4 @@
-const CACHE_NAME = 'examnova-v86-owner-app-standalone-20260830';
+const CACHE_NAME = 'examnova-v87-legacy-migration-fix-20260831';
 
 // App-shell files — sab kuch jo student ko app chalane ke liye chahiye
 // (code + question-bank data + icons). Pehli visit par yeh sab download
