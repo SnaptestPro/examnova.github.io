@@ -82,6 +82,12 @@
   .owner-mini-danger{background:#fee2e2;color:#b91c1c;}
   .owner-add-admin-form{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;}
   .owner-add-admin-form input{flex:1;min-width:160px;padding:7px 10px;border:1px solid #d1d5db;border-radius:8px;font-size:.85rem;}
+  .owner-inst-classes{display:flex;flex-wrap:wrap;align-items:center;gap:6px;background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:8px 10px;margin-bottom:10px;}
+  .owner-classes-label{font-size:.78rem;font-weight:700;color:#334155;margin-right:2px;}
+  .owner-class-chip{display:inline-flex;align-items:center;gap:5px;font-size:.76rem;font-weight:600;color:#64748b;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:999px;padding:4px 10px 4px 8px;cursor:pointer;}
+  .owner-class-chip input{margin:0;}
+  .owner-class-chip-on{background:#eef2ff;color:#3730a3;border-color:#c7d2fe;}
+  #owner-new-institute-classes{display:flex;flex-wrap:wrap;gap:6px;width:100%;margin-top:2px;}
 </style>
 </head>
 <body>
@@ -130,6 +136,8 @@
         <strong style="display:block;margin-bottom:8px;">+ Naya Institute</strong>
         <form onsubmit="return ownerAddInstituteSubmit(event)" style="display:flex;gap:8px;flex-wrap:wrap;">
           <input id="owner-new-institute-name" type="text" placeholder="Institute ka naam" required style="flex:1;min-width:160px;" />
+          <div style="width:100%;font-size:.76rem;color:#64748b;margin-top:2px;">🎓 Ye Institute kin Classes ke liye eligible hai:</div>
+          <div id="owner-new-institute-classes"></div>
           <button type="submit" class="btn-primary" style="white-space:nowrap;">+ Add Karein</button>
         </form>
       </div>

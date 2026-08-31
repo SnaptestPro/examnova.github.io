@@ -34,6 +34,23 @@
 const OWNER_LOGIN_KEY = "examnova_owner_logged_in";
 const OWNER_EMAIL_LOCAL_KEY = "examnova_owner_email";
 
+// ── Class Eligibility (v25) — Multi-Institute Shared Question Bank ────
+// Har Institute ke liye Owner ye tay karta hai ki wo kaun-si Classes ke
+// liye eligible hai — Master Question Bank/Exam data khud kabhi
+// Institute-wise divide nahi hota, sirf ye list control karti hai ki
+// kaun-si Class ka data kis Institute ko dikhega. Abhi sirf Class 10 ka
+// content maujood hai (isliye naya Institute banate waqt wahi
+// default-checked rehti hai) — future mein yahan aur classes add ki ja
+// sakti hain, list ko badalne bhar se poore system mein reflect ho
+// jayega.
+const SAVYA_CLASS_OPTIONS = [
+  { id: "class_9", label: "Class 9" },
+  { id: "class_10", label: "Class 10" },
+  { id: "class_11", label: "Class 11" },
+  { id: "class_12", label: "Class 12" }
+];
+window.SAVYA_CLASS_OPTIONS = SAVYA_CLASS_OPTIONS;
+
 let _ownerInstitutesCache = {};   // instituteId -> {id, name, active}
 let _ownerAdminsCache = {};       // email -> {email, instituteId, instituteName, active}
 let _ownerListenersStarted = false;
@@ -131,7 +148,29 @@ function ownerShowLogin() {
 function ownerShowPanel() {
   document.getElementById("owner-login-box")?.classList.add("hidden");
   document.getElementById("owner-panel-box")?.classList.remove("hidden");
+  ownerRenderNewInstituteClassCheckboxes();
   ownerStartListeners();
+}
+
+// ── "+ Naya Institute" form mein Class checkboxes render karo ──────
+// Sirf ek baar render hota hai (dataset.rendered guard) taaki panel
+// dobara khulne par user ka already-clicked checkbox state reset na ho
+// jaaye. Class 10 default-checked rehti hai kyunki abhi sirf usi ka
+// content maujood hai.
+function ownerRenderNewInstituteClassCheckboxes() {
+  const box = document.getElementById("owner-new-institute-classes");
+  if (!box || box.dataset.rendered) return;
+  box.dataset.rendered = "1";
+  box.innerHTML = SAVYA_CLASS_OPTIONS.map(c => `
+    <label class="owner-class-chip">
+      <input type="checkbox" value="${c.id}" ${c.id === "class_10" ? "checked" : ""}> ${ownerEsc(c.label)}
+    </label>`).join("");
+}
+
+function ownerGetCheckedClasses(containerId) {
+  const box = document.getElementById(containerId);
+  if (!box) return [];
+  return Array.from(box.querySelectorAll('input[type="checkbox"]:checked')).map(cb => cb.value);
 }
 
 // ── Login / Logout ─────────────────────────────────────────────────
@@ -226,6 +265,11 @@ function ownerRenderList() {
           </div>
         </div>
 
+        <div class="owner-inst-classes">
+          <span class="owner-classes-label">🎓 Allowed Classes:</span>
+          ${ownerClassChipsHtml(inst)}
+        </div>
+
         <div class="owner-admin-list">
           ${admins.length === 0 ? `<p class="muted-text" style="margin:6px 0;">Is institute ka abhi koi admin nahi hai.</p>` : admins.map(ownerAdminRowHtml).join("")}
         </div>
@@ -312,6 +356,51 @@ function ownerDecorateInstituteName(name) {
   return "█▓▒▒░░░" + ownerEsc(String(name || "").toUpperCase()) + "░░░▒▒▓█";
 }
 
+// ── Class Eligibility chips (v25) ───────────────────────────────────
+// `allowedClasses` field na hone ka matlab hai purana institute (is
+// feature se pehle bana) — backward-compat se sab Classes filhaal
+// "allowed" dikhti hain (chip checked). Jaise hi is card se koi ek
+// class ka checkbox chhua jaata hai, us waqt se ye institute explicit
+// allowedClasses list par shift ho jaata hai (bas checked-chips wali
+// classes hi allowed rahengi) — firestore.rules mein bhi bilkul isi
+// tarah backward-compat likha gaya hai.
+function ownerClassChipsHtml(inst) {
+  const allowed = Array.isArray(inst.allowedClasses) ? inst.allowedClasses : null;
+  return SAVYA_CLASS_OPTIONS.map(c => {
+    const checked = allowed === null ? true : allowed.includes(c.id);
+    return `
+      <label class="owner-class-chip ${checked ? "owner-class-chip-on" : ""}">
+        <input type="checkbox" ${checked ? "checked" : ""}
+          onchange="ownerToggleInstituteClass('${inst.id}', '${c.id}', this.checked)"> ${ownerEsc(c.label)}
+      </label>`;
+  }).join("") + (allowed === null
+    ? `<div class="muted-text" style="width:100%;font-size:.72rem;margin-top:2px;">(abhi sabhi Classes allowed hain — kisi ek ko uncheck karte hi sirf checked wali Classes is Institute ke liye allowed rahengi)</div>`
+    : "");
+}
+
+async function ownerToggleInstituteClass(instituteId, classId, checked) {
+  const db = ownerGetDb();
+  const inst = _ownerInstitutesCache[instituteId];
+  // Legacy/unrestricted institute (allowedClasses field hi nahi) — pehla
+  // toggle karte hi poori "sab allowed" list se shuru karte hain (taaki
+  // "sab allowed" se seedha "sirf ek allowed" mein na kood jaaye, baaki
+  // sab already-allowed classes bhi list mein aa jaayein).
+  let current = Array.isArray(inst?.allowedClasses)
+    ? inst.allowedClasses.slice()
+    : SAVYA_CLASS_OPTIONS.map(c => c.id);
+  if (checked && !current.includes(classId)) current.push(classId);
+  if (!checked) current = current.filter(id => id !== classId);
+  if (current.length === 0) {
+    alert("Kam se kam ek Class allowed rehni chahiye — poori tarah khaali nahi ho sakti.");
+    ownerRenderList(); // checkbox ko visually revert karo
+    return;
+  }
+  await ownerRetryOnPermissionDenied(() =>
+    db.collection("institutes").doc(instituteId).update({ allowedClasses: current })
+  );
+}
+window.ownerToggleInstituteClass = ownerToggleInstituteClass;
+
 // ── Add institute ───────────────────────────────────────────────────
 async function ownerAddInstituteSubmit(e) {
   e.preventDefault();
@@ -319,13 +408,22 @@ async function ownerAddInstituteSubmit(e) {
   const input = document.getElementById("owner-new-institute-name");
   const name = (input?.value || "").trim();
   if (!name) { alert("Institute ka naam likhein."); return false; }
+  const allowedClasses = ownerGetCheckedClasses("owner-new-institute-classes");
+  if (allowedClasses.length === 0) {
+    alert("Kam se kam ek Class select karein jiske liye ye Institute eligible ho.");
+    return false;
+  }
   try {
     await db.collection("institutes").add({
       name,
       active: true,
+      allowedClasses,
       createdAt: firebase.firestore.FieldValue.serverTimestamp()
     });
     if (input) input.value = "";
+    // Checkboxes wapas Class-10-only default par le aao agli baar ke liye.
+    const box = document.getElementById("owner-new-institute-classes");
+    if (box) box.querySelectorAll('input[type="checkbox"]').forEach(cb => { cb.checked = cb.value === "class_10"; });
   } catch (err) {
     console.error(err);
     alert("Institute add nahi hua: " + (err.message || err));

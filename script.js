@@ -1555,6 +1555,16 @@ function getCurrentAdminInstituteId() {
   try { return localStorage.getItem(ADMIN_INSTITUTE_LOCAL_KEY) || null; } catch (e) { return null; }
 }
 
+// ── Class Eligibility (v25) ──────────────────────────────────────────
+// Is admin ke institute ki allowedClasses (jaise ["class_10"]).
+// resolveCurrentAdminInstitute() ke andar cache hoti hai. null =
+// backward-compat "sab Classes allowed" (purana institute jo is
+// feature se pehle bana tha).
+let CURRENT_ADMIN_ALLOWED_CLASSES = null;
+function getCurrentAdminAllowedClasses() {
+  return CURRENT_ADMIN_ALLOWED_CLASSES; // null = sab allowed
+}
+
 // Ek test/exam is admin ka apna hai ya nahi — instituteId match karke.
 // instituteId abhi resolve NAHI hua ho to safe default "false" (kuch mat
 // dikhao) rakha hai, taaki login ke turant baad ek pal ke liye bhi kisi
@@ -1608,6 +1618,11 @@ async function resolveCurrentAdminInstitute() {
           name: "My Institute (" + email + ")",
           active: true,
           legacy: true,
+          // v25: naya institute isliye seedha "class_10" ke saath banta
+          // hai kyunki abhi Master Question Bank/Exam data sirf Class 10
+          // ka hi hai — future classes add hone par Owner Panel se ye
+          // list badli ja sakti hai.
+          allowedClasses: ["class_10"],
           createdAt: firebase.firestore.FieldValue.serverTimestamp()
         });
       }
@@ -1637,6 +1652,22 @@ async function resolveCurrentAdminInstitute() {
 
     CURRENT_ADMIN_INSTITUTE_ID = instituteId;
     try { localStorage.setItem(ADMIN_INSTITUTE_LOCAL_KEY, instituteId); } catch (e) {}
+
+    // v25: Class Eligibility — is institute ki allowedClasses bhi yahin
+    // resolve/cache kar lo (Exam Manager ka Class dropdown isse hi
+    // populate hota hai). Field missing/array na ho = null = backward-
+    // compat "sab Classes allowed" (purana institute, is feature se
+    // pehle bana). ensureAdminInstituteResolved() cached promise hai,
+    // isliye ye ek hi baar chalta hai (extra read repeat nahi hota).
+    try {
+      const instDoc = await db.collection("institutes").doc(instituteId).get();
+      const ac = instDoc.exists ? instDoc.data().allowedClasses : null;
+      CURRENT_ADMIN_ALLOWED_CLASSES = Array.isArray(ac) ? ac : null;
+    } catch (e) {
+      console.warn("[institute] allowedClasses resolve failed", e);
+      CURRENT_ADMIN_ALLOWED_CLASSES = null;
+    }
+
     return instituteId;
   } catch (err) {
     console.warn("[institute] resolve failed", err);

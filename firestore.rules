@@ -125,6 +125,34 @@ service cloud.firestore {
       return isAdminEmailAllowed() && adminInstituteActive();
     }
 
+    // ── Class Eligibility (v25) — Multi-Institute Shared Question Bank ──
+    // Har Institute ke `institutes/{id}.allowedClasses` mein un Classes
+    // ki list hoti hai jinke liye wo eligible hai (jaise ["class_10"]).
+    // Ye Master Question Bank/Exam data ko Institute-wise DIVIDE nahi
+    // karti — do institutes jo dono "class_10" ke liye eligible hain,
+    // unhe class_10 ka poora data barabar milega. Ye sirf itna control
+    // karti hai ki kaun-si Class ka data kis Institute ko dikhega.
+    //
+    // Backward-compat (bilkul upar wale instituteId pattern jaisa):
+    //   - `allowedClasses` field hi nahi hai (purana institute, is
+    //     feature se pehle bana) → null → sab Classes allowed maani
+    //     jaati hain, koi turant lock-out nahi hota.
+    //   - Doc mein `classId` hi nahi hai (purana exam, is feature se
+    //     pehle bana) → check hi skip ho jaata hai (backward compat).
+    function adminAllowedClasses() {
+      return adminInstituteId() != null &&
+        exists(/databases/$(database)/documents/institutes/$(adminInstituteId())) &&
+        ('allowedClasses' in get(/databases/$(database)/documents/institutes/$(adminInstituteId())).data)
+        ? get(/databases/$(database)/documents/institutes/$(adminInstituteId())).data.allowedClasses
+        : null;
+    }
+
+    function classAllowedForAdmin(classId) {
+      return classId == null ||
+        adminAllowedClasses() == null ||
+        (classId in adminAllowedClasses());
+    }
+
     // Koi bhi signed-in visitor — chahe anonymous ho ya admin.
     // (App load hote hi anonymous sign-in ho jata hai, isliye ye
     //  practically "app se aaya hua request" ke barabar hai, random
@@ -230,9 +258,16 @@ service cloud.firestore {
         !('instituteId' in resource.data) ||
         resource.data.instituteId == adminInstituteId()
       );
+      // Class Eligibility (v25): agar exam par classId lagi hai, to wo
+      // classId admin ke institute ki allowedClasses list mein honi
+      // chahiye — warna backend hi request reject kar deta hai (frontend
+      // par dropdown chhupana kaafi nahi hai, jaisa master-prompt rule
+      // 14 mein bataya gaya hai).
       allow create: if isAdmin() && (
         !('instituteId' in request.resource.data) ||
         request.resource.data.instituteId == adminInstituteId()
+      ) && classAllowedForAdmin(
+        'classId' in request.resource.data ? request.resource.data.classId : null
       );
       allow update: if isAdmin() && (
         !('instituteId' in resource.data) ||
@@ -240,6 +275,8 @@ service cloud.firestore {
       ) && (
         !('instituteId' in request.resource.data) ||
         request.resource.data.instituteId == adminInstituteId()
+      ) && classAllowedForAdmin(
+        'classId' in request.resource.data ? request.resource.data.classId : null
       );
       allow delete: if isAdmin() && (
         !('instituteId' in resource.data) ||

@@ -339,6 +339,7 @@
     const payload = {
       examName: fields.examName,
       className: fields.className || "",
+      classId: fields.classId || null,  // v25: Class Eligibility — SAVYA_CLASS_OPTIONS id
       date: fields.date,
       questions: fields.questions,
       sets: fields.sets,
@@ -478,10 +479,34 @@
     $id("examgr-add-sets").value = "1";
     $id("examgr-add-students").value = "10";
     if ($id("examgr-add-roll-digits")) $id("examgr-add-roll-digits").value = "2";
+    examgrPopulateClassIdDropdown();
     $id("examgr-add-overlay")?.classList.remove("hidden");
     $id("examgr-add-name")?.focus();
   }
   window.examgrOpenAdd = examgrOpenAdd;
+
+  // ── Class Eligibility (v25) ────────────────────────────────────────
+  // Dropdown sirf is admin ke institute ki allowedClasses se populate
+  // hota hai (SAVYA_CLASS_OPTIONS — owner-panel.js — list ka sirf wahi
+  // hissa jo allowed hai). allowedClasses null ho (backward-compat,
+  // purana institute) to poori list dikha do. Firestore rules mein bhi
+  // yahi check server-side dobara hota hai — dropdown chhupana hi
+  // kaafi nahi (master-prompt Rule 14).
+  function examgrPopulateClassIdDropdown() {
+    const sel = $id("examgr-add-classid");
+    if (!sel) return;
+    const allOptions = (window.SAVYA_CLASS_OPTIONS || [{ id: "class_10", label: "Class 10" }]);
+    const allowed = (typeof getCurrentAdminAllowedClasses === "function") ? getCurrentAdminAllowedClasses() : null;
+    const options = allowed ? allOptions.filter(c => allowed.includes(c.id)) : allOptions;
+    const finalOptions = options.length ? options : allOptions; // safety net — kabhi khaali select na ho
+    sel.innerHTML = finalOptions.map(c => `<option value="${c.id}">${escHtml(c.label)}</option>`).join("");
+    // Default: Class 10 agar list mein hai, warna pehla option.
+    sel.value = finalOptions.some(c => c.id === "class_10") ? "class_10" : (finalOptions[0]?.id || "");
+    // Sirf 1 hi option ho to dropdown ki zaroorat nahi — kam friction ke
+    // liye chhupa dete hain (value phir bhi save hoti rehti hai).
+    const row = $id("examgr-add-classid-row");
+    if (row) row.style.display = finalOptions.length > 1 ? "" : "none";
+  }
 
   function examgrCloseAdd() {
     $id("examgr-add-overlay")?.classList.add("hidden");
@@ -491,6 +516,7 @@
   $id("examgr-add-save-btn")?.addEventListener("click", async () => {
     const examName = ($id("examgr-add-name").value || "").trim();
     const className = ($id("examgr-add-class").value || "").trim();
+    const classId = ($id("examgr-add-classid")?.value || "").trim() || null;
     const date = $id("examgr-add-date").value || currentIsoDate();
     let questions = parseInt($id("examgr-add-questions").value, 10) || 0;
     let sets = parseInt($id("examgr-add-sets").value, 10) || 1;
@@ -507,7 +533,7 @@
     const originalLabel = btn.textContent;
     btn.disabled = true;
     btn.textContent = "⏳ Save ho raha hai...";
-    const id = await createExamManagerExam({ examName, className, date, questions, sets, students, rollDigits });
+    const id = await createExamManagerExam({ examName, className, classId, date, questions, sets, students, rollDigits });
     btn.disabled = false;
     btn.textContent = originalLabel;
 
