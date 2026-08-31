@@ -191,6 +191,28 @@ async function ownerLogin(e) {
     alert("Galat email ya password (ya ye email Owner ke roop mein authorize nahi hai).");
   }
 }
+// ── Forgot Password (Owner khud) ────────────────────────────────────
+// Ye Admin wale "Password bhool gaye?" (script.js → forgotPassword())
+// jaisa hi hai, bas Owner ke apne ISOLATED auth instance (ownerGetAuth(),
+// upar "owner-panel-session" secondary app) se chalta hai — taaki Admin
+// session se koi tacchar/collision na ho. Owner-email input box mein jo
+// bhi likha ho wahi le lete hain; khaali ho to prompt karte hain.
+async function ownerForgotPassword() {
+  const auth = ownerGetAuth();
+  if (!auth) { alert("⚠️ Firebase Auth load nahi hua. Page reload karein."); return; }
+  let email = (document.getElementById("owner-email")?.value || "").trim();
+  if (!email) email = (prompt("Apna Owner email address likhein — usi par password reset link bhejenge:", ownerGetRememberedEmail()) || "").trim();
+  if (!email) return;
+  if (!ownerIsEmailLike(email)) { alert("Sahi email address likhein."); return; }
+  try {
+    await auth.sendPasswordResetEmail(email);
+    alert("✅ Agar ye email Owner account se registered hai, to reset link bhej diya gaya hai. Apna inbox (aur spam folder) check karein.");
+  } catch (err) {
+    console.error("[owner] forgot-password failed", err);
+    alert("Reset email bhejne mein dikkat hui: " + (err.message || err));
+  }
+}
+
 function ownerLogout() {
   if (!confirm("Owner session se logout karein?")) return;
   try {
@@ -753,6 +775,7 @@ document.addEventListener("DOMContentLoaded", () => {
 window.openOwnerOverlay = openOwnerOverlay;
 window.closeOwnerOverlay = closeOwnerOverlay;
 window.ownerLogin = ownerLogin;
+window.ownerForgotPassword = ownerForgotPassword;
 window.ownerLogout = ownerLogout;
 window.ownerAddInstituteSubmit = ownerAddInstituteSubmit;
 window.ownerRecreateInstituteSubmit = ownerRecreateInstituteSubmit;
