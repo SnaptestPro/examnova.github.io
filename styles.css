@@ -188,6 +188,22 @@ button:active {
   gap: 5px;
   margin-bottom: 14px;
 }
+/* v25: Student "Missing Proof" form — abhi tak khaali/missing field ko
+   halke amber background + border se highlight karta hai, taaki admin
+   ko turant pata chale kahan bharna baaki hai. */
+.proof-field-missing {
+  background: #fffbeb;
+  border: 1.5px solid #fcd34d;
+  border-radius: 9px;
+  padding: 8px 10px 4px;
+}
+.proof-field-missing label::after {
+  content: " ⚠️ missing";
+  color: #b45309;
+  text-transform: none;
+  font-weight: 700;
+  letter-spacing: 0;
+}
 .field-row label {
   font-size: .82rem;
   font-weight: 700;

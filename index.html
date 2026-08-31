@@ -1487,6 +1487,10 @@ B"></textarea>
             <input type="checkbox" id="students-directory-only-with-records" onchange="renderStudentsDirectory()" />
             Sirf test diye hue students dikhayein (abhi default: <strong>sabhi</strong> registered students dikh rahe hain)
           </label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:.82rem;margin-bottom:10px;cursor:pointer;">
+            <input type="checkbox" id="students-directory-only-incomplete-proof" onchange="renderStudentsDirectory()" />
+            ⚠️ Sirf incomplete pehchan-data wale students dikhayein
+          </label>
           <div id="students-directory-list"><p class="muted-text">Loading...</p></div>
 
           <div style="margin-top:14px;padding-top:12px;border-top:1px solid #e2e8f0;">
@@ -1501,6 +1505,49 @@ B"></textarea>
         </div>
         </div>
         <!-- /Students Directory -->
+
+        <!-- 🪪 Complete Student Profile (Missing Proof form) — v25 -->
+        <div id="student-proof-overlay" class="test-analysis-overlay examgr-overlay-full hidden" onclick="if(event.target===this) closeStudentProofForm()">
+          <div class="test-analysis-sheet">
+            <button type="button" class="test-analysis-close" onclick="closeStudentProofForm()">✕</button>
+            <div class="test-analysis-title">🪪 Student Profile Complete Karein</div>
+            <p class="muted-text">
+              <strong id="proof-form-student-name">-</strong> ·
+              Mobile: <strong id="proof-form-student-mobile">-</strong><br>
+              Jo field ⚠️ highlight hai wahi abhi missing hai — baaki pehle se bhari hui hain, zaroorat ho to unhe bhi badal sakte hain.
+            </p>
+            <form onsubmit="return submitStudentProofForm(event)">
+              <div class="field-row" data-proof-field="photoDataUrl">
+                <label>Photo</label>
+                <img id="proof-form-photo-preview" src="" alt="" style="display:none;max-width:120px;max-height:120px;border-radius:8px;border:1px solid #e2e8f0;margin-bottom:6px;">
+                <input type="file" accept="image/*" capture="environment" id="proof-form-photo-input" onchange="handleStudentProofPhotoChange(event)">
+              </div>
+              <div class="field-row" data-proof-field="classId">
+                <label>Class</label>
+                <select id="proof-form-class"></select>
+              </div>
+              <div class="field-row" data-proof-field="rollNumber">
+                <label>Roll Number</label>
+                <input type="text" id="proof-form-roll" placeholder="jaise: 23">
+              </div>
+              <div class="field-row" data-proof-field="guardianName">
+                <label>Parent/Guardian ka Naam</label>
+                <input type="text" id="proof-form-guardian-name" placeholder="jaise: Suresh Kumar">
+              </div>
+              <div class="field-row" data-proof-field="guardianMobile">
+                <label>Parent/Guardian ka Mobile</label>
+                <input type="tel" id="proof-form-guardian-mobile" maxlength="10" placeholder="10-digit mobile number">
+              </div>
+              <div class="field-row" data-proof-field="instituteId">
+                <label>Institute</label>
+                <p id="proof-form-institute-label" class="muted-text" style="margin:0;">-</p>
+              </div>
+              <button type="submit" class="btn-primary" id="proof-form-save-btn" style="width:100%;margin-top:6px;">💾 Save Karein</button>
+            </form>
+          </div>
+        </div>
+        <!-- /Complete Student Profile -->
+
 
         <!-- Fake Mobile Number Fix -->
         <div id="record-fixmobile-box" class="hidden">

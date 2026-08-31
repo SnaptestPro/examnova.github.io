@@ -5774,13 +5774,16 @@ function renderStudentsDirectory() {
   // delete nahi hota; checkbox OFF karte hi sabhi registered students
   // wapas dikhne lagte hain.
   const onlyWithRecords = $("#students-directory-only-with-records")?.checked !== false;
+  const onlyIncompleteProof = $("#students-directory-only-incomplete-proof")?.checked === true;
   let list = allStudentsCache.map(s => {
     const recCount = studentRecordCountByMobile[s.mobile] != null
       ? studentRecordCountByMobile[s.mobile]
       : (records || []).filter(r => normalizeMobile(r.mobile) === s.mobile).length;
-    return { ...s, _recCount: recCount };
+    return { ...s, _recCount: recCount, _missingProof: getMissingProofFields(s) };
   });
   if (onlyWithRecords) list = list.filter(s => s._recCount > 0);
+  const totalIncomplete = allStudentsCache.filter(s => getMissingProofFields(s).length > 0).length;
+  if (onlyIncompleteProof) list = list.filter(s => s._missingProof.length > 0);
 
   if (q) list = list.filter(s => (s.name || "").toLowerCase().includes(q) || (s.mobile || "").includes(q));
 
@@ -5790,13 +5793,21 @@ function renderStudentsDirectory() {
     ? '<p style="background:#fffbeb;color:#92400e;border:1px solid #fde68a;border-radius:6px;padding:8px 10px;font-size:12.5px;margin-bottom:10px;">⚠️ Records ka poora count load nahi ho paya (connection issue), isliye kuch students jinke OMR/Manual records hain woh abhi list se chhoot sakte hain — 🔄 Refresh dabaakar dobara try karein.</p>'
     : "";
 
+  // ── Missing-Proof Notification (v25) ─────────────────────────────
+  const proofBanner = totalIncomplete > 0
+    ? `<p style="background:#fef3c7;color:#92400e;border:1px solid #fcd34d;border-radius:6px;padding:9px 12px;font-size:13px;margin-bottom:10px;">
+        ⚠️ <strong>${totalIncomplete} student(s)</strong> ka pehchan-data (Photo/Class/Roll No/Guardian/Institute) abhi tak incomplete hai —
+        neeche "Pehchan" column mein ⚠️ dikhega, "🪪 Profile" button se turant bhar sakte hain.
+      </p>`
+    : "";
+
   if (!list.length) {
-    const msg = q ? "Koi student nahi mila." : (onlyWithRecords ? "Abhi tak kisi bhi student ne koi test/entry (MCQ online, OMR, ya Manual Entry) nahi diya hai." : "Koi registered student nahi mila.");
-    listEl.innerHTML = fallbackWarning + '<p class="empty-state">' + msg + '</p>';
+    const msg = q ? "Koi student nahi mila." : (onlyIncompleteProof ? "🎉 Sabhi students ka pehchan-data complete hai." : (onlyWithRecords ? "Abhi tak kisi bhi student ne koi test/entry (MCQ online, OMR, ya Manual Entry) nahi diya hai." : "Koi registered student nahi mila."));
+    listEl.innerHTML = fallbackWarning + proofBanner + '<p class="empty-state">' + msg + '</p>';
     return;
   }
 
-  listEl.innerHTML = fallbackWarning + `
+  listEl.innerHTML = fallbackWarning + proofBanner + `
     <div style="overflow-x:auto">
     <table style="width:100%;border-collapse:collapse;font-size:13px">
       <thead><tr style="background:#f1f5f9">
@@ -5805,19 +5816,29 @@ function renderStudentsDirectory() {
         <th style="padding:7px 10px;text-align:left">Security PIN</th>
         <th style="padding:7px 10px;text-align:left">Registered</th>
         <th style="padding:7px 10px;text-align:left">Tests Diye</th>
+        <th style="padding:7px 10px;text-align:left">Pehchan</th>
         <th style="padding:7px 10px;text-align:left">Action</th>
       </tr></thead>
       <tbody>
         ${list.map(s => {
           const recCount = s._recCount;
           const regDate = (s.createdAt && s.createdAt.toDate) ? s.createdAt.toDate().toLocaleDateString("en-IN") : "-";
+          const missing = s._missingProof;
+          const proofCell = missing.length === 0
+            ? `<span style="color:#15803d;font-weight:600;">✅ Poora</span>`
+            : `<span style="color:#b45309;font-weight:600;" title="${missing.map(f => f.label).join(', ')}">⚠️ ${missing.length} missing</span>`;
+          const proofBtn = missing.length === 0
+            ? `<button type="button" onclick="openStudentProofForm('${s.mobile}')" style="background:#475569;color:#fff;border:none;padding:4px 10px;border-radius:6px;font-size:12px;cursor:pointer;margin-right:6px;">✏️ Profile</button>`
+            : `<button type="button" onclick="openStudentProofForm('${s.mobile}')" style="background:#d97706;color:#fff;border:none;padding:4px 10px;border-radius:6px;font-size:12px;cursor:pointer;margin-right:6px;font-weight:700;">🪪 Profile</button>`;
           return `<tr style="border-top:1px solid #e2e8f0">
             <td style="padding:7px 10px">${escHtml(s.name || "-")}</td>
             <td style="padding:7px 10px">${escHtml(s.mobile || "-")}</td>
             <td style="padding:7px 10px">${s.hasPin ? "✅ Set" : "⚠️ Nahi"}</td>
             <td style="padding:7px 10px">${regDate}</td>
             <td style="padding:7px 10px">${recCount}</td>
+            <td style="padding:7px 10px">${proofCell}</td>
             <td style="padding:7px 10px;white-space:nowrap;">
+              ${proofBtn}
               <button type="button" onclick="viewStudentAnswers('${s.mobile}')" style="background:#2563eb;color:#fff;border:none;padding:4px 10px;border-radius:6px;font-size:12px;cursor:pointer;margin-right:6px;">📄 Answers</button>
               <button type="button" onclick="prefillAdminResetMobile('${s.mobile}')" style="background:#dc2626;color:#fff;border:none;padding:4px 10px;border-radius:6px;font-size:12px;cursor:pointer;margin-right:6px;">🔑 Reset</button>
               <button type="button" onclick="deleteStudentAccount('${s.mobile}')" style="background:#7f1d1d;color:#fff;border:none;padding:4px 10px;border-radius:6px;font-size:12px;cursor:pointer;">🗑️ Delete</button>
@@ -5833,6 +5854,179 @@ function prefillAdminResetMobile(mobile) {
   const input = $("#admin-reset-student-mobile");
   if (input) { input.value = mobile; input.scrollIntoView({ behavior: "smooth", block: "center" }); input.focus(); }
 }
+
+/* ══════════════════════════════════════════
+   STUDENT IDENTITY / "MISSING PROOF" SYSTEM (v25)
+   Purane registered students (jo bina Institute/Class/Photo/Guardian
+   details ke sirf naam+mobile se sign-up hue the) ka pehchan-data admin
+   se hi complete karwaya jaata hai — ek dedicated form us specific
+   student ki ID (mobile) se juda hua khulta hai, jo bhi field missing
+   hai wahi highlight hoti hai, baaki already-bhari values pre-fill
+   rehti hain. Submit karte hi seedha "students/{mobile}" doc mein
+   merge ho jaata hai — koi naya document/collection nahi banta.
+══════════════════════════════════════════ */
+const STUDENT_PROOF_FIELDS = [
+  { key: "photoDataUrl", label: "Photo", type: "photo" },
+  { key: "classId", label: "Class", type: "class" },
+  { key: "rollNumber", label: "Roll Number", type: "text" },
+  { key: "guardianName", label: "Parent/Guardian ka Naam", type: "text" },
+  { key: "guardianMobile", label: "Parent/Guardian ka Mobile", type: "tel" },
+  { key: "instituteId", label: "Institute", type: "institute" }
+];
+
+function getMissingProofFields(student) {
+  return STUDENT_PROOF_FIELDS.filter(f => {
+    const v = student ? student[f.key] : null;
+    return v === undefined || v === null || String(v).trim() === "";
+  });
+}
+
+function classIdToLabel(classId) {
+  const opt = (window.SAVYA_CLASS_OPTIONS || []).find(c => c.id === classId);
+  return opt ? opt.label : (classId || "-");
+}
+
+// ── Complete Profile form khulna/band hona ──────────────────────────
+let _proofFormMobile = null;
+function openStudentProofForm(mobile) {
+  const student = allStudentsCache.find(s => s.mobile === mobile);
+  if (!student) { alert("Student nahi mila — pehle Directory refresh karein."); return; }
+  _proofFormMobile = mobile;
+
+  $("#proof-form-student-name").textContent = student.name || "-";
+  $("#proof-form-student-mobile").textContent = student.mobile || "-";
+
+  // Photo preview
+  const photoPreview = $("#proof-form-photo-preview");
+  if (photoPreview) {
+    photoPreview.src = student.photoDataUrl || "";
+    photoPreview.style.display = student.photoDataUrl ? "block" : "none";
+  }
+  const photoInput = $("#proof-form-photo-input");
+  if (photoInput) photoInput.value = "";
+  _proofFormPendingPhotoDataUrl = student.photoDataUrl || null;
+
+  // Class dropdown — sirf is Admin ke institute ki allowed Classes
+  const classSel = $("#proof-form-class");
+  if (classSel) {
+    const allOptions = (window.SAVYA_CLASS_OPTIONS || [{ id: "class_10", label: "Class 10" }]);
+    const allowed = (typeof getCurrentAdminAllowedClasses === "function") ? getCurrentAdminAllowedClasses() : null;
+    const options = allowed ? allOptions.filter(c => allowed.includes(c.id)) : allOptions;
+    const finalOptions = options.length ? options : allOptions;
+    classSel.innerHTML = `<option value="">— Select Karein —</option>` +
+      finalOptions.map(c => `<option value="${c.id}">${escHtml(c.label)}</option>`).join("");
+    classSel.value = student.classId || "";
+  }
+
+  $("#proof-form-roll").value = student.rollNumber || "";
+  $("#proof-form-guardian-name").value = student.guardianName || "";
+  $("#proof-form-guardian-mobile").value = student.guardianMobile || "";
+
+  // Institute — admin ke apne institute se auto-assign, editable nahi
+  // (Master Prompt ka Rule 6/7: student apne hi Institute se linked ho,
+  // yahan se ek admin dusre Institute ka student "chura" nahi sakta).
+  const instLabel = $("#proof-form-institute-label");
+  if (instLabel) {
+    const myInstId = (typeof getCurrentAdminInstituteId === "function") ? getCurrentAdminInstituteId() : null;
+    if (student.instituteId && student.instituteId !== myInstId) {
+      instLabel.textContent = "⚠️ Ye student kisi doosre Institute (" + student.instituteId + ") se already linked hai — is form se badla nahi jaayega.";
+    } else {
+      instLabel.textContent = "Aapke Institute se link ho jaayega (save karte hi).";
+    }
+  }
+
+  // Missing fields highlight
+  const missing = getMissingProofFields(student).map(f => f.key);
+  document.querySelectorAll("#proof-form [data-proof-field]").forEach(el => {
+    const key = el.getAttribute("data-proof-field");
+    el.classList.toggle("proof-field-missing", missing.includes(key));
+  });
+
+  $("#student-proof-overlay")?.classList.remove("hidden");
+}
+window.openStudentProofForm = openStudentProofForm;
+
+function closeStudentProofForm() {
+  $("#student-proof-overlay")?.classList.add("hidden");
+  _proofFormMobile = null;
+  _proofFormPendingPhotoDataUrl = null;
+}
+window.closeStudentProofForm = closeStudentProofForm;
+
+// ── Photo capture: existing project convention jaisa hi (canvas
+// resize + JPEG compress, seedha Firestore doc mein base64 — koi
+// Firebase Storage/Blaze plan ki zaroorat nahi). ──────────────────────
+let _proofFormPendingPhotoDataUrl = null;
+function handleStudentProofPhotoChange(event) {
+  const file = event.target.files && event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const img = new Image();
+    img.onload = () => {
+      const maxW = 360;
+      const scale = Math.min(1, maxW / img.width);
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.round(img.width * scale);
+      canvas.height = Math.round(img.height * scale);
+      canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+      let quality = 0.8;
+      let dataUrl = canvas.toDataURL("image/jpeg", quality);
+      while (dataUrl.length > 350000 && quality > 0.4) { // ~350KB safe margin, poora doc chhota hi rehta hai
+        quality -= 0.1;
+        dataUrl = canvas.toDataURL("image/jpeg", quality);
+      }
+      _proofFormPendingPhotoDataUrl = dataUrl;
+      const preview = $("#proof-form-photo-preview");
+      if (preview) { preview.src = dataUrl; preview.style.display = "block"; }
+      $("#proof-form [data-proof-field='photoDataUrl']")?.classList.remove("proof-field-missing");
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+window.handleStudentProofPhotoChange = handleStudentProofPhotoChange;
+
+async function submitStudentProofForm(e) {
+  e.preventDefault();
+  if (!_proofFormMobile) return false;
+  const db = getDB();
+  if (!db) { alert("⚠️ Internet/Firebase connection nahi hai."); return false; }
+
+  const student = allStudentsCache.find(s => s.mobile === _proofFormMobile);
+  const myInstId = (typeof getCurrentAdminInstituteId === "function") ? getCurrentAdminInstituteId() : null;
+  // Doosre institute ke student ko yahan se "chura" na liya jaaye.
+  const instituteId = (student && student.instituteId && student.instituteId !== myInstId)
+    ? student.instituteId
+    : myInstId;
+
+  const updates = {
+    classId: $("#proof-form-class")?.value || null,
+    rollNumber: ($("#proof-form-roll")?.value || "").trim(),
+    guardianName: ($("#proof-form-guardian-name")?.value || "").trim(),
+    guardianMobile: ($("#proof-form-guardian-mobile")?.value || "").trim(),
+    instituteId: instituteId || null
+  };
+  if (_proofFormPendingPhotoDataUrl) updates.photoDataUrl = _proofFormPendingPhotoDataUrl;
+
+  const btn = $("#proof-form-save-btn");
+  const originalLabel = btn ? btn.textContent : "";
+  if (btn) { btn.disabled = true; btn.textContent = "⏳ Save ho raha hai..."; }
+  try {
+    await db.collection(STUDENTS_COLLECTION).doc(_proofFormMobile).set(updates, { merge: true });
+    const idx = allStudentsCache.findIndex(s => s.mobile === _proofFormMobile);
+    if (idx > -1) allStudentsCache[idx] = { ...allStudentsCache[idx], ...updates };
+    closeStudentProofForm();
+    renderStudentsDirectory();
+  } catch (err) {
+    console.error(err);
+    alert("Save nahi hua: " + (err.message || err));
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = originalLabel; }
+  }
+  return false;
+}
+window.submitStudentProofForm = submitStudentProofForm;
 
 // Student ka registered account (login + password) Firebase se PERMANENTLY
 // delete karta hai — "students" doc aur uska "studentSecrets" (password/PIN
