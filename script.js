@@ -985,7 +985,45 @@ function showStudentAuthPanel(which) {
   $("#student-forgot-form")?.classList.toggle("hidden", which !== "forgot");
   $("#student-login-mode-btn")?.classList.toggle("active", which === "login");
   $("#student-register-mode-btn")?.classList.toggle("active", which === "register");
+  if (which === "register") loadRegisterInstitutes();
 }
+
+// ── Registration ke Institute+Class dropdowns (v25) ──────────────────
+// Rule 6 ("Student apne Institute aur Class se linked ho") ab NAYE
+// registrations ke liye yahin se lagu hota hai — purane students ke
+// liye Admin → Records → Students Directory → 🪪 Profile wale form se
+// backfill hota hai (dono mile-jule se poora coverage ban jaata hai).
+let _registerInstitutesCache = null;
+async function loadRegisterInstitutes() {
+  const sel = $("#register-institute");
+  if (!sel || _registerInstitutesCache) return; // ek hi baar load, cache se reuse
+  const db = getDB();
+  if (!db) return;
+  try {
+    const snap = await db.collection("institutes").where("active", "==", true).get();
+    _registerInstitutesCache = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    sel.innerHTML = `<option value="">— Select Karein —</option>` +
+      _registerInstitutesCache.map(i => `<option value="${i.id}">${escHtml(i.name || i.id)}</option>`).join("");
+  } catch (err) {
+    console.warn("[register] institutes load failed", err);
+    sel.innerHTML = `<option value="">(list load nahi hui — reload karein)</option>`;
+  }
+}
+
+function onRegisterInstituteChange() {
+  const instId = $("#register-institute")?.value || "";
+  const classSel = $("#register-class");
+  if (!classSel) return;
+  const inst = (_registerInstitutesCache || []).find(i => i.id === instId);
+  if (!inst) { classSel.innerHTML = `<option value="">— Pehle Institute select karein —</option>`; return; }
+  const allOptions = (window.SAVYA_CLASS_OPTIONS || [{ id: "class_10", label: "Class 10" }]);
+  const allowed = Array.isArray(inst.allowedClasses) ? inst.allowedClasses : null; // null = legacy, sab allowed
+  const options = allowed ? allOptions.filter(c => allowed.includes(c.id)) : allOptions;
+  const finalOptions = options.length ? options : allOptions;
+  classSel.innerHTML = `<option value="">— Select Karein —</option>` +
+    finalOptions.map(c => `<option value="${c.id}">${escHtml(c.label)}</option>`).join("");
+}
+window.onRegisterInstituteChange = onRegisterInstituteChange;
 
 async function registerStudent(e) {
   e.preventDefault();
@@ -994,12 +1032,16 @@ async function registerStudent(e) {
   const pass = $("#register-password").value;
   const confirmPass = $("#register-password-confirm").value;
   const pin = $("#register-pin").value.trim();
+  const instituteId = $("#register-institute")?.value || "";
+  const classId = $("#register-class")?.value || "";
 
   if (!name || name.length < 2) { alert("⚠️ Kripya apna naam likhein (kam se kam 2 akshar)."); return; }
   if (!/^\d{10}$/.test(mobile)) { alert("⚠️ Kripya sahi 10-digit mobile number likhein."); return; }
   if (!pass || pass.length < 4) { alert("⚠️ Password kam se kam 4 characters ka hona chahiye."); return; }
   if (pass !== confirmPass) { alert("⚠️ Password match nahi hua."); return; }
   if (!/^\d{4}$/.test(pin)) { alert("⚠️ Security PIN theek 4 digit ka hona chahiye — ye password bhool jaane par kaam aayega, isliye yaad rakhein."); return; }
+  if (!instituteId) { alert("⚠️ Kripya apna Institute select karein."); return; }
+  if (!classId) { alert("⚠️ Kripya apni Class select karein."); return; }
 
   const db = getDB();
   if (!db) { alert("⚠️ Internet/Firebase connection nahi hai. Thodi der baad try karein."); return; }
@@ -1019,7 +1061,7 @@ async function registerStudent(e) {
     await db.collection(STUDENT_SECRETS_COLLECTION).doc(mobile).set({
       hash, pinHash, updatedAt: firebase.firestore.FieldValue.serverTimestamp()
     });
-    await ref.set({ name, mobile, hasPin: true, createdAt: firebase.firestore.FieldValue.serverTimestamp() });
+    await ref.set({ name, mobile, hasPin: true, instituteId, classId, createdAt: firebase.firestore.FieldValue.serverTimestamp() });
     setStudentSession({ name, mobile });
     showMode("student");
   } catch (err) {
@@ -1778,7 +1820,46 @@ function enterAdminPanel() {
   setAdminLoggedIn();
   startAdminSyncs();
   backToAdminDashboard();
+  renderAdminEmailVerifyBanner();
 }
+
+// ── Admin Email Verification banner (v25, Master Prompt Rule 2) ─────
+// NON-BLOCKING: sirf ek nudge banner dikhata hai, login ko kabhi rokta
+// nahi (warna koi bhi mojooda live admin achanak lock-out ho sakta hai
+// jisne kabhi email verify hi nahi ki). "Resend" button naya
+// verification email bhej deta hai.
+function renderAdminEmailVerifyBanner() {
+  const auth = getAuth();
+  const user = auth && auth.currentUser;
+  const host = $("#admin-dashboard-home");
+  if (!host) return;
+  let banner = $("#admin-email-verify-banner");
+  if (!user || user.emailVerified) { banner?.remove(); return; }
+  if (!banner) {
+    banner = document.createElement("div");
+    banner.id = "admin-email-verify-banner";
+    banner.style.cssText = "background:#fef3c7;color:#92400e;border:1px solid #fcd34d;border-radius:10px;padding:10px 14px;margin-bottom:14px;font-size:.85rem;display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:space-between;";
+    host.insertBefore(banner, host.firstChild);
+  }
+  banner.innerHTML = `
+    <span>⚠️ Aapka email (${escHtml(user.email || "")}) abhi verify nahi hua hai.</span>
+    <button type="button" onclick="resendAdminVerificationEmail()" style="background:#d97706;color:#fff;border:none;padding:5px 12px;border-radius:6px;font-size:.8rem;cursor:pointer;font-weight:600;">📧 Verification Email Bhejein</button>
+  `;
+}
+
+async function resendAdminVerificationEmail() {
+  const auth = getAuth();
+  const user = auth && auth.currentUser;
+  if (!user) return;
+  try {
+    await user.sendEmailVerification();
+    alert("✅ Verification email bhej diya gaya (" + user.email + "). Inbox/Spam check karein.");
+  } catch (err) {
+    console.error(err);
+    alert("Email bhej nahi paya: " + (err.message || err));
+  }
+}
+window.resendAdminVerificationEmail = resendAdminVerificationEmail;
 
 // ── Admin logout ────────────────────────────────────────────────
 // PEHLE koi admin-logout button hi nahi tha — admin_logged_in flag
@@ -5775,14 +5856,22 @@ function renderStudentsDirectory() {
   // wapas dikhne lagte hain.
   const onlyWithRecords = $("#students-directory-only-with-records")?.checked !== false;
   const onlyIncompleteProof = $("#students-directory-only-incomplete-proof")?.checked === true;
-  let list = allStudentsCache.map(s => {
+
+  // ── Institute Isolation (v25, Master Prompt Rule 7/14) ─────────────
+  // Sirf apne Institute ke students (ya jinka instituteId abhi tak set
+  // hi nahi hua — purane/legacy students, taaki wo achanak "gayab" na
+  // ho jaayein) dikhte hain. Kisi doosre Institute ko explicitly assign
+  // ho chuke students ab is Directory mein nahi dikhte.
+  const myInstId = (typeof getCurrentAdminInstituteId === "function") ? getCurrentAdminInstituteId() : null;
+  const otherInstituteCount = allStudentsCache.filter(s => s.instituteId && s.instituteId !== myInstId).length;
+  let list = allStudentsCache.filter(s => !s.instituteId || s.instituteId === myInstId).map(s => {
     const recCount = studentRecordCountByMobile[s.mobile] != null
       ? studentRecordCountByMobile[s.mobile]
       : (records || []).filter(r => normalizeMobile(r.mobile) === s.mobile).length;
     return { ...s, _recCount: recCount, _missingProof: getMissingProofFields(s) };
   });
   if (onlyWithRecords) list = list.filter(s => s._recCount > 0);
-  const totalIncomplete = allStudentsCache.filter(s => getMissingProofFields(s).length > 0).length;
+  const totalIncomplete = list.filter(s => s._missingProof.length > 0).length;
   if (onlyIncompleteProof) list = list.filter(s => s._missingProof.length > 0);
 
   if (q) list = list.filter(s => (s.name || "").toLowerCase().includes(q) || (s.mobile || "").includes(q));
@@ -5801,13 +5890,20 @@ function renderStudentsDirectory() {
       </p>`
     : "";
 
+  // ── Institute Isolation note (v25) ────────────────────────────────
+  const isolationNote = otherInstituteCount > 0
+    ? `<p style="background:#f1f5f9;color:#475569;border:1px solid #e2e8f0;border-radius:6px;padding:7px 10px;font-size:12px;margin-bottom:10px;">
+        ℹ️ ${otherInstituteCount} student(s) doosre Institute(s) se link hain, isliye yahan nahi dikh rahe (Institute-wise isolation).
+      </p>`
+    : "";
+
   if (!list.length) {
     const msg = q ? "Koi student nahi mila." : (onlyIncompleteProof ? "🎉 Sabhi students ka pehchan-data complete hai." : (onlyWithRecords ? "Abhi tak kisi bhi student ne koi test/entry (MCQ online, OMR, ya Manual Entry) nahi diya hai." : "Koi registered student nahi mila."));
-    listEl.innerHTML = fallbackWarning + proofBanner + '<p class="empty-state">' + msg + '</p>';
+    listEl.innerHTML = fallbackWarning + proofBanner + isolationNote + '<p class="empty-state">' + msg + '</p>';
     return;
   }
 
-  listEl.innerHTML = fallbackWarning + proofBanner + `
+  listEl.innerHTML = fallbackWarning + proofBanner + isolationNote + `
     <div style="overflow-x:auto">
     <table style="width:100%;border-collapse:collapse;font-size:13px">
       <thead><tr style="background:#f1f5f9">

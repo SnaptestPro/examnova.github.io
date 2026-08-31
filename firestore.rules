@@ -424,6 +424,12 @@ service cloud.firestore {
     match /institutes/{instituteId} {
       allow read, write: if isOwner();
 
+      // v25: Student Registration ke Institute+Class dropdown ke liye
+      // koi bhi signed-in (anonymous student bhi) institutes ki basic
+      // list (naam + allowedClasses) padh sake — isme koi sensitive
+      // data nahi hai (admin emails yahan kabhi nahi aate).
+      allow read: if isSignedIn();
+
       // ── Legacy-admin self-migration ──────────────────────────────
       // Purana admin (Owner Panel se nahi, seedha ADMIN_EMAILS list se
       // aaya hua) ke paas koi instituteId nahi hoti. App khud (script.js,

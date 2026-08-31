@@ -627,6 +627,12 @@ async function ownerAddAdminSubmit(e, instituteId, instituteName) {
     try {
       await secondaryAuth.createUserWithEmailAndPassword(email, tempPassword);
       accountCreated = true;
+      // v25 (Master Prompt Rule 2 — Email Verification): naye admin ko
+      // verification email bhi bhej dete hain. NON-BLOCKING hai (isAdmin()
+      // rule isse abhi enforce nahi karta) — taaki koi bhi mojooda live
+      // admin achanak lock-out na ho jaaye. Bas ek nudge hai; Admin
+      // Dashboard mein bhi isi email ka status/resend banner dikhega.
+      try { await secondaryAuth.currentUser.sendEmailVerification(); } catch (verErr) { console.warn("[owner] verification email failed", verErr); }
     } catch (createErr) {
       if (createErr.code !== "auth/email-already-in-use") {
         console.warn("[owner] admin auth account create failed", createErr);
@@ -648,7 +654,7 @@ async function ownerAddAdminSubmit(e, instituteId, instituteName) {
       (accountCreated
         ? "✅ Naya admin add ho gaya (" + email + ").\n\n"
         : "✅ Admin is institute se link ho gaya (" + email + ").\n\n") +
-      "📧 Us email par ek link bhej diya gaya hai jisse wo apna password khud set kar sakta/sakti hai."
+      "📧 Us email par DO links bheje gaye hain: (1) apna password khud set karne ke liye, (2) email verify karne ke liye."
     );
   } catch (err) {
     console.error(err);
