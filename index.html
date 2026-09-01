@@ -1494,6 +1494,7 @@ B"></textarea>
               <input id="students-directory-search" type="text" placeholder="jaise: Rahul ya 9876543210" oninput="renderStudentsDirectory()" />
             </div>
             <button type="button" class="btn-secondary" onclick="loadStudentsDirectory()">🔄 Refresh</button>
+            <button type="button" class="btn-secondary" onclick="loadStudentsDirectory(true)" title="Speed ke liye default list sirf apne institute + unassigned students dikhati hai. Bahut purane (institute set hone se pehle wale) students ke liye ye poora scan karta hai — thoda dheema ho sakta hai.">🗄️ Purane students bhi (poora scan)</button>
           </div>
           <label style="display:flex;align-items:center;gap:6px;font-size:.82rem;margin-bottom:10px;cursor:pointer;">
             <input type="checkbox" id="students-directory-only-with-records" onchange="renderStudentsDirectory()" />

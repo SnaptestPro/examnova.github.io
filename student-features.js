@@ -710,23 +710,76 @@
     return excluded;
   }
 
-  async function computeFullLeaderboard(onlyCurrentAdminInstitute) {
-    // Same aggregation as computeTopStudents() lekin poori list deta hai
-    // (top 3 tak crop nahi karta) — Admin ke "Top Performers" tab ke liye,
-    // taaki admin dekh sake ki total marks kis-kis test se ban rahe hain.
+  // ── Leaderboard data fetch: bounded + TTL-cached (PERF FIX) ─────────
+  // PEHLE yahan seedha `db.collection("studentRecords").get()` chalta
+  // tha — matlab site ke shuru se ab tak ke SAARE test-submissions
+  // (har institute, har student) poore ke poore download hote the. Aur
+  // ye poora fetch HAR student ke HAR dashboard-card open par
+  // (renderTopStudentsPodium), aur har test edit/publish par
+  // (syncTests() se) dobara chalta tha. Lakhon students + unke saare
+  // submissions ke sath ye function akela hi poori site ko
+  // hang/bahut slow kar sakta tha (bahut bada download + bahut zyada
+  // Firestore read-cost, har baar).
+  //
+  // Fix (2 hisson mein):
+  //   1) Query khud ab sirf sabse RECENT LEADERBOARD_RECORD_CAP
+  //      submissions maangti hai (orderBy savedAt desc + limit) — isi
+  //      file mein records[] (200-cap) wala pattern already istemal
+  //      ho raha hai, bas thoda bada window (leaderboard ke liye
+  //      zyada history chahiye).
+  //   2) TTL cache — isi window (LEADERBOARD_CACHE_TTL_MS) ke andar
+  //      aane wali baar-baar calls Firestore ko dobara nahi maartin,
+  //      seedha cached data turant deti hain. Ek saath aayi 2 calls
+  //      bhi (in-flight promise dedupe) sirf EK hi network fetch
+  //      karti hain.
+  //
+  // Trade-off (jaan-boojh kar): leaderboard ab "sabse recent ~N
+  // submissions" par based hai, poore-history par nahi — bilkul wahi
+  // trade-off jo records[] array pehle se (200-cap) is file mein karta
+  // hai. Scale ke saath cost/speed hamesha bounded rehti hai. Zaroorat
+  // pade to LEADERBOARD_RECORD_CAP badha/ghata sakte ho.
+  const LEADERBOARD_RECORD_CAP = 3000;
+  const LEADERBOARD_CACHE_TTL_MS = 90 * 1000;
+  let _leaderboardRecordsCache = null; // { ts, records }
+  let _leaderboardFetchPromise = null; // in-flight dedupe
+
+  async function fetchRecentStudentRecordsForLeaderboard() {
+    const now = Date.now();
+    if (_leaderboardRecordsCache && (now - _leaderboardRecordsCache.ts) < LEADERBOARD_CACHE_TTL_MS) {
+      return _leaderboardRecordsCache.records;
+    }
+    if (_leaderboardFetchPromise) return _leaderboardFetchPromise;
     const db = (typeof getDB === "function") ? getDB() : null;
-    let all = [];
-    try {
-      if (db) {
-        const snap = await db.collection("studentRecords").get();
-        all = snap.docs.map(d => d.data());
-      } else {
+    _leaderboardFetchPromise = (async () => {
+      let all;
+      try {
+        if (db) {
+          const snap = await db.collection("studentRecords")
+            .orderBy("savedAt", "desc")
+            .limit(LEADERBOARD_RECORD_CAP)
+            .get();
+          all = snap.docs.map(d => d.data());
+        } else {
+          all = records || [];
+        }
+      } catch (e) {
+        console.warn("[Leaderboard] fetch fail hui, cached records se fallback:", e);
         all = records || [];
       }
-    } catch (e) {
-      console.warn("[TopStudents] fetch fail hui, cached records se fallback:", e);
-      all = records || [];
+      _leaderboardRecordsCache = { ts: Date.now(), records: all };
+      return all;
+    })();
+    try {
+      return await _leaderboardFetchPromise;
+    } finally {
+      _leaderboardFetchPromise = null;
     }
+  }
+
+  async function computeFullLeaderboard(onlyCurrentAdminInstitute) {
+    // Same aggregation as pehle — bas ab poori collection ki jagah ek
+    // bounded + TTL-cached recent-records set par (upar dekhein).
+    let all = await fetchRecentStudentRecordsForLeaderboard();
     const excludedTestIds = getLeaderboardExcludedTestIds(typeof tests !== "undefined" ? tests : null);
 
     // Multi-tenant: Admin ke "Top Performers" tab mein sirf apne institute
@@ -990,6 +1043,9 @@
     if (!isPractice) {
       renderMyProgress();
       loadMyResults();
+      // Turant apna naya score dikhe (TTL cache ke 90-second wait ka
+      // intezaar na karna pade) — sirf is EK dafa ke liye cache clear.
+      _leaderboardRecordsCache = null;
       renderTopStudentsPodium();
     }
   }

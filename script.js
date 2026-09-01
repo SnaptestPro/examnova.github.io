@@ -343,7 +343,17 @@ function generateQuestionsForChapters(chapters, count) {
 // Removed so students only ever see real, admin-created tests.
 const defaultTests = {};
 
-let tests = { ...defaultTests };
+// BUG FIX: pehle "let tests" tha — classic (non-module) script mein
+// `let`/`const` top-level variables `window.X` nahi bante (sirf `var`
+// aur function declarations bante hain). Isse renderRecords() mein
+// `window.tests || {}` HAMESHA {} milta tha, aur "apna institute" wala
+// ownership-check har test ke liye false ho jaata tha — matlab Records/
+// Result Sheets tab kabhi kisi bhi test ka result hi nahi dikhata tha.
+// `var` karne se `window.tests` ab sahi, live object ki taraf point
+// karta hai — baaki poori file mein "tests" ka istemal bilkul waisa hi
+// rehta hai (var/let dono function-scope jaisa hi behave karte hain
+// yahan, top-level par).
+var tests = { ...defaultTests };
 let remoteTests = {};
 
 // ── INSTANT RELOAD: tests local cache ────────────────────────────────
@@ -405,12 +415,10 @@ loadBankCacheInstantly(); // run immediately, before any Firestore call
 
 let editingTestId = null;
 let editingBankId = null;
-let approvingAppScriptDraftId = null;
 let editingDraftIndex = null;
 let testSections = [{ id: "sec-1", title: "Section A", marksPerQuestion: null }];
 let activeSectionId = "sec-1";
 let pdfDraftQuestions = [];
-let appScriptDraftQuestions = [];
 let studentTestMode = "saved";
 let records = [];
 let currentDetails = []; // stores last test result details
@@ -698,14 +706,14 @@ function init() {
   bindEvent("#sol-next", 'onclick', () => moveSolQuestion(1));
 
   // Start sync
-  // NOTE: syncBank/syncTrashBin/syncPdfDrafts/syncAppScriptDrafts yahan
-  // se hata diye — ye sirf ADMIN panel ke liye zaroori data hain
-  // (poora questionBank, recycle bin, PDF drafts, AppScript drafts), aur
-  // pehle har student ke page load par bhi ye 4 live Firestore listeners
-  // chalu ho jaate the, jo unnecessary data download karke question
-  // reload/page load ko dheema kar rahe the. Ab ye sirf startAdminSyncs()
-  // se, admin panel khulne par hi start hote hain (neeche enterAdminPanel
-  // aur auto-admin-login path dono jagah call kiya gaya hai).
+  // NOTE: syncBank/syncTrashBin/syncPdfDrafts yahan se hata diye — ye
+  // sirf ADMIN panel ke liye zaroori data hain (poora questionBank,
+  // recycle bin, PDF drafts), aur pehle har student ke page load par
+  // bhi ye live Firestore listeners chalu ho jaate the, jo unnecessary
+  // data download karke question reload/page load ko dheema kar rahe
+  // the. Ab ye sirf startAdminSyncs() se, admin panel khulne par hi
+  // start hote hain (neeche enterAdminPanel aur auto-admin-login path
+  // dono jagah call kiya gaya hai).
   syncTests();
   syncDeletedTests();
   syncRecords();
@@ -1826,7 +1834,6 @@ function startAdminSyncs() {
   syncBank();
   syncTrashBin();
   syncPdfDrafts();
-  syncAppScriptDrafts();
   watchAdminActiveStatus();
 
   // Institute resolve hote hi jo bhi views instituteId ke hisaab se
@@ -3842,18 +3849,29 @@ async function recomputeRecordsForTest(testId, test) {
     try {
       snap = await db.collection("studentRecords").where("testId", "==", testId).get();
     } catch (err) { console.warn("Recompute query failed", err); return 0; }
-    const batch = db.batch();
+    // SCALE FIX: Firestore ek batch mein max 500 operations allow karta
+    // hai. Ek popular test (jaise mock test) ke 500+ submissions ho
+    // sakte hain 1 lakh+ students ke sath — pehle wala single-batch
+    // commit us case mein poora fail ho jaata (koi bhi record update
+    // nahi hota, chahe 1 ho ya 10,000). Ab pehle saare updates ek pass
+    // mein compute karte hain, phir 500-500 ke chunks mein commit
+    // karte hain.
+    const pendingUpdates = [];
     snap.docs.forEach(doc => {
       const r = { id: doc.id, ...doc.data() };
       const update = recomputeOne(r);
       if (!update) return;
-      batch.update(doc.ref, update);
+      pendingUpdates.push({ ref: doc.ref, update });
       updatedCount++;
       const idx = records.findIndex(rec => rec.id === r.id);
       if (idx >= 0) Object.assign(records[idx], update);
     });
-    if (updatedCount > 0) {
-      try { await batch.commit(); } catch (err) { console.warn("Recompute batch commit failed", err); }
+    const BATCH_LIMIT = 500;
+    for (let i = 0; i < pendingUpdates.length; i += BATCH_LIMIT) {
+      const chunk = pendingUpdates.slice(i, i + BATCH_LIMIT);
+      const b = db.batch();
+      chunk.forEach(({ ref, update }) => b.update(ref, update));
+      try { await b.commit(); } catch (err) { console.warn("Recompute batch commit failed", err); }
     }
   } else {
     // Offline/local mode
@@ -4371,7 +4389,10 @@ async function deleteSelectedChapter() {
 
   try {
     const ids = questionsInChapter.map(q => q.id);
-    const CHUNK = 490;
+    // NOTE: is loop mein har question ke 2 ops hain (deletedQuestions +
+    // seedExclusions), isliye chunk size aadhi (240) rakhi hai taaki
+    // 500-op Firestore batch limit kabhi cross na ho (240*2=480).
+    const CHUNK = 240;
     // Move to deletedQuestions first
     for (let i = 0; i < questionsInChapter.length; i += CHUNK) {
       const batch = db.batch();
@@ -4384,10 +4405,11 @@ async function deleteSelectedChapter() {
       });
       await batch.commit();
     }
-    // Then delete from questionBank
-    for (let i = 0; i < ids.length; i += CHUNK) {
+    // Then delete from questionBank (1 op/item — 490 safe hai)
+    const DELETE_CHUNK = 490;
+    for (let i = 0; i < ids.length; i += DELETE_CHUNK) {
       const batch = db.batch();
-      ids.slice(i, i + CHUNK).forEach(id => {
+      ids.slice(i, i + DELETE_CHUNK).forEach(id => {
         batch.delete(db.collection("questionBank").doc(id));
       });
       await batch.commit();
@@ -4425,7 +4447,6 @@ function editBank(id) {
   const q = questionBank.find(q => q.id === id);
   if (!q) return;
   editingBankId = id;
-  approvingAppScriptDraftId = null;
   populateBankForm(q);
   $("#save-bank-question").textContent = "Update Question";
   showBankModal("Edit Question");
@@ -4506,31 +4527,25 @@ function clearBankForm() {
   if ($("#bank-manual-latex")) $("#bank-manual-latex").checked = false;
   if (window.updateMathPreview) window.updateMathPreview();
   editingBankId = null;
-  approvingAppScriptDraftId = null;
   hideBankModal();
 }
 function cancelBankEdit() { clearBankForm(); }
 
 async function saveBankQuestion(e) {
   e.preventDefault();
-  if (!editingBankId && !approvingAppScriptDraftId) {
+  if (!editingBankId) {
     // Ab manual "naya question add karo" ka koi rasta nahi hai — ye form
-    // sirf Edit (existing bank question) ya AppScript draft Approve ke
-    // liye khulta hai. Agar dono context missing hain, kuch galat hua hai.
-    alert("Kuch galat ho gaya — is form se sirf existing question edit ya draft approve kiya ja sakta hai.");
+    // sirf existing bank question Edit karne ke liye khulta hai. Agar
+    // editingBankId hi missing hai, kuch galat hua hai.
+    alert("Kuch galat ho gaya — is form se sirf existing question edit ki ja sakti hai.");
     return;
   }
   const q = readBankForm();
   if (!q) return;
-  const sourceDraftId = approvingAppScriptDraftId;
-  const id = editingBankId || makeBankIdFromDraftId(sourceDraftId);
   try {
-    await saveBankOnline(id, q);
-    if (sourceDraftId) {
-      await updateAppScriptDraftStatus(sourceDraftId, "approved", { ...q, bankId: id });
-    }
+    await saveBankOnline(editingBankId, q);
     clearBankForm();
-    alert(sourceDraftId ? "Draft approve hokar Question Bank mein save ho gaya! ✅" : "Question update ho gaya! ✅");
+    alert("Question update ho gaya! ✅");
   } catch(err) { console.warn(err); alert("Question save nahi hua. Firestore rules check karo."); }
 }
 
@@ -4698,10 +4713,13 @@ async function deleteSelectedBankQuestions() {
     const docs = await Promise.all(fetchBatch);
 
     const CHUNK = 490;
-    // Move to deletedQuestions
-    for (let i = 0; i < docs.length; i += CHUNK) {
+    // Move to deletedQuestions — har item ke 2 ops hain (deletedQuestions
+    // + seedExclusions), isliye chunk size yahan aadhi (240) taaki
+    // 500-op Firestore batch limit cross na ho.
+    const DOUBLE_OP_CHUNK = 240;
+    for (let i = 0; i < docs.length; i += DOUBLE_OP_CHUNK) {
       const batch = db.batch();
-      docs.slice(i, i + CHUNK).forEach(doc => {
+      docs.slice(i, i + DOUBLE_OP_CHUNK).forEach(doc => {
         if (doc.exists) {
           const data = { ...doc.data(), _originalId: doc.id, _deletedAt: firebase.firestore.FieldValue.serverTimestamp(), _deletedFrom: "questionBank" };
           batch.set(db.collection("deletedQuestions").doc(doc.id), data);
@@ -4897,176 +4915,6 @@ function syncPdfDrafts() {
 }
 
 /* ══════════════════════════════════════════
-   APP SCRIPT DRAFT QUESTIONS
-══════════════════════════════════════════ */
-function renderAppScriptDrafts() {
-  const list = $("#app-drafts-list");
-  if (!list) return;
-
-  const filter = $("#app-drafts-filter")?.value || "pending";
-  let items = [...appScriptDraftQuestions];
-  if (filter !== "all") items = items.filter(d => getAppScriptDraftStatus(d) === filter);
-
-  const countEl = $("#app-drafts-count");
-  if (countEl) {
-    const pending = appScriptDraftQuestions.filter(d => getAppScriptDraftStatus(d) === "pending").length;
-    countEl.textContent = `${pending} pending / ${appScriptDraftQuestions.length} total drafts`;
-  }
-
-  list.innerHTML = "";
-  if (!items.length) {
-    list.innerHTML = '<p class="empty-state">Koi App Script draft question nahi hai.</p>';
-    return;
-  }
-
-  items.forEach(d => {
-    const status = getAppScriptDraftStatus(d);
-    const item = document.createElement("div");
-    item.className = "item pdf-draft-item";
-    const q = normalizeAppScriptDraft(d);
-    const expl = q.explanationHI || q.explanationEN || q.explanation || "";
-    const opts = (q.optionsHI || q.options || []).map((o, i) => `(${["A","B","C","D"][i]}) ${o}`).join(" · ");
-    const source = d.sourceDocId || d.source || "AppsScript";
-    item.innerHTML = `
-      <div class="pdf-draft-body">
-        <div><span class="pdf-badge ${status}">${status}</span> <strong>${escHtml(q.subject || "General")}</strong> · ${escHtml(q.chapter || "No chapter")}</div>
-        <div class="pdf-q-text"><strong>Q.</strong> ${escHtml(q.textHI || q.text || q.textEN)}</div>
-        <div class="pdf-q-opts">${escHtml(opts)}</div>
-        <div class="pdf-q-ans"><strong>Answer:</strong> ${["A","B","C","D"][q.answer] || "A"} · <span style="color:#64748b;font-weight:600;">${escHtml(source)}</span></div>
-        ${expl ? `<div class="pdf-q-expl"><strong>Explanation:</strong> ${escHtml(expl)}</div>` : ""}
-      </div>`;
-
-    const acts = document.createElement("div");
-    acts.className = "pdf-draft-actions";
-    acts.append(
-      mkBtn("Approve", "primary", () => approveAppScriptDraftToBank(d.id)),
-      mkBtn("Edit", "secondary", () => editAppScriptDraft(d.id)),
-      mkBtn("Reject", "secondary", () => rejectAppScriptDraft(d.id)),
-      mkBtn("Delete", "danger", () => deleteAppScriptDraft(d.id))
-    );
-    item.appendChild(acts);
-    list.appendChild(item);
-  });
-}
-
-function normalizeAppScriptDraft(d) {
-  const q = cloneQ(d);
-  q.chapter = q.chapter || "Apps Script Drafts";
-  return q;
-}
-
-function getAppScriptDraftStatus(d) {
-  return d?.status || "pending";
-}
-
-async function approveAppScriptDraftToBank(id) {
-  const d = appScriptDraftQuestions.find(x => x.id === id);
-  if (!d) return;
-  const q = normalizeAppScriptDraft(d);
-  if (!isValidQ(q)) {
-    alert("Question incomplete hai. Pehle Edit karke text/options/answer complete karein.");
-    return;
-  }
-
-  const bankId = makeBankIdFromDraftId(id);
-  try {
-    await saveBankOnline(bankId, q);
-    await updateAppScriptDraftStatus(id, "approved", { ...q, bankId });
-    renderBank();
-    alert("Draft approve hokar Question Bank mein save ho gaya! ✅");
-  } catch (err) {
-    console.error(err);
-    alert("Approve fail hua: " + (err.message || err));
-  }
-}
-
-function editAppScriptDraft(id) {
-  const d = appScriptDraftQuestions.find(x => x.id === id);
-  if (!d) return;
-  editingBankId = null;
-  approvingAppScriptDraftId = id;
-  populateBankForm(normalizeAppScriptDraft(d));
-  $("#save-bank-question").textContent = "Approve & Save to Bank";
-  showAdminTab("bank");
-  showBankModal("Approve Draft Question");
-}
-
-async function rejectAppScriptDraft(id) {
-  if (!confirm("Is draft ko rejected mark karein?")) return;
-  await updateAppScriptDraftStatus(id, "rejected");
-}
-
-async function deleteAppScriptDraft(id) {
-  if (!confirm("Is App Script draft ko delete karein?")) return;
-  const db = getDB();
-  if (db) {
-    try { await db.collection("draftQuestions").doc(id).delete(); } catch (e) { console.warn(e); }
-  }
-  appScriptDraftQuestions = appScriptDraftQuestions.filter(d => d.id !== id);
-  renderAppScriptDrafts();
-}
-
-async function updateAppScriptDraftStatus(id, status, extra = {}) {
-  const idx = appScriptDraftQuestions.findIndex(x => x.id === id);
-  if (idx >= 0) appScriptDraftQuestions[idx] = { ...appScriptDraftQuestions[idx], ...extra, status };
-
-  const db = getDB();
-  if (db) {
-    const stampField = status === "approved" ? "approvedAt" : status === "rejected" ? "rejectedAt" : "updatedAt";
-    try {
-      await db.collection("draftQuestions").doc(id).set({
-        ...extra,
-        status,
-        [stampField]: firebase.firestore.FieldValue.serverTimestamp()
-      }, { merge: true });
-    } catch (e) { console.warn(e); }
-  }
-  renderAppScriptDrafts();
-}
-
-async function loadAppScriptDraftsOnce() {
-  const db = getDB();
-  if (!db) { renderAppScriptDrafts(); return; }
-  try {
-    const snap = await db.collection("draftQuestions").get();
-    appScriptDraftQuestions = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    sortAppScriptDrafts();
-    renderAppScriptDrafts();
-  } catch (err) {
-    console.warn(err);
-    alert("Drafts load nahi hue. Firestore rules check karein.");
-  }
-}
-
-function syncAppScriptDrafts() {
-  const db = getDB();
-  if (!db) { renderAppScriptDrafts(); return; }
-  db.collection("draftQuestions").onSnapshot(snap => {
-    appScriptDraftQuestions = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    sortAppScriptDrafts();
-    renderAppScriptDrafts();
-  }, () => renderAppScriptDrafts());
-}
-
-function sortAppScriptDrafts() {
-  appScriptDraftQuestions.sort((a, b) => getDraftTime(b) - getDraftTime(a) || a.id.localeCompare(b.id));
-}
-
-function getDraftTime(d) {
-  const v = d?.importedAt || d?.createdAt || d?.updatedAt || d?.approvedAt || d?.rejectedAt;
-  if (!v) return 0;
-  if (typeof v.toMillis === "function") return v.toMillis();
-  if (typeof v.seconds === "number") return v.seconds * 1000;
-  const parsed = Date.parse(String(v));
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function makeBankIdFromDraftId(id) {
-  const safe = String(id || Date.now()).replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
-  return `appscript-bank-${safe || Date.now()}`;
-}
-
-/* ══════════════════════════════════════════
    BOARD RESULT SHEET
 ══════════════════════════════════════════ */
 function formatResultDate(dateStr) {
@@ -5108,8 +4956,52 @@ function studentIdentityKey(r) {
 // SABSE ACHHA (highest score) attempt rakhta hai — taaki Result Sheet /
 // Leaderboard / Rank mein wahi student baar-baar alag-alag result ke saath
 // na dikhe. Tie hone par pehle submit kiya gaya attempt priority leta hai.
+// ── Full per-test records cache (CORRECTNESS FIX) ────────────────────
+// `records` (module-level array) sirf "sabse recent 200 SITE-WIDE
+// studentRecords" tak limited hai (performance ke liye, syncRecords()
+// mein .limit(200)). Isse ek dikkat hoti thi: jaise hi poori site ke
+// total submissions 200 paar karte (jo lakhon students ke sath turant
+// ho jaata), koi bhi test ka Result Sheet / WhatsApp panel / "kitne
+// students ne diya" count SILENTLY INCOMPLETE ho jaata — kuch students
+// missing dikhte, rank/count galat ho jaate — bina kisi error/warning
+// ke. (recomputeRecordsForTest() mein pehle se hi isi wajah se seedha
+// Firestore query thi — yahan wahi nahi thi.)
+// Fix: har test ke liye ek baar (per-session) uska APNA, poora
+// (unbounded) records set seedha Firestore se fetch karke cache karte
+// hain — records[] ki tarah SITE-WIDE nahi, sirf US test ke records,
+// isliye chhota/fast rehta hai. Jab tak fetch complete nahi hota, UI
+// turant records[] (best-effort) se dikhata hai, aur fetch complete
+// hote hi renderRecords() khud-ba-khud sahi/poore data ke saath
+// re-render ho jaata hai — bilkul allStudentsCache wale pattern jaisa
+// jo isi file mein already istemal hota hai.
+let _fullTestRecordsCache = {};     // testId -> poora records array
+let _fullTestRecordsFetching = new Set();
+
+function ensureFullRecordsForTest(testId) {
+  if (!testId || _fullTestRecordsCache[testId] || _fullTestRecordsFetching.has(testId)) return;
+  const db = getDB();
+  if (!db) return;
+  _fullTestRecordsFetching.add(testId);
+  db.collection("studentRecords").where("testId", "==", testId).get()
+    .then(snap => {
+      _fullTestRecordsCache[testId] = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      _fullTestRecordsFetching.delete(testId);
+      if (typeof renderRecords === "function") renderRecords();
+    })
+    .catch(e => {
+      _fullTestRecordsFetching.delete(testId);
+      console.warn("[ensureFullRecordsForTest] failed for", testId, e);
+    });
+}
+
 function getBestRecordsForTest(testId, extraRecord = null) {
-  let recs = records.filter(r => r.testId === testId);
+  let recs;
+  if (_fullTestRecordsCache[testId]) {
+    recs = _fullTestRecordsCache[testId];
+  } else {
+    ensureFullRecordsForTest(testId); // background mein poora data laao
+    recs = records.filter(r => r.testId === testId); // tab tak best-effort
+  }
   if (extraRecord) recs = [...recs, extraRecord];
   const best = new Map();
   recs.forEach(r => {
@@ -5332,17 +5224,32 @@ function renderGradeTestSelect() {
   const sel = $("#grade-test-select");
   if (!sel) return;
   const curVal = sel.value;
-  const pendingTestIds = new Set(records.filter(r => Number(r.pendingSubjective) > 0).map(r => r.testId));
+  // CORRECTNESS FIX: records[] sirf site-wide recent 200 tak limited hai
+  // (dekhein ensureFullRecordsForTest() comment upar) — isliye sirf usi
+  // se "kis test mein grading pending hai" dhoondna, scale ke saath,
+  // kuch tests ko silently chhod sakta tha (jinke records 200-window se
+  // bahar chale gaye). Ab apne institute ke un tests ke liye jinme
+  // Subjective Marks ka istemal hota hai, unka poora (cached/fetched)
+  // records set bhi check karte hain.
+  const myTestIdsUsingSubjective = Object.keys(tests || {})
+    .filter(id => isOwnedByCurrentAdmin(tests[id]) && getTestSubjectiveMarks(tests[id]) > 0);
+  myTestIdsUsingSubjective.forEach(id => ensureFullRecordsForTest(id));
+  const recordsForPendingScan = records.slice();
+  myTestIdsUsingSubjective.forEach(id => {
+    if (_fullTestRecordsCache[id]) recordsForPendingScan.push(..._fullTestRecordsCache[id]);
+  });
+  const pendingTestIds = new Set(recordsForPendingScan.filter(r => Number(r.pendingSubjective) > 0).map(r => r.testId));
   const manualTestIds = new Set(
-    Object.keys(tests).filter(id => getTestSubjectiveMarks(tests[id]) > 0 && records.some(r => r.testId === id))
+    Object.keys(tests).filter(id => getTestSubjectiveMarks(tests[id]) > 0 && recordsForPendingScan.some(r => r.testId === id))
   );
   const testIds = [...new Set([...pendingTestIds, ...manualTestIds])]
     .filter(id => isOwnedByCurrentAdmin(tests[id]));
   sel.innerHTML = '<option value="">— Test chunein —</option>';
   testIds.forEach(id => {
     const t = tests[id];
+    const fullRecs = _fullTestRecordsCache[id];
     const title = t ? t.title : (records.find(r => r.testId === id)?.testTitle || id);
-    const pendingCount = records.filter(r => r.testId === id && Number(r.pendingSubjective) > 0).length;
+    const pendingCount = (fullRecs || records).filter(r => r.testId === id && Number(r.pendingSubjective) > 0).length;
     const label = pendingCount ? `${title} (${pendingCount} pending)` : `${title} (Subjective marks dena baaki)`;
     const op = document.createElement("option");
     op.value = id;
@@ -5364,9 +5271,11 @@ function renderGradeStudentsList() {
   const testId = sel ? sel.value : "";
   if (!testId) { list.innerHTML = '<p class="empty-state">Upar se test chunein.</p>'; return; }
 
+  ensureFullRecordsForTest(testId); // background mein poora data laao (agar nahi hai)
+  const testRecords = _fullTestRecordsCache[testId] || records;
   const test = tests[testId];
   const manualMax = getTestSubjectiveMarks(test);
-  const pendingEmbedded = records.filter(r => r.testId === testId && Number(r.pendingSubjective) > 0);
+  const pendingEmbedded = testRecords.filter(r => r.testId === testId && Number(r.pendingSubjective) > 0);
 
   // Combined list: embedded-pending students first, then (agar is test ka
   // Subjective Marks field bhara hai) baaki sab students bhi — taaki unhe
@@ -5375,7 +5284,7 @@ function renderGradeStudentsList() {
   const rows = [];
   pendingEmbedded.forEach(r => { rows.push({ r, mode: "embedded" }); seen.add(r.id || r._localId); });
   if (manualMax > 0) {
-    records.filter(r => r.testId === testId).forEach(r => {
+    testRecords.filter(r => r.testId === testId).forEach(r => {
       const key = r.id || r._localId;
       if (seen.has(key)) return;
       rows.push({ r, mode: "manual" });
@@ -5675,7 +5584,7 @@ function renderRecords() {
     list.appendChild(wrap);
 
     // WhatsApp send panel for this test
-    const testRecs = records.filter(r => r.testId === t.testId);
+    const testRecs = (_fullTestRecordsCache[t.testId] || records).filter(r => r.testId === t.testId);
     const waPanel = document.createElement("div");
     waPanel.className = "card";
     waPanel.style.cssText = "margin: 8px 0 24px; border: 1.5px solid #25d366;";
@@ -5848,13 +5757,46 @@ let _recordsAbsenteeDirTried = false; // guards renderRecords()'s background dir
 // Lightweight loader used by renderRecords() to work out test absentees —
 // just the name+mobile directory, without the (slower) per-student record
 // counts that the full Students Directory tab also loads.
+//
+// ── Institute-scoped students fetch (PERF FIX) ──────────────────────
+// PEHLE yahan seedha `db.collection(STUDENTS_COLLECTION).get()` chalta
+// tha — matlab har admin ka browser SAARE institutes ke SAARE students
+// (poori site ka data) download karta tha, sirf display-time par apna
+// institute filter karne ke liye. Lakhon students ke scale par ye
+// seedha browser hang/crash kar sakta tha (bahut bada data + bahut
+// zyada Firestore reads/cost, har baar jab bhi Directory ya OMR-link
+// naam-search khulti).
+//
+// Ab seedha Firestore se do CHHOTI, scoped queries se milte hain:
+//   (a) apne institute ke students (instituteId == myInstId)
+//   (b) jin students ka instituteId explicitly "null" set hai (naye
+//       students mein ye field HAMESHA set hota hai — real ID ya
+//       null — dekhein registerStudent()), isliye ye list samay ke
+//       saath khud hi chhoti/fixed rehti hai, badhti nahi.
+// (in ko "in": [myInstId, null] jaisi ek hi query mein combine nahi
+// kiya — Firestore null ko "in" list ke andar allow nahi karta.)
+//
+// Bahut PURANE students jinka instituteId field hi (missing, na ki
+// null) nahi hai unhe ye scoped fetch cover nahi karta — unke liye
+// Students Directory mein "🗄️ Purane/legacy students bhi dikhayein"
+// button hai (loadStudentsDirectory(true)), jo sirf explicitly click
+// karne par ek-baar full scan karta hai.
+async function fetchInstituteScopedStudents(db) {
+  const myInstId = (typeof getCurrentAdminInstituteId === "function") ? getCurrentAdminInstituteId() : null;
+  const queries = [db.collection(STUDENTS_COLLECTION).where("instituteId", "==", null).get()];
+  if (myInstId) queries.push(db.collection(STUDENTS_COLLECTION).where("instituteId", "==", myInstId).get());
+  const snaps = await Promise.all(queries);
+  const byId = new Map();
+  snaps.forEach(snap => snap.docs.forEach(d => byId.set(d.id, { mobile: d.id, ...d.data() })));
+  return Array.from(byId.values());
+}
+
 async function ensureAllStudentsCache() {
   if (allStudentsCache.length) return allStudentsCache;
   const db = getDB();
   if (!db) return allStudentsCache;
   try {
-    const snap = await db.collection(STUDENTS_COLLECTION).get();
-    allStudentsCache = snap.docs.map(d => ({ mobile: d.id, ...d.data() }));
+    allStudentsCache = await fetchInstituteScopedStudents(db);
   } catch (e) { console.warn("ensureAllStudentsCache failed", e); }
   return allStudentsCache;
 }
@@ -5862,43 +5804,55 @@ async function ensureAllStudentsCache() {
 let studentRecordCountByMobile = {};
 let studentRecordCountIsFull = false; // true once the unlimited studentRecords count-query succeeds
 
-async function loadStudentsDirectory() {
+async function loadStudentsDirectory(includeFullLegacyScan) {
   const db = getDB();
   const listEl = $("#students-directory-list");
   if (!listEl) return;
   if (!db) { listEl.innerHTML = '<p class="empty-state">Internet/Firebase connection nahi hai.</p>'; return; }
   listEl.innerHTML = '<p class="muted-text">Loading...</p>';
   try {
-    const snap = await db.collection(STUDENTS_COLLECTION).get();
-    allStudentsCache = snap.docs.map(d => ({ mobile: d.id, ...d.data() }));
+    if (includeFullLegacyScan) {
+      // Sirf jab admin explicitly "🗄️ Purane/legacy students" button
+      // dabaye — poori collection scan (bahut purane students jinka
+      // instituteId field hi missing hai, unhe bhi pakadne ke liye).
+      const snap = await db.collection(STUDENTS_COLLECTION).get();
+      allStudentsCache = snap.docs.map(d => ({ mobile: d.id, ...d.data() }));
+    } else {
+      // PERF FIX: default load ab sirf apne institute + unassigned
+      // students maangta hai (2 chhoti scoped queries), poori site ka
+      // students data nahi — dekhein fetchInstituteScopedStudents()
+      // comment mein poori wajah.
+      allStudentsCache = await fetchInstituteScopedStudents(db);
+    }
     allStudentsCache.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
 
-    // NOTE: the live `records` array (synced elsewhere) only keeps the
-    // most-recent 200 studentRecords SITE-WIDE for performance, so
-    // filtering it per-student under-counts (often to 0) once the site
-    // has more than 200 total submissions — that's why a student could
-    // show "no data" here until you opened their individual "📄 Answers"
-    // view, which correctly queries just that student's own records
-    // with no limit. Do the same here: one accurate, unlimited pass over
-    // studentRecords (only when this tab is actually opened) so every
-    // student's real count shows up immediately.
-    try {
-      const recSnap = await db.collection("studentRecords").get();
-      const counts = {};
-      recSnap.docs.forEach(d => {
-        const m = normalizeMobile(d.data().mobile || "");
-        if (!m) return;
-        counts[m] = (counts[m] || 0) + 1;
-      });
-      studentRecordCountByMobile = counts;
-      studentRecordCountIsFull = true;
-    } catch (e) {
-      console.warn("[StudentsDirectory] Full record count failed, falling back to cached records:", e);
-      studentRecordCountByMobile = {};
-      // Fallback data only covers the last 200 studentRecords site-wide,
-      // so a 0 count here isn't reliable — don't hide students on it.
-      studentRecordCountIsFull = false;
-    }
+    // ── Record counts (PERF FIX) ──────────────────────────────────
+    // PEHLE yahan poori `studentRecords` collection (site ke shuru se
+    // ab tak ke SAARE submissions, har institute ke) download hoti thi
+    // sirf per-student count nikaalne ke liye. Lakhon submissions ke
+    // scale par ye akele hi browser hang kar sakta tha. Ab sirf UPAR
+    // wali (scoped) student list ke mobile numbers ke liye, 10-10 ke
+    // chunks mein, targeted queries chalti hain — total data transfer
+    // ab (is institute ke students) × (unke records) tak bounded hai,
+    // poori site ke records tak nahi.
+    const mobiles = allStudentsCache.map(s => s.mobile).filter(Boolean);
+    const counts = {};
+    let allChunksOk = true;
+    const CHUNK_SIZE = 10; // Firestore "in" operator ki safe chunk size
+    const chunks = [];
+    for (let i = 0; i < mobiles.length; i += CHUNK_SIZE) chunks.push(mobiles.slice(i, i + CHUNK_SIZE));
+    await Promise.all(chunks.map(chunk =>
+      db.collection("studentRecords").where("mobile", "in", chunk).get()
+        .then(recSnap => {
+          recSnap.docs.forEach(d => {
+            const m = normalizeMobile(d.data().mobile || "");
+            if (m) counts[m] = (counts[m] || 0) + 1;
+          });
+        })
+        .catch(e => { allChunksOk = false; console.warn("[StudentsDirectory] chunk count failed", e); })
+    ));
+    studentRecordCountByMobile = counts;
+    studentRecordCountIsFull = allChunksOk;
 
     renderStudentsDirectory();
   } catch (err) {
@@ -5969,7 +5923,24 @@ function renderStudentsDirectory() {
     return;
   }
 
-  listEl.innerHTML = fallbackWarning + proofBanner + isolationNote + `
+  // ── Large-list render cap (PERF FIX) ──────────────────────────────
+  // Agar kisi ek institute mein bahut zyada students hain (jaise 1000+),
+  // to ek saath itni badi HTML table banana browser ko kuch second ke
+  // liye slow/jank kar sakta hai. Ab sirf top STUDENTS_DIRECTORY_PAGE_SIZE
+  // dikhaye jaate hain by default, aur admin ko naam/mobile se search
+  // karke seedha apne student tak pahunchne ka tareeka diya gaya hai —
+  // koi data hide/delete nahi hota, sirf ek baar mein render kam hota hai.
+  const STUDENTS_DIRECTORY_PAGE_SIZE = 500;
+  const totalMatching = list.length;
+  const truncated = !q && totalMatching > STUDENTS_DIRECTORY_PAGE_SIZE;
+  if (truncated) list = list.slice(0, STUDENTS_DIRECTORY_PAGE_SIZE);
+  const truncationNote = truncated
+    ? `<p style="background:#eff6ff;color:#1e40af;border:1px solid #bfdbfe;border-radius:6px;padding:8px 10px;font-size:12.5px;margin-bottom:10px;">
+        ℹ️ ${totalMatching} students milte hain — speed ke liye sirf pehle ${STUDENTS_DIRECTORY_PAGE_SIZE} dikha rahe hain. Kisi specific student ko dhoondne ke liye upar Naam/Mobile search box use karein.
+      </p>`
+    : "";
+
+  listEl.innerHTML = fallbackWarning + proofBanner + isolationNote + truncationNote + `
     <div style="overflow-x:auto">
     <table style="width:100%;border-collapse:collapse;font-size:13px">
       <thead><tr style="background:#f1f5f9">
@@ -6641,6 +6612,11 @@ async function editRecordName(id, oldName) {
 
   // 3. In-memory records + re-render
   records = records.map(r => ((r._localId === id) || (r.id === id)) ? { ...r, name: trimmed } : r);
+  Object.keys(_fullTestRecordsCache).forEach(tid => {
+    _fullTestRecordsCache[tid] = _fullTestRecordsCache[tid].map(r =>
+      ((r._localId === id) || (r.id === id)) ? { ...r, name: trimmed } : r
+    );
+  });
   renderRecords();
   renderStudentResultPicker();
   alert(`✅ Naam "${trimmed}" update ho gaya.`);
@@ -6666,21 +6642,59 @@ async function deleteRecord(id, name, submittedIso) {
 
   // Remove from in-memory records
   records = records.filter(r => !((r._localId === id) || (r.id === id) || (r.name === name && r.submittedIso === submittedIso)));
+  // Full-test-records cache (agar load ho chuka hai) se bhi hatao —
+  // dekhein ensureFullRecordsForTest() comment.
+  Object.keys(_fullTestRecordsCache).forEach(tid => {
+    _fullTestRecordsCache[tid] = _fullTestRecordsCache[tid].filter(r =>
+      !((r._localId === id) || (r.id === id) || (r.name === name && r.submittedIso === submittedIso))
+    );
+  });
   renderRecords();
   renderStudentResultPicker();
 }
 
 async function clearRecords() {
-  if (!confirm("Saare records delete karein?")) return;
+  if (!confirm("Apne institute ke SAARE result records delete karein? Ye wapas nahi ho sakta.")) return;
   const db = getDB();
   if (!db) { records = []; renderRecords(); return; }
   try {
-    const snap = await db.collection("studentRecords").get();
-    const batch = db.batch();
-    snap.docs.forEach(d => batch.delete(d.ref));
-    await batch.commit();
-    records = [];
+    // CRITICAL FIX: pehle yahan POORI site-wide `studentRecords`
+    // collection (SAARE institutes, SAARE admins, SAARE students, kabhi
+    // bhi ke submissions) ek saath download+delete ho jaati thi — 2
+    // gambhir bugs:
+    //   1) Multi-tenant isolation TOOTTI thi — is button se kisi bhi
+    //      DOOSRE institute ka bhi poora result-data delete ho jaata,
+    //      jo galti se ek admin poore platform ka data uda sakta tha.
+    //   2) Firestore ek batch mein max 500 operations allow karta hai —
+    //      isse zyada records honar par `batch.commit()` seedha error
+    //      deta (jo 1 lakh+ students ke sath turant hone wala tha).
+    // Ab sirf APNE institute ke tests se match karte records dhoonde
+    // jaate hain (testId ke 10-10 chunks mein query — poori collection
+    // download nahi), aur delete bhi 500-500 ke safe batches mein hota
+    // hai.
+    const myOwnTestIds = Object.keys(tests || {}).filter(id => isOwnedByCurrentAdmin(tests[id]));
+    if (!myOwnTestIds.length) { alert("Aapke institute ka koi test nahi mila."); return; }
+
+    const CHUNK = 10; // Firestore "in" operator ki safe chunk size
+    const testIdChunks = [];
+    for (let i = 0; i < myOwnTestIds.length; i += CHUNK) testIdChunks.push(myOwnTestIds.slice(i, i + CHUNK));
+    const refsToDelete = [];
+    await Promise.all(testIdChunks.map(chunk =>
+      db.collection("studentRecords").where("testId", "in", chunk).get()
+        .then(snap => snap.docs.forEach(d => refsToDelete.push(d.ref)))
+    ));
+
+    const BATCH_LIMIT = 500; // Firestore hard limit per batch
+    for (let i = 0; i < refsToDelete.length; i += BATCH_LIMIT) {
+      const batch = db.batch();
+      refsToDelete.slice(i, i + BATCH_LIMIT).forEach(ref => batch.delete(ref));
+      await batch.commit();
+    }
+
+    records = records.filter(r => !myOwnTestIds.includes(r.testId));
+    myOwnTestIds.forEach(tid => { delete _fullTestRecordsCache[tid]; });
     renderRecords();
+    alert(`${refsToDelete.length} records delete ho gaye.`);
   } catch(err) { console.warn(err); alert("Records delete nahi hue."); }
 }
 
@@ -7011,7 +7025,11 @@ async function restoreAllQuestions() {
   if (!db) { alert("Firebase connected nahi."); return; }
   try {
     const items = deletedQuestions.slice();
-    const CHUNK = 240; // har item ke 2 batch ops (set + delete) hote hain, 500 op limit ke andar
+    // FIX: comment pehle kehta tha "2 ops/item" lekin asal mein 3 hain
+    // (set questionBank + delete deletedQuestions + delete
+    // seedExclusions) — 240*3=720, jo 500-op Firestore batch limit se
+    // zyada hai. Ab 160*3=480, safe.
+    const CHUNK = 160;
     for (let i = 0; i < items.length; i += CHUNK) {
       const batch = db.batch();
       items.slice(i, i + CHUNK).forEach(q => {
@@ -7037,7 +7055,9 @@ async function restoreSelectedQuestions() {
   try {
     const qMap = new Map(deletedQuestions.map(q => [q.id, q]));
     const ids = [...selectedTrashIds].filter(id => qMap.has(id));
-    const CHUNK = 240;
+    // FIX: yahan bhi 3 ops/item hain (set + delete + delete) — 240*3=720
+    // 500-op limit se zyada tha. 160*3=480, safe.
+    const CHUNK = 160;
     for (let i = 0; i < ids.length; i += CHUNK) {
       const batch = db.batch();
       ids.slice(i, i + CHUNK).forEach(id => {
@@ -7409,6 +7429,13 @@ async function saveRecordOnline(data) {
 
   // 2. Update in-memory records array immediately so admin can see without refresh
   records.unshift(newRec);
+  // Agar is test ka poora-records cache pehle se load ho chuka hai
+  // (ensureFullRecordsForTest se), usme bhi turant jod do — taaki naya
+  // submit turant Result Sheet mein dikhe, ek extra Firestore fetch
+  // ke bina.
+  if (data.testId && _fullTestRecordsCache[data.testId]) {
+    _fullTestRecordsCache[data.testId] = [newRec, ..._fullTestRecordsCache[data.testId]];
+  }
   renderRecords();
   renderStudentResultPicker();
 
