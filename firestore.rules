@@ -90,6 +90,29 @@ service cloud.firestore {
         );
     }
 
+    // ⚠️ FIX (v26 — disable vs. institute-deactivate ka sahi message):
+    // Pehle admin apna khud ka "admins/{email}" doc SIRF isAdmin() (jo
+    // active + institute dono check karta hai) hone par hi padh sakta
+    // tha — matlab jaise hi Owner ne "Disable" dabaya YA institute
+    // deactivate kiya, doc ka read hi "permission-denied" ho jaata tha,
+    // aur client (script.js) dono cases ko ALAG bata hi nahi paata tha
+    // (dono taraf se sirf ek generic "permission-denied" milta tha).
+    // Fix: apna khud ka doc padhna sirf isi baat par depend kare ki
+    // email admin allow-list mein hai ya nahi (chahe abhi active ho ya
+    // na ho) — active/institute-status ka asli WRITE-level gate
+    // (isAdmin()) bilkul waisa hi sakht rehta hai, sirf "apna record
+    // dekh sakna" thoda khula hai taaki client sahi wajah dikha sake.
+    function isKnownAdminEmail() {
+      return request.auth != null &&
+        request.auth.token.email != null &&
+        (
+          request.auth.token.email in [
+            "vishnu1234stmp@gmail.com"
+          ]
+          || exists(/databases/$(database)/documents/admins/$(request.auth.token.email))
+        );
+    }
+
     // ── Multi-tenant: is admin ka apna institute kaunsa hai ────────
     // Owner Panel se bane admin ke `admins/{email}` doc mein instituteId
     // already hota hai. Legacy admin ke liye app khud (script.js,
@@ -456,11 +479,23 @@ service cloud.firestore {
       // hi email wale doc par, sirf "legacy_" institute ke saath, aur
       // ek baar instituteId set hone ke baad khud se badal nahi sakta
       // (privilege-escalation se bachne ke liye).
-      allow read: if isAdmin() && request.auth.token.email == email;
+      allow read: if isKnownAdminEmail() && request.auth.token.email == email;
       allow create: if isAdmin() && request.auth.token.email == email &&
         request.resource.data.instituteId.matches('^legacy_.*');
       allow update: if isAdmin() && request.auth.token.email == email &&
         resource.data.instituteId == request.resource.data.instituteId;
+    }
+
+    // ── OWNER PANEL: institute-removal OTP/confirm-link gate (v26) ──
+    // "Remove" ab seedha delete nahi karta — pehle ek pending-removal
+    // token yahan likha jaata hai, phir Owner ke registered email par
+    // ek confirm-link bheja jaata hai (Firebase Auth ka apna, free,
+    // signed/unforgeable email-link mechanism — bina kisi paid backend
+    // ke). Sirf jab wahi link wapas click karke verify ho, tabhi asli
+    // institute delete hota hai — isse ek galti se tap/refresh se koi
+    // institute turant hamesha ke liye nahi mit sakta.
+    match /ownerPendingRemovals/{token} {
+      allow read, write: if isOwner();
     }
 
     // ── Default deny ──────────────────────────────────────────────

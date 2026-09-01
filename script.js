@@ -1520,33 +1520,75 @@ const ADMIN_DEACTIVATION_CONTACT_MOBILE = "9525208263";
 const ADMIN_DEACTIVATED_MESSAGE =
   "⛔ Aapka ID deactivate kar diya gaya hai (Your ID is deactivated).\n\n" +
   "Owner se contact karein: 📞 " + ADMIN_DEACTIVATION_CONTACT_MOBILE;
+const ADMIN_INSTITUTE_DEACTIVATED_MESSAGE =
+  "⏸️ Aapka institute Owner ne deactivate kar diya hai (Your institute has been deactivated).\n\n" +
+  "Owner se contact karein: 📞 " + ADMIN_DEACTIVATION_CONTACT_MOBILE;
+const ADMIN_INSTITUTE_REMOVED_MESSAGE =
+  "🗑️ Aapka institute Owner Panel se remove kar diya gaya hai (Your institute has been removed).\n\n" +
+  "Owner se contact karein: 📞 " + ADMIN_DEACTIVATION_CONTACT_MOBILE;
+const ADMIN_NOT_AUTHORIZED_MESSAGE =
+  "⚠️ Ye email admin ke roop mein authorize nahi hai (ho sakta hai record hata diya gaya ho).\n\n" +
+  "Owner se contact karein: 📞 " + ADMIN_DEACTIVATION_CONTACT_MOBILE;
 
-// true = deactivate hai (login block karo), false = sab theek hai.
-async function isAdminAccountDeactivated(email) {
+// FIX (v26): pehle "admin khud disable" aur "poora institute deactivate/
+// remove" — dono cases mein Firestore se sirf ek generic "permission-
+// denied" milta tha, isliye dono ke liye HAMESHA "aapka ID deactivate
+// kar diya gaya hai" hi dikhta tha — chahe asli wajah kuch aur ho.
+// firestore.rules ab admin ko apna khud ka "admins/{email}" doc hamesha
+// padhne deta hai (chahe wo khud disabled ho ya uska institute) —
+// isliye ab yahan doc ke andar jhaank kar SAHI wajah pata chal sakti
+// hai. Return: { blocked: bool, message: string|null }.
+async function checkAdminLoginBlock(email) {
   const db = getDB();
-  if (!db || !email) return false;
+  if (!db || !email) return { blocked: false, message: null };
   try {
     const doc = await db.collection("admins").doc(email).get();
-    if (doc.exists && doc.data().active === false) return true;
-    return false;
+
+    if (!doc.exists) {
+      // Legacy super-admin email (hardcoded allow-list) ke liye doc na
+      // hona normal hai — pehli baar login par khud ban jaata hai
+      // (resolveCurrentAdminInstitute). Kisi aur email ke liye doc na
+      // hona matlab "Remove" se hata diya gaya record.
+      return { blocked: false, message: null };
+    }
+
+    const data = doc.data();
+    if (data.active === false) {
+      return { blocked: true, message: ADMIN_DEACTIVATED_MESSAGE };
+    }
+
+    // Admin khud active hai — ab uska institute check karo.
+    const instituteId = data.instituteId;
+    if (instituteId) {
+      const instDoc = await db.collection("institutes").doc(instituteId).get();
+      if (!instDoc.exists) {
+        return { blocked: true, message: ADMIN_INSTITUTE_REMOVED_MESSAGE };
+      }
+      if (instDoc.data().active === false) {
+        return { blocked: true, message: ADMIN_INSTITUTE_DEACTIVATED_MESSAGE };
+      }
+    }
+    return { blocked: false, message: null };
   } catch (err) {
-    // Deactivate admin ke liye Firestore rules is doc ka READ bhi deny
-    // kar deti hain (isAdmin() hi false ho jaata hai active:false hote
-    // hi) — isliye ek "permission-denied" error khud deactivation ka
-    // pakka signal hai (basharte ye woh EK hardcoded super-admin email
-    // na ho, jiske liye admins/doc exist hi nahi karta — uske liye
-    // "not-found" jaisa kuch nahi, seedha exists:false milta hai, error
-    // nahi — is catch block mein sirf genuine permission-denied cases
-    // aate hain).
-    if (String(err.code || "").toLowerCase().includes("permission")) return true;
+    // Ab jab apna khud ka doc padhna sirf email allow-list par depend
+    // karta hai (active/institute-status par nahi), yahan permission-
+    // denied milne ka matlab practically ye hai ki email admin allow-
+    // list mein hai hi nahi (na legacy list mein, na admins/{email} doc
+    // maujood) — ya koi genuine connectivity issue.
+    if (String(err.code || "").toLowerCase().includes("permission")) {
+      return { blocked: true, message: ADMIN_NOT_AUTHORIZED_MESSAGE };
+    }
     console.warn("[admin-active-check] failed (ignoring, non-permission error)", err);
-    return false;
+    return { blocked: false, message: null };
   }
 }
 
-// Admin panel ke andar hote hue REAL-TIME deactivation detect karta hai.
+// Admin panel ke andar hote hue REAL-TIME deactivation detect karta hai
+// (admin khud disable hone PAR, aur uska institute deactivate/remove
+// hone PAR bhi — dono ke liye alag-alag sahi message).
 // startAdminSyncs() se ek hi baar shuru hota hai.
 let _adminActiveWatchUnsub = null;
+let _adminInstituteWatchUnsub = null;
 function watchAdminActiveStatus() {
   if (_adminActiveWatchUnsub) return; // already watching is session mein
   const auth = getAuth();
@@ -1555,23 +1597,49 @@ function watchAdminActiveStatus() {
   if (!email || !db) return;
   _adminActiveWatchUnsub = db.collection("admins").doc(email).onSnapshot(
     snap => {
-      if (snap.exists && snap.data().active === false) forceAdminLogoutDeactivated();
+      if (snap.exists && snap.data().active === false) {
+        forceAdminLogoutDeactivated(ADMIN_DEACTIVATED_MESSAGE);
+        return;
+      }
+      // Admin khud active hai — ab uske institute par bhi ek real-time
+      // watcher laga do (ek hi baar; instituteId pehli baar yahin milti
+      // hai, isliye ye watcher admin-doc watcher ke andar se shuru
+      // hota hai).
+      const instituteId = snap.exists ? snap.data().instituteId : null;
+      if (instituteId) watchAdminInstituteStatus(instituteId);
     },
     err => {
-      // Deactivate hote hi rules is doc ka access hi deny kar dete
-      // hain — onSnapshot isi wajah se turant "permission-denied"
-      // error deta hai. Yahi hamara real-time signal hai.
-      if (String(err.code || "").toLowerCase().includes("permission")) forceAdminLogoutDeactivated();
+      // Ab jab apna khud ka doc padhna sirf email allow-list par
+      // depend karta hai (active status par nahi), yahan permission-
+      // denied ka matlab practically "ye email admin allow-list mein
+      // hai hi nahi" hai — legacy/removed-record case.
+      if (String(err.code || "").toLowerCase().includes("permission")) {
+        forceAdminLogoutDeactivated(ADMIN_NOT_AUTHORIZED_MESSAGE);
+      }
     }
   );
 }
 
-function forceAdminLogoutDeactivated() {
+function watchAdminInstituteStatus(instituteId) {
+  if (_adminInstituteWatchUnsub) return; // already watching is session mein
+  const db = getDB();
+  if (!db || !instituteId) return;
+  _adminInstituteWatchUnsub = db.collection("institutes").doc(instituteId).onSnapshot(
+    snap => {
+      if (!snap.exists) { forceAdminLogoutDeactivated(ADMIN_INSTITUTE_REMOVED_MESSAGE); return; }
+      if (snap.data().active === false) forceAdminLogoutDeactivated(ADMIN_INSTITUTE_DEACTIVATED_MESSAGE);
+    },
+    () => {} // institutes read khula hai (isSignedIn()) — error yahan practically nahi aata
+  );
+}
+
+function forceAdminLogoutDeactivated(message) {
   if (_adminActiveWatchUnsub) { try { _adminActiveWatchUnsub(); } catch (e) {} _adminActiveWatchUnsub = null; }
+  if (_adminInstituteWatchUnsub) { try { _adminInstituteWatchUnsub(); } catch (e) {} _adminInstituteWatchUnsub = null; }
   clearAdminLoggedIn();
   const auth = getAuth();
   try { if (auth && auth.currentUser) auth.signOut().catch(() => {}); } catch (e) {}
-  alert(ADMIN_DEACTIVATED_MESSAGE);
+  alert(message || ADMIN_DEACTIVATED_MESSAGE);
   // Poora page reload — in-memory admin data/listeners saaf karke
   // seedha login screen par bhej deta hai.
   location.href = location.pathname;
@@ -1902,16 +1970,14 @@ async function loginAdmin(e) {
   if (candidateEmail) {
     try {
       await auth.signInWithEmailAndPassword(candidateEmail, enteredPass);
-      // Owner ne is admin ko deactivate kiya ho to yahin rok do — login
-      // hone hi na dein. (Deactivate hote hi Firestore rules is admin
-      // ke apne "admins/{email}" doc ka READ bhi deny kar dete hain,
-      // isliye deactivation ka signal ya to "active:false" data ke
-      // roop mein aata hai, ya seedha "permission-denied" error ke
-      // roop mein — dono cases yahan cover kiye gaye hain.)
-      const blocked = await isAdminAccountDeactivated(candidateEmail);
+      // Owner ne is admin ko khud disable kiya ho, YA uska poora
+      // institute deactivate/remove kiya ho — dono cases mein yahin
+      // rok do, aur sahi-sahi (alag-alag) wajah dikhao — login hone hi
+      // na dein.
+      const { blocked, message } = await checkAdminLoginBlock(candidateEmail);
       if (blocked) {
         await auth.signOut().catch(() => {});
-        alert(ADMIN_DEACTIVATED_MESSAGE);
+        alert(message || ADMIN_DEACTIVATED_MESSAGE);
         return;
       }
       rememberAdminEmail(candidateEmail);

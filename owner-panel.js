@@ -353,7 +353,7 @@ function ownerAdminRowHtml(a) {
         <span class="owner-badge ${disabled ? "owner-badge-off" : "owner-badge-on"}">${disabled ? "Disabled" : "Active"}</span>
       </div>
       <div class="owner-admin-actions">
-        <button type="button" class="owner-mini-btn" onclick="ownerToggleAdmin('${ownerEscAttr(a.email)}', ${!disabled})">${disabled ? "✅ Enable" : "⛔ Disable"}</button>
+        <button type="button" class="owner-mini-btn" onclick="ownerToggleAdmin('${ownerEscAttr(a.email)}', ${!disabled}, this)">${disabled ? "✅ Enable" : "⛔ Disable"}</button>
         <button type="button" class="owner-mini-btn" onclick="ownerResetAdminPassword('${ownerEscAttr(a.email)}')">🔑 Password Reset Email</button>
         <button type="button" class="owner-mini-btn owner-mini-danger" onclick="ownerRemoveAdminRecord('${ownerEscAttr(a.email)}')">🗑️ Remove</button>
       </div>
@@ -595,17 +595,124 @@ async function ownerToggleInstitute(id, makeActive) {
   );
 }
 
+// ── Remove institute — ab seedha delete nahi, OTP/confirm-link se ──
+// (v26) Owner ne khud maanga: koi institute itni asaani se (ek click +
+// ek confirm() popup) remove na ho sake. Ab yahan:
+//   1) Ek pending-removal doc banta hai (15 min expiry).
+//   2) Owner ke apne (registered, isOwner() wale) email par ek
+//      confirm-link bheja jaata hai — Firebase Auth ka built-in
+//      "email link" mechanism istemal karke (bilkul "Password bhool
+//      gaye" wale link jaisa hi free/signed/unforgeable, koi paid
+//      backend/Cloud Function ki zaroorat nahi).
+//   3) Wahi link wapas isi app mein khulne par (neeche
+//      ownerHandlePendingRemovalFromUrl) hi asli delete hota hai.
+// NOTE: Firebase Console → Authentication → Sign-in method mein
+// "Email link (passwordless sign-in)" provider ON hona zaroori hai —
+// warna step (2) ka link kaam nahi karega (clear error dikhega).
 async function ownerDeleteInstitute(id) {
+  const inst = _ownerInstitutesCache[id];
   const admins = Object.values(_ownerAdminsCache).filter(a => a.instituteId === id);
-  const msg = admins.length > 0
-    ? `Is institute ke saath ${admins.length} admin record bhi juda hai. Institute hatane se wo admin bhi "bina institute ke" list mein chala jayega (uska access khud disable nahi hoga). Aage badhein?`
-    : "Ye institute record hamesha ke liye hata diya jayega. Aage badhein?";
-  if (!confirm(msg)) return;
+  const extraWarning = admins.length > 0
+    ? `\n\n(Is institute ke saath ${admins.length} admin record bhi juda hai — remove hone se wo "bina institute ke" list mein chala jayega, uska access khud disable nahi hoga.)`
+    : "";
+  const auth = ownerGetAuth();
+  const ownerEmail = auth && auth.currentUser && auth.currentUser.email;
+  if (!ownerEmail) { alert("⚠️ Owner session nahi mili. Page reload karke dobara try karein."); return; }
+
+  if (!confirm(
+    `"${inst?.name || id}" ko remove karna shuru karein?\n\n` +
+    `Aapke email (${ownerEmail}) par ek confirm-link bheja jayega — wo link click kiye bina institute delete NAHI hoga.` +
+    extraWarning
+  )) return;
+
   const db = ownerGetDb();
+  const token = "rm_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 12);
   try {
-    await db.collection("institutes").doc(id).delete();
+    await db.collection("ownerPendingRemovals").doc(token).set({
+      instituteId: id,
+      instituteName: inst?.name || "",
+      ownerEmail,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+      expiresAt: Date.now() + 15 * 60 * 1000 // 15 minute
+    });
+
+    const url = new URL(window.location.href);
+    url.searchParams.delete("owner");
+    url.searchParams.set("ownerConfirmRemove", token);
+
+    await auth.sendSignInLinkToEmail(ownerEmail, {
+      url: url.toString(),
+      handleCodeInApp: true
+    });
+    try { localStorage.setItem("examnova_owner_pending_removal_email", ownerEmail); } catch (e) {}
+
+    alert(
+      `📧 Confirm-link bhej diya gaya hai (${ownerEmail}).\n\n` +
+      `Wahi link isi phone/browser par kholein taaki "${inst?.name || id}" remove ho jaaye. Link 15 minute mein expire ho jayega.`
+    );
   } catch (err) {
-    alert("Delete nahi hua: " + (err.message || err));
+    console.error(err);
+    try { await db.collection("ownerPendingRemovals").doc(token).delete(); } catch (e2) {}
+    if (String(err.code || "").includes("operation-not-allowed")) {
+      alert("⚠️ Confirm-link nahi bheja ja saka: Firebase Console → Authentication → Sign-in method mein 'Email link (passwordless sign-in)' provider ON karein, phir dobara try karein.");
+    } else {
+      alert("Confirm-link nahi bheja ja saka: " + (err.message || err));
+    }
+  }
+}
+
+// ── Jab Owner apne email wala confirm-link click karke wapas aata hai ──
+async function ownerHandlePendingRemovalFromUrl() {
+  const params = new URLSearchParams(window.location.search);
+  const token = params.get("ownerConfirmRemove");
+  if (!token) return;
+
+  try {
+    if (window.vishnuFirebase && window.vishnuFirebase.authReady) await window.vishnuFirebase.authReady;
+  } catch (e) {}
+  const auth = ownerGetAuth();
+
+  if (!auth.isSignInWithEmailLink(window.location.href)) {
+    alert("⚠️ Ye confirm-link sahi nahi hai ya expire ho chuka hai.");
+    return;
+  }
+
+  let email = "";
+  try { email = localStorage.getItem("examnova_owner_pending_removal_email") || ""; } catch (e) {}
+  if (!email) email = (prompt("Confirm karne ke liye apna Owner email likhein:") || "").trim();
+  if (!email) return;
+
+  openOwnerOverlay();
+  try {
+    await auth.signInWithEmailLink(email, window.location.href);
+    ownerRememberEmail(email);
+    ownerSetLoggedInFlag();
+    ownerShowPanel();
+
+    const db = ownerGetDb();
+    const doc = await db.collection("ownerPendingRemovals").doc(token).get();
+    if (!doc.exists) {
+      alert("⚠️ Ye removal request nahi mili — shayad pehle hi confirm ho chuki hai, ya expire ho gayi.");
+      return;
+    }
+    const data = doc.data();
+    if (Date.now() > (data.expiresAt || 0)) {
+      alert("⚠️ Ye confirm-link expire ho chuka hai (15 min limit). Institute remove nahi hua — Owner Panel se dobara 'Remove' try karein.");
+      await db.collection("ownerPendingRemovals").doc(token).delete().catch(() => {});
+      return;
+    }
+
+    await db.collection("institutes").doc(data.instituteId).delete();
+    await db.collection("ownerPendingRemovals").doc(token).delete().catch(() => {});
+    alert(`✅ "${data.instituteName || data.instituteId}" hamesha ke liye remove ho gaya.`);
+  } catch (err) {
+    console.error(err);
+    alert("Confirm nahi ho paaya: " + (err.message || err));
+  } finally {
+    try { localStorage.removeItem("examnova_owner_pending_removal_email"); } catch (e) {}
+    const url = new URL(window.location.href);
+    url.searchParams.delete("ownerConfirmRemove");
+    window.history.replaceState({}, "", url.pathname + url.search);
   }
 }
 
@@ -693,11 +800,33 @@ async function ownerAddAdminSubmit(e, instituteId, instituteName) {
 // "active" field par hi depend karta hai, isliye Disable karte hi us
 // admin ka HAR jagah access (Tests/Question Bank/Records — sab kuch)
 // turant band ho jaata hai. Yahi is button ka "delete jaisa" asar hai.
-async function ownerToggleAdmin(email, makeActive) {
+async function ownerToggleAdmin(email, makeActive, btn) {
   const db = ownerGetDb();
-  await ownerRetryOnPermissionDenied(() =>
-    db.collection("admins").doc(email).update({ active: makeActive })
-  );
+  const auth = ownerGetAuth();
+  const original = btn ? btn.textContent : null;
+  if (btn) { btn.disabled = true; btn.textContent = "..."; }
+  try {
+    // Proactive token refresh (na ki sirf failure ke baad) — ye button
+    // "kabhi chalta hai kabhi nahi" wale stale-token bug (v24_16 notes
+    // dekhein) ka sabse aam trigger hai; pehle hi refresh karke us
+    // race ko zyada-tar cases mein hone se pehle hi rok dete hain.
+    if (auth && auth.currentUser) { try { await auth.currentUser.getIdToken(true); } catch (e) {} }
+    await ownerRetryOnPermissionDenied(() =>
+      db.collection("admins").doc(email).update({ active: makeActive })
+    );
+    // Confirm karo ki write asal mein lagi — agar kisi wajah se
+    // (offline cache, retry chup-chaap fail) value badla hi nahi, user
+    // ko turant pata chal jaaye bajaye chup rehne ke.
+    try {
+      const check = await db.collection("admins").doc(email).get();
+      const nowActive = check.exists ? (check.data().active !== false) : null;
+      if (nowActive !== null && nowActive !== makeActive) {
+        alert(`⚠️ "${email}" ka status update nahi ho paaya (abhi bhi ${nowActive ? "Active" : "Disabled"} hai). Dobara try karein.`);
+      }
+    } catch (e) {}
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = original; } // onSnapshot re-render bhi ho jayega
+  }
 }
 
 async function ownerResetAdminPassword(email) {
@@ -763,6 +892,10 @@ window.ownerSetAdminPassword = ownerSetAdminPassword;
 // ── Auto-open on ?owner=1 ───────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", () => {
   const params = new URLSearchParams(window.location.search);
+  if (params.get("ownerConfirmRemove")) {
+    ownerHandlePendingRemovalFromUrl();
+    return;
+  }
   if (params.get("owner") === "1") {
     if (window.vishnuFirebase && window.vishnuFirebase.authReady) {
       window.vishnuFirebase.authReady.then(() => openOwnerOverlay());
@@ -783,6 +916,7 @@ window.ownerAssignNewInstituteSubmit = ownerAssignNewInstituteSubmit;
 window.ownerRenameInstitute = ownerRenameInstitute;
 window.ownerToggleInstitute = ownerToggleInstitute;
 window.ownerDeleteInstitute = ownerDeleteInstitute;
+window.ownerHandlePendingRemovalFromUrl = ownerHandlePendingRemovalFromUrl;
 window.ownerAddAdminSubmit = ownerAddAdminSubmit;
 window.ownerToggleAdmin = ownerToggleAdmin;
 window.ownerResetAdminPassword = ownerResetAdminPassword;
