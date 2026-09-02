@@ -1730,6 +1730,27 @@ function getCurrentAdminAllowedClasses() {
   return CURRENT_ADMIN_ALLOWED_CLASSES; // null = sab allowed
 }
 
+// BUG FIX (v33): Question Bank (Bank tab, Test Bank Picker, Analysis,
+// Custom Test) pehle `questionBank` ko seedha, bina kisi Class-filter ke
+// use karta tha — matlab agar Owner Panel se kisi institute ki "Allowed
+// Classes" mein se Class 10 hata bhi diya jaaye, tab bhi us institute ka
+// admin Bank tab mein aur naya test banate waqt Class 10 (`classId:
+// "class_10"`) wale questions dekh/use kar sakta tha — Exam Manager ka
+// apna Class dropdown hi sirf allowedClasses respect karta tha, poora
+// Bank nahi. Ab ye helper admin-facing browsing/selection ki har jagah
+// istemal hota hai taaki sirf us institute ki allowed Classes wale (ya
+// abhi tak "untagged"/bina-Class wale — taaki migration se pehle purana
+// data achanak gayab na ho jaaye) questions hi dikhein/use ho sakein.
+function isQuestionClassAllowedForCurrentAdmin(q) {
+  const allowed = getCurrentAdminAllowedClasses();
+  if (!allowed) return true; // legacy/unrestricted institute — sab allowed
+  if (!q || !q.classId) return true; // abhi tak untagged — hide mat karo
+  return allowed.includes(q.classId);
+}
+function getClassScopedQuestionBank() {
+  return questionBank.filter(isQuestionClassAllowedForCurrentAdmin);
+}
+
 // Ek test/exam is admin ka apna hai ya nahi — instituteId match karke.
 // instituteId abhi resolve NAHI hua ho to safe default "false" (kuch mat
 // dikhao) rakha hai, taaki login ke turant baad ek pal ke liye bhi kisi
@@ -2140,8 +2161,9 @@ function renderAnalysis() {
         <th>Bank Questions (Actual)</th>
         <th>% Share</th>
       </tr></thead><tbody>`;
+  const scopedBankForAnalysis = getClassScopedQuestionBank();
   sscChaptersData.forEach((ch, i) => {
-    const bankCount = questionBank.filter(q => q.chapter === ch.name && isValidQ(q)).length;
+    const bankCount = scopedBankForAnalysis.filter(q => q.chapter === ch.name && isValidQ(q)).length;
     html += `<tr>
       <td>${i+1}</td>
       <td><strong>${escHtml(ch.name)}</strong></td>
@@ -2153,7 +2175,7 @@ function renderAnalysis() {
   html += `</tbody><tfoot><tr>
     <td colspan="2"><strong>Total</strong></td>
     <td><strong>${total}</strong></td>
-    <td><strong style="color:#16a34a">${questionBank.filter(isValidQ).length}</strong></td>
+    <td><strong style="color:#16a34a">${scopedBankForAnalysis.filter(isValidQ).length}</strong></td>
     <td><strong>100%</strong></td>
   </tr></tfoot></table></div>
   <p style="margin-top:14px;font-size:.82rem;color:var(--muted);">
@@ -2180,7 +2202,7 @@ function getSelectedChapters() {
   const subject = $("#custom-subject-filter")?.value || "all";
   const chapter = $("#custom-chapter-filter")?.value || "all";
   if (chapter !== "all") return [chapter];
-  return [...new Set(questionBank
+  return [...new Set(getClassScopedQuestionBank()
     .filter(q => isValidQ(q) && (subject === "all" || getQuestionSubject(q) === subject))
     .map(q => q.chapter)
     .filter(Boolean)
@@ -2195,7 +2217,7 @@ function getQuestionSubject(q) {
 }
 
 function getCustomSubjectOptions() {
-  const pool = questionBank.filter(isValidQ);
+  const pool = getClassScopedQuestionBank().filter(isValidQ);
   if (window.SubjectResolver) {
     return window.SubjectResolver.getSubjectFilterOptions(pool, getQuestionSubject);
   }
@@ -2203,8 +2225,9 @@ function getCustomSubjectOptions() {
 }
 
 function getBankSubjectFilterOptions() {
-  // Sirf wahi subjects dikhao jisme kam se kam 1 question ho
-  const activeSubjects = [...new Set(questionBank.map(getQuestionSubject).filter(Boolean))];
+  // Sirf wahi subjects dikhao jisme kam se kam 1 question ho (aur jo is
+  // admin ke institute ki allowed Classes ke andar ho)
+  const activeSubjects = [...new Set(getClassScopedQuestionBank().map(getQuestionSubject).filter(Boolean))];
   if (window.SubjectResolver) {
     const standard = window.SubjectResolver.STANDARD_SUBJECTS;
     return [...new Set([...standard.filter(s => activeSubjects.includes(s)), ...activeSubjects])]
@@ -2229,7 +2252,7 @@ function syncCustomSubjectFilter() {
 }
 
 function getCustomChapterOptions(subject) {
-  return [...new Set(questionBank
+  return [...new Set(getClassScopedQuestionBank()
     .filter(q => isValidQ(q) && (subject === "all" || getQuestionSubject(q) === subject))
     .map(q => q.chapter)
     .filter(Boolean)
@@ -4052,9 +4075,10 @@ async function saveTest(e) {
    BANK ADMIN
 ══════════════════════════════════════════ */
 function getBankFilterPool(subjectVal) {
+  const scoped = getClassScopedQuestionBank();
   return subjectVal === "all"
-    ? questionBank
-    : questionBank.filter(q => getQuestionSubject(q) === subjectVal);
+    ? scoped
+    : scoped.filter(q => getQuestionSubject(q) === subjectVal);
 }
 
 // ── "Valid only" versions ──────────────────────────────────────────
@@ -4065,7 +4089,7 @@ function getBankFilterPool(subjectVal) {
 // dikhte rehte hain, taaki unhe fix kiya ja sake — wahan ye filter nahi
 // lagta, sirf test-building flow mein lagta hai.)
 function getValidBankSubjectFilterOptions() {
-  const validPool = questionBank.filter(isValidQ);
+  const validPool = getClassScopedQuestionBank().filter(isValidQ);
   const activeSubjects = [...new Set(validPool.map(getQuestionSubject).filter(Boolean))];
   if (window.SubjectResolver) {
     const standard = window.SubjectResolver.STANDARD_SUBJECTS;
@@ -4082,7 +4106,7 @@ function getValidBankSubjectFilterOptions() {
 }
 
 function getValidBankFilterPool(subjectVal) {
-  const validPool = questionBank.filter(isValidQ);
+  const validPool = getClassScopedQuestionBank().filter(isValidQ);
   return subjectVal === "all"
     ? validPool
     : validPool.filter(q => getQuestionSubject(q) === subjectVal);
@@ -4182,18 +4206,19 @@ function renderBank(page) {
   let idNoteHtml = "";
   if (bankIdFilterQuery) {
     const idQuery = bankIdFilterQuery;
-    let idMatches = questionBank.filter(q => String(q.id) === idQuery);
-    if (!idMatches.length) idMatches = questionBank.filter(q => String(q.id).toLowerCase() === idQuery.toLowerCase());
-    if (!idMatches.length) idMatches = questionBank.filter(q => String(q.id).toLowerCase().includes(idQuery.toLowerCase()));
+    const scopedForIdSearch = getClassScopedQuestionBank();
+    let idMatches = scopedForIdSearch.filter(q => String(q.id) === idQuery);
+    if (!idMatches.length) idMatches = scopedForIdSearch.filter(q => String(q.id).toLowerCase() === idQuery.toLowerCase());
+    if (!idMatches.length) idMatches = scopedForIdSearch.filter(q => String(q.id).toLowerCase().includes(idQuery.toLowerCase()));
     allVisible = idMatches;
     idNoteHtml = idMatches.length
       ? `<div style="background:#dbeafe;border:1.5px solid #93c5fd;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:.84rem;color:#1e40af;font-weight:600;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;"><span>🔎 ID se dhoondha: <code>${escHtml(idQuery)}</code> — ${idMatches.length} question mila.</span><button type="button" onclick="clearBankIdFilter()" style="background:#1e40af;color:#fff;border:none;border-radius:6px;padding:3px 10px;font-size:.78rem;cursor:pointer;font-weight:700;">✕ Sabhi dikhao</button></div>`
       : `<div style="background:#fee2e2;border:1.5px solid #fca5a5;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:.84rem;color:#991b1b;font-weight:600;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;"><span>❌ ID <code>${escHtml(idQuery)}</code> se koi bhi question nahi mila.</span><button type="button" onclick="clearBankIdFilter()" style="background:#991b1b;color:#fff;border:none;border-radius:6px;padding:3px 10px;font-size:.78rem;cursor:pointer;font-weight:700;">✕ Sabhi dikhao</button></div>`;
   }
 
-  // Update count badge
+  // Update count badge (is admin ki allowed Classes ke hisaab se scoped count)
   const countBadge = $("#bank-question-count");
-  if (countBadge) countBadge.textContent = questionBank.length + " questions";
+  if (countBadge) countBadge.textContent = getClassScopedQuestionBank().length + " questions";
 
   // v32: "Class 10 Assign Karein" button sirf tab dikhao jab kuch questions
   // abhi bhi untagged hon — ek baar sab migrate ho jaayein to button khud
@@ -4210,7 +4235,7 @@ function renderBank(page) {
 
   list.innerHTML = idNoteHtml;
   if (!allVisible.length) {
-    list.innerHTML += bankIdFilterQuery ? "" : (questionBank.length === 0
+    list.innerHTML += bankIdFilterQuery ? "" : (getClassScopedQuestionBank().length === 0
       ? '<p class="empty-state">⏳ Firebase se questions load ho rahi hain... Ya "🔄 Refresh from Firebase" button dabao.</p>'
       : '<p class="empty-state">Is chapter mein koi question nahi hai.</p>');
     renderTestBankPicker(); renderCustomChapters(); return;
