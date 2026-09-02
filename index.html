@@ -1026,11 +1026,15 @@
           <h4>Add Questions</h4>
           <!-- From bank -->
           <div class="field-row">
-            <label>Subject Filter</label>
+            <label>1️⃣ Class Filter</label>
+            <select id="test-bank-class-filter"></select>
+          </div>
+          <div class="field-row">
+            <label>2️⃣ Subject Filter</label>
             <select id="test-bank-subject-filter"></select>
           </div>
           <div id="test-bank-chapter-row" class="field-row" style="align-items:center;display:none;">
-            <label>Chapter Filter</label>
+            <label>3️⃣ Chapter Filter</label>
             <div style="display:flex;gap:8px;align-items:center;flex:1;">
               <select id="test-bank-chapter-filter" style="flex:1;"></select>
               <button type="button" id="delete-chapter-btn" onclick="deleteSelectedChapter()" style="display:none;background:linear-gradient(135deg,#dc2626,#b91c1c);color:#fff;border:none;border-radius:8px;padding:6px 12px;font-size:.8rem;cursor:pointer;font-weight:700;white-space:nowrap;">🗑️ Delete Chapter</button>
@@ -1107,16 +1111,22 @@
               <h3 id="bank-form-title" class="section-title" style="margin:0;">Edit Question</h3>
               <button type="button" id="bank-modal-close-x" style="background:#f3f4f6;color:#374151;border:none;border-radius:50%;width:28px;height:28px;cursor:pointer;font-weight:700;">✕</button>
             </div>
-            <div class="field-row"><label>Subject</label>
+            <div class="field-row"><label>1️⃣ Class (कक्षा)</label>
+              <select id="bank-classid" onchange="onBankClassIdChange()">
+                <option value="">-- Class chunein --</option>
+              </select>
+              <small style="color:#6b7280;font-size:.78rem;margin-top:2px;display:block;">Ye question kis Class ke liye hai — pehle Class chunein, tabhi Subject/Chapter list milegi</small>
+            </div>
+            <div class="field-row"><label>2️⃣ Subject</label>
               <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
                 <select id="bank-subject-select" style="flex:1;min-width:160px;" onchange="onBankSubjectSelectChange()">
-                  <option value="">-- Subject chunein --</option>
+                  <option value="">-- Pehle Class chunein --</option>
                 </select>
                 <input id="bank-subject" type="text" placeholder="Ya naya subject likhein..." style="flex:1;min-width:160px;" oninput="updateMathPreview()" onchange="updateMathPreview()" />
               </div>
               <small style="color:#6b7280;font-size:.78rem;margin-top:2px;display:block;">Dropdown se chunein <strong>ya</strong> naya subject manually likhein — save hone par automatically add ho jayega</small>
             </div>
-            <div class="field-row"><label>Chapter</label>
+            <div class="field-row"><label>3️⃣ Chapter</label>
               <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
                 <select id="bank-chapter-select" style="flex:1;min-width:160px;" onchange="onBankChapterSelectChange()">
                   <option value="">-- Chapter chunein --</option>
@@ -1173,12 +1183,6 @@
                 <option value="hard">🔴 Hard</option>
               </select>
             </div>
-            <div class="field-row"><label>Class (कक्षा)</label>
-              <select id="bank-classid">
-                <option value="">-- Class chunein --</option>
-              </select>
-              <small style="color:#6b7280;font-size:.78rem;margin-top:2px;display:block;">Ye question kis Class ke liye hai</small>
-            </div>
             <div class="field-row"><label>Explanation (HI)</label><textarea id="bank-explanation-hi" rows="2"></textarea></div>
             <div style="display:flex;gap:10px;flex-wrap:wrap;">
               <button type="submit" id="save-bank-question" class="btn-primary">💾 Update Question</button>
@@ -1209,8 +1213,9 @@
               <button type="button" onclick="clearBankIdFilter()" style="background:#f3f4f6;color:#374151;border:none;border-radius:8px;padding:8px 14px;font-size:.85rem;cursor:pointer;font-weight:600;white-space:nowrap;">✕ Clear</button>
             </div>
           </div>
-          <div class="field-row"><label>Filter by Subject</label><select id="bank-subject-filter"></select></div>
-          <div class="field-row"><label>Filter by Chapter</label><select id="bank-chapter-filter"></select></div>
+          <div class="field-row"><label>1️⃣ Filter by Class</label><select id="bank-class-filter"></select></div>
+          <div class="field-row"><label>2️⃣ Filter by Subject</label><select id="bank-subject-filter"></select></div>
+          <div class="field-row"><label>3️⃣ Filter by Chapter</label><select id="bank-chapter-filter"></select></div>
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
             <label style="display:flex;align-items:center;gap:6px;font-size:.85rem;font-weight:600;cursor:pointer;user-select:none;">
               <input type="checkbox" id="bank-select-all" onchange="toggleSelectAllBank(this.checked)" style="width:16px;height:16px;cursor:pointer;accent-color:#dc2626;">
@@ -1273,7 +1278,7 @@ Model Answer: समाजवाद एक आर्थिक व्यवस्
           <div class="field-row" style="display:flex;gap:14px;flex-wrap:wrap;">
             <div style="flex:1;min-width:160px;">
               <label>Class (कक्षा) <span style="color:#dc2626;">*</span></label>
-              <select id="bulk-class-select" required style="border:1px solid #cbd5e1;">
+              <select id="bulk-class-select" required style="border:1px solid #cbd5e1;" onchange="onBulkClassSelectChange()">
                 <option value="">-- Class chunein --</option>
               </select>
               <small style="color:#6b7280;font-size:.78rem;margin-top:2px;display:block;">Zaroori — ye poora batch isi Class ke liye save hoga</small>
@@ -3277,20 +3282,27 @@ function deleteChapter(subject,chapter) {
 // builtin + is browser ke localStorage cache par depend nahi karte. Isse
 // dusre device/browser se ya seeder script se add hue subjects/chapters bhi
 // dropdown mein "existing" ke roop mein dikhte hain.
-function getBankSubjectsFromData() {
+// v35: har helper ab optional `classId` leta hai — diya gaya ho to sirf
+// usi Class ke questions se Subject/Chapter list banti hai (Class → Subject
+// → Chapter cascading). classId khaali ho to purana behavior (poora bank)
+// hi milta hai — taaki jin jagah abhi tak Class select hi nahi hui, wahan
+// kuch na tootey.
+function getBankSubjectsFromData(classId) {
   if (typeof questionBank === 'undefined' || !Array.isArray(questionBank)) return [];
   var resolve = (typeof getQuestionSubject === 'function') ? getQuestionSubject : function(q){ return (q && q.subject) || ''; };
-  return [...new Set(questionBank.map(resolve).filter(Boolean))];
+  var pool = classId ? questionBank.filter(function(q){ return q && q.classId === classId; }) : questionBank;
+  return [...new Set(pool.map(resolve).filter(Boolean))];
 }
-function getBankChaptersFromData(subject) {
+function getBankChaptersFromData(subject, classId) {
   if (typeof questionBank === 'undefined' || !Array.isArray(questionBank)) return [];
   var resolve = (typeof getQuestionSubject === 'function') ? getQuestionSubject : function(q){ return (q && q.subject) || ''; };
-  return [...new Set(questionBank.filter(function(q){ return resolve(q) === subject; }).map(function(q){ return q.chapter; }).filter(Boolean))];
+  var pool = classId ? questionBank.filter(function(q){ return q && q.classId === classId; }) : questionBank;
+  return [...new Set(pool.filter(function(q){ return resolve(q) === subject; }).map(function(q){ return q.chapter; }).filter(Boolean))];
 }
 
-function getAllSubjects() {
+function getAllSubjects(classId) {
   var del=getDeletedSubjects();
-  return getBankSubjectsFromData().filter(function(s){return!del.includes(s);}).sort(function(a,b){
+  return getBankSubjectsFromData(classId).filter(function(s){return!del.includes(s);}).sort(function(a,b){
     var ai=BUILTIN_SUBJECTS.indexOf(a), bi=BUILTIN_SUBJECTS.indexOf(b);
     if(ai>=0&&bi>=0) return ai-bi;
     if(ai>=0) return -1;
@@ -3298,24 +3310,40 @@ function getAllSubjects() {
     return a.localeCompare(b);
   });
 }
-function getAllChapters(subject) {
+function getAllChapters(subject, classId) {
   var del=getDeletedChapters(subject);
-  return getBankChaptersFromData(subject).filter(function(c){return!del.includes(c);}).sort();
+  return getBankChaptersFromData(subject, classId).filter(function(c){return!del.includes(c);}).sort();
 }
 
-function populateBankSubjectDropdown(sel_val) {
+function populateBankSubjectDropdown(sel_val, classId) {
   var sel=document.getElementById('bank-subject-select'); if(!sel)return;
-  sel.innerHTML='<option value="">-- Subject chunein --</option>';
-  getAllSubjects().forEach(function(s){var o=document.createElement('option');o.value=s;o.textContent=s;if(s===sel_val)o.selected=true;sel.appendChild(o);});
+  var placeholder = classId ? '-- Subject chunein --' : '-- Pehle Class chunein --';
+  sel.innerHTML='<option value="">'+placeholder+'</option>';
+  sel.disabled = !classId;
+  getAllSubjects(classId).forEach(function(s){var o=document.createElement('option');o.value=s;o.textContent=s;if(s===sel_val)o.selected=true;sel.appendChild(o);});
 }
-function populateBankChapterDropdown(subject,sel_val) {
+function populateBankChapterDropdown(subject,sel_val,classId) {
   var sel=document.getElementById('bank-chapter-select'); if(!sel)return;
   sel.innerHTML='<option value="">-- Chapter chunein --</option>';
-  getAllChapters(subject||'').forEach(function(ch){var o=document.createElement('option');o.value=ch;o.textContent=ch;if(ch===sel_val)o.selected=true;sel.appendChild(o);});
+  sel.disabled = !classId;
+  getAllChapters(subject||'', classId).forEach(function(ch){var o=document.createElement('option');o.value=ch;o.textContent=ch;if(ch===sel_val)o.selected=true;sel.appendChild(o);});
+}
+function currentBankClassId() {
+  var el = document.getElementById('bank-classid');
+  return (el && el.value) || '';
+}
+function onBankClassIdChange() {
+  var classId = currentBankClassId();
+  // Class badalte hi Subject/Chapter selection reset — purani Class ka
+  // Subject/Chapter is naye Class mein maujood na bhi ho sakta hai.
+  document.getElementById('bank-subject').value = '';
+  document.getElementById('bank-chapter').value = '';
+  populateBankSubjectDropdown('', classId);
+  populateBankChapterDropdown('', '', classId);
 }
 function onBankSubjectSelectChange() {
   var sel=document.getElementById('bank-subject-select'),inp=document.getElementById('bank-subject');
-  if(sel.value){inp.value=sel.value;populateBankChapterDropdown(sel.value);document.getElementById('bank-chapter').value='';document.getElementById('bank-chapter-select').value='';}
+  if(sel.value){inp.value=sel.value;populateBankChapterDropdown(sel.value,'',currentBankClassId());document.getElementById('bank-chapter').value='';document.getElementById('bank-chapter-select').value='';}
   if (window.updateMathPreview) window.updateMathPreview();
 }
 function onBankChapterSelectChange() {
@@ -3323,16 +3351,18 @@ function onBankChapterSelectChange() {
   if(sel.value)inp.value=sel.value;
 }
 function onBankSubjectInputChange() {
+  var classId = currentBankClassId();
   var val=(document.getElementById('bank-subject').value||'').trim();
-  document.getElementById('bank-subject-select').value=getAllSubjects().includes(val)?val:'';
-  populateBankChapterDropdown(val);
+  document.getElementById('bank-subject-select').value=getAllSubjects(classId).includes(val)?val:'';
+  populateBankChapterDropdown(val,'',classId);
   document.getElementById('bank-chapter').value='';
   document.getElementById('bank-chapter-select').value='';
 }
 window.setBankSubject=function(subject){
+  var classId = currentBankClassId();
   var inp=document.getElementById('bank-subject'),sel=document.getElementById('bank-subject-select');
   if(inp)inp.value=subject||'';
-  populateBankSubjectDropdown(subject);populateBankChapterDropdown(subject||'');
+  populateBankSubjectDropdown(subject, classId);populateBankChapterDropdown(subject||'','',classId);
   if(sel&&subject)sel.value=subject;
   if (window.updateMathPreview) window.updateMathPreview();
 };
@@ -3365,21 +3395,42 @@ function populateBankClassDropdown(sel_val) {
   fillClassSelectOptions(document.getElementById('bank-classid'), sel_val);
 }
 // ── Bulk Upload: Subject/Chapter dropdowns (existing subjects/chapters dikhane ke liye) ──
-function populateBulkSubjectDropdown(sel_val) {
-  var sel=document.getElementById('bulk-subject-select'); if(!sel)return;
-  sel.innerHTML='<option value="">-- Subject chunein --</option>';
-  getAllSubjects().forEach(function(s){var o=document.createElement('option');o.value=s;o.textContent=s;if(s===sel_val)o.selected=true;sel.appendChild(o);});
+// v35: Class → Subject → Chapter cascading — Class chune bina Subject/
+// Chapter dropdown disabled rehte hain (khaali "-- Pehle Class chunein --"),
+// taaki admin ko sabse pehle Class chunni hi pade.
+function currentBulkClassId() {
+  var el = document.getElementById('bulk-class-select');
+  return (el && el.value) || '';
 }
-function populateBulkChapterDropdown(subject,sel_val) {
+function populateBulkSubjectDropdown(sel_val, classId) {
+  var sel=document.getElementById('bulk-subject-select'); if(!sel)return;
+  var placeholder = classId ? '-- Subject chunein --' : '-- Pehle Class chunein --';
+  sel.innerHTML='<option value="">'+placeholder+'</option>';
+  sel.disabled = !classId;
+  getAllSubjects(classId).forEach(function(s){var o=document.createElement('option');o.value=s;o.textContent=s;if(s===sel_val)o.selected=true;sel.appendChild(o);});
+}
+function populateBulkChapterDropdown(subject,sel_val,classId) {
   var sel=document.getElementById('bulk-chapter-select'); if(!sel)return;
   sel.innerHTML='<option value="">-- Chapter chunein --</option>';
-  getAllChapters(subject||'').forEach(function(ch){var o=document.createElement('option');o.value=ch;o.textContent=ch;if(ch===sel_val)o.selected=true;sel.appendChild(o);});
+  sel.disabled = !classId;
+  getAllChapters(subject||'', classId).forEach(function(ch){var o=document.createElement('option');o.value=ch;o.textContent=ch;if(ch===sel_val)o.selected=true;sel.appendChild(o);});
+}
+function onBulkClassSelectChange() {
+  var classId = currentBulkClassId();
+  // Class badalte hi Subject/Chapter reset — dusri Class ke chapter is
+  // Class mein galti se na lag jaayein.
+  document.getElementById('bulk-subject').value = '';
+  document.getElementById('bulk-chapter').value = '';
+  var hint = document.getElementById('bulk-subject-hint');
+  if (hint) hint.innerHTML = '';
+  populateBulkSubjectDropdown('', classId);
+  populateBulkChapterDropdown('', '', classId);
 }
 function onBulkSubjectSelectChange() {
   var sel=document.getElementById('bulk-subject-select'),inp=document.getElementById('bulk-subject');
   if(sel.value){
     inp.value=sel.value;
-    populateBulkChapterDropdown(sel.value);
+    populateBulkChapterDropdown(sel.value,'',currentBulkClassId());
     document.getElementById('bulk-chapter').value='';
     document.getElementById('bulk-chapter-select').value='';
   }
@@ -3392,14 +3443,16 @@ function refreshExistingSubjectChapterDropdowns() {
   var bankSubjInp=document.getElementById('bank-subject');
   var bulkSubjInp=document.getElementById('bulk-subject');
   if(document.getElementById('bank-subject-select')){
+    var bClass=currentBankClassId();
     var bSubj=(bankSubjInp&&bankSubjInp.value||'').trim();
-    populateBankSubjectDropdown(bSubj);
-    populateBankChapterDropdown(bSubj,(document.getElementById('bank-chapter')||{}).value);
+    populateBankSubjectDropdown(bSubj, bClass);
+    populateBankChapterDropdown(bSubj,(document.getElementById('bank-chapter')||{}).value, bClass);
   }
   if(document.getElementById('bulk-subject-select')){
+    var kClass=currentBulkClassId();
     var kSubj=(bulkSubjInp&&bulkSubjInp.value||'').trim();
-    populateBulkSubjectDropdown(kSubj);
-    populateBulkChapterDropdown(kSubj,(document.getElementById('bulk-chapter')||{}).value);
+    populateBulkSubjectDropdown(kSubj, kClass);
+    populateBulkChapterDropdown(kSubj,(document.getElementById('bulk-chapter')||{}).value, kClass);
   }
 }
 function levenshtein(a, b) {
@@ -3412,18 +3465,19 @@ function levenshtein(a, b) {
       dp[i][j] = a[i - 1] === b[j - 1] ? dp[i - 1][j - 1] : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
   return dp[m][n];
 }
-function findCloseSubjectMatch(val) {
+function findCloseSubjectMatch(val, classId) {
   if (!val || val.length < 3) return null;
-  const all = getAllSubjects();
+  const all = getAllSubjects(classId);
   if (all.includes(val)) return null; // exact match, no need
   let best = null, bestDist = 99;
   all.forEach(s => { const d = levenshtein(s, val); if (d < bestDist) { bestDist = d; best = s; } });
   return (best && bestDist > 0 && bestDist <= 2) ? best : null;
 }
 function onBulkSubjectInputChange() {
+  var classId = currentBulkClassId();
   var val=(document.getElementById('bulk-subject').value||'').trim();
-  document.getElementById('bulk-subject-select').value=getAllSubjects().includes(val)?val:'';
-  populateBulkChapterDropdown(val);
+  document.getElementById('bulk-subject-select').value=getAllSubjects(classId).includes(val)?val:'';
+  populateBulkChapterDropdown(val,'',classId);
   var hint = document.getElementById('bulk-subject-hint');
   if (!hint) {
     hint = document.createElement('div');
@@ -3431,22 +3485,27 @@ function onBulkSubjectInputChange() {
     hint.style = 'font-size:.78rem;color:#b45309;margin-top:2px;';
     document.getElementById('bulk-subject').parentNode.parentNode.appendChild(hint);
   }
-  const close = findCloseSubjectMatch(val);
+  const close = findCloseSubjectMatch(val, classId);
   hint.innerHTML = close
-    ? `⚠️ Kya aapka matlab tha <a href="javascript:void(0)" onclick="document.getElementById('bulk-subject').value='${close}';onBulkSubjectInputChange();populateBulkSubjectDropdown('${close}');document.getElementById('bulk-subject-select').value='${close}';" style="color:#0ea5e9;text-decoration:underline;">${close}</a>? (existing subject)`
+    ? `⚠️ Kya aapka matlab tha <a href="javascript:void(0)" onclick="document.getElementById('bulk-subject').value='${close}';onBulkSubjectInputChange();" style="color:#0ea5e9;text-decoration:underline;">${close}</a>? (existing subject)`
     : '';
 }
 document.addEventListener('DOMContentLoaded', function(){
-  populateBulkSubjectDropdown('Mathematics');
-  populateBulkChapterDropdown('Mathematics');
   populateBulkClassDropdown(); // koi sel_val nahi — blank hi rehta hai, admin ko khud chunna hoga
+  // Class abhi tak nahi chuni gayi — Subject/Chapter dropdown khaali/
+  // disabled shuru hote hain, jab tak admin Class na chun le.
+  populateBulkSubjectDropdown('', '');
+  populateBulkChapterDropdown('', '', '');
+  document.getElementById('bulk-subject').value = '';
+  document.getElementById('bulk-chapter').value = '';
 });
 var bulkUploadTabBtn=document.getElementById('bulk-upload-tab');
 if(bulkUploadTabBtn){
   bulkUploadTabBtn.addEventListener('click', function(){
+    var classId = currentBulkClassId();
     var s=document.getElementById('bulk-subject').value||'';
-    populateBulkSubjectDropdown(s);
-    populateBulkChapterDropdown(s);
+    populateBulkSubjectDropdown(s, classId);
+    populateBulkChapterDropdown(s, '', classId);
   });
 }
 
@@ -3510,16 +3569,18 @@ function renderManageChapters(){
 function confirmDeleteSubject(subj){
   if(!confirm('Delete "'+subj+'" subject?\n\nDropdown se hat jayega. Existing questions safe rahenge.'))return;
   deleteSubject(subj);
+  var classId = currentBankClassId();
   var cur=(document.getElementById('bank-subject')||{}).value;
-  populateBankSubjectDropdown(cur===subj?'':cur);
-  if(cur===subj&&document.getElementById('bank-subject')){document.getElementById('bank-subject').value='';populateBankChapterDropdown('');}
+  populateBankSubjectDropdown(cur===subj?'':cur, classId);
+  if(cur===subj&&document.getElementById('bank-subject')){document.getElementById('bank-subject').value='';populateBankChapterDropdown('','',classId);}
   renderManagePanel();
 }
 function confirmDeleteChapter(subject,chapter){
   if(!confirm('Delete "'+chapter+'" chapter?\n\nDropdown se hat jayega. Existing questions safe rahenge.'))return;
   deleteChapter(subject,chapter);
+  var classId = currentBankClassId();
   var cur=(document.getElementById('bank-chapter')||{}).value;
-  populateBankChapterDropdown(subject,cur===chapter?'':cur);
+  populateBankChapterDropdown(subject,cur===chapter?'':cur, classId);
   if(cur===chapter&&document.getElementById('bank-chapter'))document.getElementById('bank-chapter').value='';
   renderManagePanel();
 }
@@ -3812,11 +3873,13 @@ document.addEventListener('DOMContentLoaded',function(){
     var chap=(document.getElementById('bank-chapter').value||'').trim();
     if(subj)saveCustomSubject(subj);
     if(subj&&chap)saveCustomChapter(subj,chap);
-    setTimeout(function(){populateBankSubjectDropdown(subj);populateBankChapterDropdown(subj,chap);},300);
+    var classId = currentBankClassId();
+    setTimeout(function(){populateBankSubjectDropdown(subj,classId);populateBankChapterDropdown(subj,chap,classId);},300);
   },true);}
-  populateBankSubjectDropdown('Mathematics');
-  populateBankChapterDropdown('Mathematics');
-  if(document.getElementById('bank-subject'))document.getElementById('bank-subject').value='Mathematics';
+  // Modal khulte hi populateBankForm() Class ke hisaab se sahi values bhar
+  // deta hai — yahan sirf ek safe empty/disabled starting state hai.
+  populateBankSubjectDropdown('', '');
+  populateBankChapterDropdown('', '', '');
 });
 </script>
 <script>

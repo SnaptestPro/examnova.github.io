@@ -647,6 +647,16 @@ function init() {
   bindEvent("#bank-form", 'onsubmit', saveBankQuestion);
   bindEvent("#bank-modal-close-x", 'onclick', cancelBankEdit);
   bindEvent("#bank-edit-modal", 'onclick', (e) => { if (e.target.id === 'bank-edit-modal') cancelBankEdit(); });
+  bindEvent("#bank-class-filter", 'onchange', () => {
+    const subj = $("#bank-subject-filter");
+    const chap = $("#bank-chapter-filter");
+    if (subj) subj.value = "all";
+    if (chap) chap.value = "all";
+    bankIdFilterQuery = "";
+    const idInput = $("#bank-id-search-input");
+    if (idInput) idInput.value = "";
+    renderBank();
+  });
   bindEvent("#bank-subject-filter", 'onchange', () => {
     const chap = $("#bank-chapter-filter");
     if (chap) chap.value = "all";
@@ -660,6 +670,13 @@ function init() {
     const idInput = $("#bank-id-search-input");
     if (idInput) idInput.value = "";
     renderBank();
+  });
+  bindEvent("#test-bank-class-filter", 'onchange', () => {
+    const subj = $("#test-bank-subject-filter");
+    const chap = $("#test-bank-chapter-filter");
+    if (subj) subj.value = "all";
+    if (chap) chap.value = "all";
+    renderTestBankPicker();
   });
   bindEvent("#test-bank-subject-filter", 'onchange', () => {
     const chap = $("#test-bank-chapter-filter");
@@ -2224,10 +2241,16 @@ function getCustomSubjectOptions() {
   return [...new Set(pool.map(getQuestionSubject).filter(Boolean))].sort();
 }
 
-function getBankSubjectFilterOptions() {
+// classIdVal: agar admin ne Bank tab ke "1️⃣ Filter by Class" dropdown se
+// koi Class choose kar rakhi hai, to Subject list sirf usi Class ke
+// questions tak simit ho jaati hai (Class → Subject → Chapter cascading).
+// "all"/khaali = koi class-filter nahi (purana behavior).
+function getBankSubjectFilterOptions(classIdVal) {
   // Sirf wahi subjects dikhao jisme kam se kam 1 question ho (aur jo is
   // admin ke institute ki allowed Classes ke andar ho)
-  const activeSubjects = [...new Set(getClassScopedQuestionBank().map(getQuestionSubject).filter(Boolean))];
+  const scoped = getClassScopedQuestionBank();
+  const pool = (classIdVal && classIdVal !== "all") ? scoped.filter(q => q.classId === classIdVal) : scoped;
+  const activeSubjects = [...new Set(pool.map(getQuestionSubject).filter(Boolean))];
   if (window.SubjectResolver) {
     const standard = window.SubjectResolver.STANDARD_SUBJECTS;
     return [...new Set([...standard.filter(s => activeSubjects.includes(s)), ...activeSubjects])]
@@ -2240,6 +2263,22 @@ function getBankSubjectFilterOptions() {
       });
   }
   return activeSubjects.sort();
+}
+
+// Bank tab ke "1️⃣ Filter by Class" dropdown ko populate karta hai — sirf
+// wahi Classes dikhata hai jinke questions is admin ke institute ko
+// (allowed Classes ke hisaab se) dikh rahe hain, taaki khaali options na
+// aayein.
+function getBankClassFilterOptions() {
+  const scoped = getClassScopedQuestionBank();
+  const ids = [...new Set(scoped.map(q => q.classId).filter(Boolean))];
+  const opts = window.SAVYA_CLASS_OPTIONS || [
+    { id: "class_9", label: "Class 9" }, { id: "class_10", label: "Class 10" },
+    { id: "class_11", label: "Class 11" }, { id: "class_12", label: "Class 12" }
+  ];
+  return ids
+    .sort()
+    .map(id => (opts.find(o => o.id === id) || { id, label: id }));
 }
 
 function syncCustomSubjectFilter() {
@@ -4074,8 +4113,9 @@ async function saveTest(e) {
 /* ══════════════════════════════════════════
    BANK ADMIN
 ══════════════════════════════════════════ */
-function getBankFilterPool(subjectVal) {
-  const scoped = getClassScopedQuestionBank();
+function getBankFilterPool(subjectVal, classIdVal) {
+  let scoped = getClassScopedQuestionBank();
+  if (classIdVal && classIdVal !== "all") scoped = scoped.filter(q => q.classId === classIdVal);
   return subjectVal === "all"
     ? scoped
     : scoped.filter(q => getQuestionSubject(q) === subjectVal);
@@ -4088,8 +4128,9 @@ function getBankFilterPool(subjectVal) {
 // na ho. (Broken/draft questions Question Bank admin-edit screen mein
 // dikhte rehte hain, taaki unhe fix kiya ja sake — wahan ye filter nahi
 // lagta, sirf test-building flow mein lagta hai.)
-function getValidBankSubjectFilterOptions() {
-  const validPool = getClassScopedQuestionBank().filter(isValidQ);
+function getValidBankSubjectFilterOptions(classIdVal) {
+  let validPool = getClassScopedQuestionBank().filter(isValidQ);
+  if (classIdVal && classIdVal !== "all") validPool = validPool.filter(q => q.classId === classIdVal);
   const activeSubjects = [...new Set(validPool.map(getQuestionSubject).filter(Boolean))];
   if (window.SubjectResolver) {
     const standard = window.SubjectResolver.STANDARD_SUBJECTS;
@@ -4105,15 +4146,28 @@ function getValidBankSubjectFilterOptions() {
   return activeSubjects.sort();
 }
 
-function getValidBankFilterPool(subjectVal) {
+// Test Bank Picker ke "1️⃣ Class Filter" dropdown ke options — sirf wahi
+// Classes jinke *valid* (usable) questions is admin ko dikh rahe hain.
+function getValidBankClassFilterOptions() {
   const validPool = getClassScopedQuestionBank().filter(isValidQ);
+  const ids = [...new Set(validPool.map(q => q.classId).filter(Boolean))];
+  const opts = window.SAVYA_CLASS_OPTIONS || [
+    { id: "class_9", label: "Class 9" }, { id: "class_10", label: "Class 10" },
+    { id: "class_11", label: "Class 11" }, { id: "class_12", label: "Class 12" }
+  ];
+  return ids.sort().map(id => (opts.find(o => o.id === id) || { id, label: id }));
+}
+
+function getValidBankFilterPool(subjectVal, classIdVal) {
+  let validPool = getClassScopedQuestionBank().filter(isValidQ);
+  if (classIdVal && classIdVal !== "all") validPool = validPool.filter(q => q.classId === classIdVal);
   return subjectVal === "all"
     ? validPool
     : validPool.filter(q => getQuestionSubject(q) === subjectVal);
 }
 
-function getFilteredBankQuestions(subjectVal, chapterVal) {
-  let visible = getBankFilterPool(subjectVal);
+function getFilteredBankQuestions(subjectVal, chapterVal, classIdVal) {
+  let visible = getBankFilterPool(subjectVal, classIdVal);
   if (chapterVal !== "all") visible = visible.filter(q => q.chapter === chapterVal);
   return visible;
 }
@@ -4183,18 +4237,25 @@ function copyQuestionIdToClipboard(id, btnEl) {
 window.copyQuestionIdToClipboard = copyQuestionIdToClipboard;
 
 function renderBank(page) {
+  const classFilter = $("#bank-class-filter");
   const subjFilter = $("#bank-subject-filter");
   const chapFilter = $("#bank-chapter-filter");
+  const curClass = classFilter?.value || "all";
   const curSubj = subjFilter?.value || "all";
   const curChap = chapFilter?.value || "all";
 
-  fillFilter(subjFilter, getBankSubjectFilterOptions(), curSubj, "— None (All subjects) —");
+  // 1️⃣ Class → 2️⃣ Subject → 3️⃣ Chapter cascading: pehle Class dropdown
+  // khud bharo (sirf wahi Classes jinke questions maujood hain), phir
+  // Subject list ko us chuni gayi Class tak simit karo, phir Chapter list
+  // ko Class+Subject tak.
+  fillClassFilter(classFilter, getBankClassFilterOptions(), curClass);
+  fillFilter(subjFilter, getBankSubjectFilterOptions(classFilter?.value), curSubj, "— None (All subjects) —");
 
-  const pool = getBankFilterPool(subjFilter.value);
+  const pool = getBankFilterPool(subjFilter.value, classFilter?.value);
   const chaps = [...new Set(pool.map(q => q.chapter).filter(Boolean))].sort();
   fillFilter(chapFilter, chaps, curChap, "— None (All chapters) —");
 
-  const allVisible0 = getFilteredBankQuestions(subjFilter.value, chapFilter.value);
+  const allVisible0 = getFilteredBankQuestions(subjFilter.value, chapFilter.value, classFilter?.value);
   const searchVal = ($("#bank-search-input")?.value || "").trim().toLowerCase();
   let allVisible = searchVal
     ? allVisible0.filter(q => ((q.text || q.textHI || "") + " " + (q.textEN || "")).toLowerCase().includes(searchVal))
@@ -4390,20 +4451,32 @@ function renderBank(page) {
 
 
 function renderTestBankPicker() {
+  const classFilter = $("#test-bank-class-filter");
   const subjFilter = $("#test-bank-subject-filter");
   const chapFilter = $("#test-bank-chapter-filter");
   const chapRow    = $("#test-bank-chapter-row");
+  const curClass = classFilter?.value || "all";
   const curSubj = subjFilter?.value || "all";
   const curChap = chapFilter?.value || "all";
 
-  fillFilter(subjFilter, getValidBankSubjectFilterOptions(), curSubj, "— Pehle Subject chunein —");
+  // 1️⃣ Class → 2️⃣ Subject → 3️⃣ Chapter cascading
+  fillClassFilter(classFilter, getValidBankClassFilterOptions(), curClass, "— Pehle Class chunein —");
+  const classSelected = classFilter?.value && classFilter.value !== "all";
 
-  const subjectSelected = subjFilter.value && subjFilter.value !== "all";
+  fillFilter(subjFilter, getValidBankSubjectFilterOptions(classFilter?.value), curSubj, classSelected ? "— Pehle Subject chunein —" : "— Pehle Class chunein —");
 
-  // Hide chapter row and list until a subject is chosen
+  const subjectSelected = classSelected && subjFilter.value && subjFilter.value !== "all";
+
+  // Hide chapter row and list until class + subject dono chuni ja chuki hon
   if (chapRow) chapRow.style.display = subjectSelected ? "" : "none";
 
   const list = $("#test-bank-list");
+  if (!classSelected) {
+    list.innerHTML = '<p class="empty-state" style="color:#94a3b8;">⬆️ Pehle Class select karein, phir Subject aur Chapter dikhenge.</p>';
+    const delBtn = $("#delete-chapter-btn");
+    if (delBtn) delBtn.style.display = "none";
+    return;
+  }
   if (!subjectSelected) {
     list.innerHTML = '<p class="empty-state" style="color:#94a3b8;">⬆️ Pehle Subject select karein, phir chapter aur questions dikhenge.</p>';
     const delBtn = $("#delete-chapter-btn");
@@ -4411,7 +4484,7 @@ function renderTestBankPicker() {
     return;
   }
 
-  const pool = getValidBankFilterPool(subjFilter.value);
+  const pool = getValidBankFilterPool(subjFilter.value, classFilter?.value);
   const chaps = [...new Set(pool.map(q => q.chapter).filter(Boolean))].sort();
   fillFilter(chapFilter, chaps, curChap, "— None (All chapters) —");
 
@@ -4498,7 +4571,12 @@ async function deleteSelectedChapter() {
   const filter = $("#test-bank-chapter-filter");
   const chapterName = filter?.value;
   if (!chapterName || chapterName === "all") { alert("Pehle ek specific chapter select karo."); return; }
-  const questionsInChapter = questionBank.filter(q => q.chapter === chapterName);
+  // v35: sirf currently-selected Class ke chapter delete karo — warna agar
+  // 2 alag Classes mein galti se same chapter naam ho (jaise "Number
+  // System" Class 9 aur Class 10 dono mein), to dusri Class ke questions
+  // bhi galti se delete ho sakte the.
+  const classId = $("#test-bank-class-filter")?.value;
+  const questionsInChapter = questionBank.filter(q => q.chapter === chapterName && (!classId || classId === "all" || q.classId === classId));
   if (!questionsInChapter.length) { alert("Is chapter mein koi question nahi hai."); return; }
   if (!confirm('"' + chapterName + '" chapter ke saare ' + questionsInChapter.length + ' questions Recycle Bin mein move honge.\n\nWahan se restore ya permanently delete kar sakte ho.\n\nContinue karein?')) return;
 
@@ -4551,6 +4629,21 @@ function fillFilter(sel, items, cur, noneLabel = "— None —") {
   sel.value = items.includes(cur) ? cur : "all";
 }
 
+// Jaisa fillFilter() upar, bas Class dropdowns ke liye — options {id, label}
+// pairs hote hain (value != displayed text), isliye alag helper.
+function fillClassFilter(sel, classOpts, cur, noneLabel) {
+  if (!sel) return;
+  sel.innerHTML = `<option value="all">${noneLabel || "— Sabhi Classes —"}</option>`;
+  classOpts.forEach(c => {
+    const op = document.createElement("option");
+    op.value = c.id;
+    op.textContent = c.label;
+    sel.appendChild(op);
+  });
+  const ids = classOpts.map(c => c.id);
+  sel.value = ids.includes(cur) ? cur : "all";
+}
+
 function showBankModal(title) {
   const modal = $("#bank-edit-modal");
   if (modal) modal.classList.remove("hidden");
@@ -4571,6 +4664,16 @@ function editBank(id) {
 }
 
 function populateBankForm(q) {
+  // v35: Class dropdown SABSE PEHLE bharo — Subject/Chapter dropdowns ab
+  // Class ke hisaab se cascade hote hain (getAllSubjects/getAllChapters
+  // classId leti hain), isliye jab tak Class set na ho, Subject list
+  // khaali/disabled rahegi. Isko setBankSubject() se pehle karna zaroori
+  // hai, warna existing question ki Subject/Chapter dropdown mein sahi
+  // options nahi aayenge.
+  if ($("#bank-classid")) {
+    if (typeof populateBankClassDropdown === "function") populateBankClassDropdown(q.classId || "");
+    else $("#bank-classid").value = q.classId || "";
+  }
   // Set subject: dropdown + text input
   window.setBankSubject(q.subject || "Mathematics");
   $("#bank-chapter").value = q.chapter || "";
@@ -4584,10 +4687,6 @@ function populateBankForm(q) {
   if ($("#bank-marks")) $("#bank-marks").value = (q.marks !== undefined && q.marks !== null) ? q.marks : "";
   onBankQTypeChange();
   if ($("#bank-difficulty")) $("#bank-difficulty").value = q.difficulty || "";
-  if ($("#bank-classid")) {
-    if (typeof populateBankClassDropdown === "function") populateBankClassDropdown(q.classId || "");
-    else $("#bank-classid").value = q.classId || "";
-  }
   if ($("#bank-manual-latex")) $("#bank-manual-latex").checked = !!q.mathManual;
   if (window.updateMathPreview) window.updateMathPreview();
 }
@@ -7076,6 +7175,50 @@ async function migrateQuestionBankToClass10() {
 }
 window.migrateQuestionBankToClass10 = migrateQuestionBankToClass10;
 
+// v35-auto: Bilkul migrateQuestionBankToClass10() jaisa hi kaam karta hai
+// (untagged questions ko "class_10" assign karta hai), bas silently —
+// koi confirm()/alert() popup nahi, taaki ye background mein khud-ba-khud
+// chal sake (dekho scheduleAutoClassIdMigration neeche). Isi wajah se
+// purane, kabhi-bhi-touch-na-hue questions ki ID bhi ab bina kisi button
+// dabaye apne aap naye "Class-Chapter-Serial" format mein migrate ho
+// jaati hai — pehle sirf classId set karna manual tha (button), ab wo
+// step bhi auto hai.
+let _autoTagRunning = false;
+async function autoAssignMissingClassId() {
+  if (_autoTagRunning) return false;
+  const db = getDB();
+  if (!db) return false;
+  const untagged = questionBank.filter(q => !q.classId);
+  if (!untagged.length) return false;
+
+  _autoTagRunning = true;
+  console.log(`[autoAssignMissingClassId] ${untagged.length} untagged question(s) ko background mein "Class 10" assign kiya ja raha hai...`);
+  const CHUNK = 490;
+  let done = 0;
+  try {
+    for (let i = 0; i < untagged.length; i += CHUNK) {
+      const slice = untagged.slice(i, i + CHUNK);
+      const batch = db.batch();
+      slice.forEach(q => {
+        batch.update(db.collection("questionBank").doc(q.id), { classId: "class_10" });
+      });
+      await batch.commit();
+      done += slice.length;
+    }
+    questionBank.forEach(q => { if (!q.classId) q.classId = "class_10"; });
+    window.questionBank = questionBank;
+    saveBankCacheQuietly(questionBank);
+    console.log(`[autoAssignMissingClassId] ✅ ${done} question(s) ko "Class 10" auto-assign ho gaya.`);
+    return done > 0;
+  } catch (err) {
+    console.error(`[autoAssignMissingClassId] ${done} ho chuke, baaki mein error aayi (agli auto-run mein resume hoga):`, err);
+    return done > 0;
+  } finally {
+    _autoTagRunning = false;
+  }
+}
+window.autoAssignMissingClassId = autoAssignMissingClassId;
+
 // v34-auto: Ab koi button nahi hai — purani questionBank doc IDs jinme
 // abhi readable "Class-Chapter-Serial" format nahi hai (jaise
 // "class10-Number-System-1"), unke liye ye function khud-ba-khud
@@ -7177,17 +7320,27 @@ window.autoMigrateClassIdIntoDocId = autoMigrateClassIdIntoDocId;
 // si delay (debounce) ke baad khud migration shuru kar deta hai. Isse
 // admin ko koi button dabana nahi padta, aur agar ek hi snapshot update
 // mein ye baar-baar trigger ho to bhi sirf ek hi run chalti hai.
+//
+// v35-fix: Pehle ye sirf un questions ko dekhta tha jinme classId already
+// set ho — agar koi purana question bilkul untagged hi ho (classId hi na
+// ho), to wo hamesha ke liye skip ho jaata tha aur uski ID kabhi update
+// nahi hoti thi ("auto update kaam nahi kar raha" wali exact complaint).
+// Ab pehle silently untagged questions ko bhi class assign kiya jaata hai
+// (autoAssignMissingClassId — dekho upar), phir rename step chalta hai —
+// dono chup-chaap background mein, kisi button ke bina.
 let _classIdAutoMigrateScheduled = false;
 function scheduleAutoClassIdMigration() {
-  if (_classIdAutoMigrateScheduled || _classIdAutoMigrateRunning) return;
+  if (_classIdAutoMigrateScheduled || _classIdAutoMigrateRunning || _autoTagRunning) return;
   const SR = window.SubjectResolver;
   if (!SR) return;
+  const hasUntagged = questionBank.some(q => !q.classId);
   const hasPending = questionBank.some(q => q.classId && !SR.docIdMatchesScheme(q.id, q.classId, q.chapter));
-  if (!hasPending) return;
+  if (!hasUntagged && !hasPending) return;
   _classIdAutoMigrateScheduled = true;
-  setTimeout(() => {
+  setTimeout(async () => {
     _classIdAutoMigrateScheduled = false;
-    autoMigrateClassIdIntoDocId();
+    if (hasUntagged) await autoAssignMissingClassId();
+    await autoMigrateClassIdIntoDocId();
   }, 800);
 }
 window.scheduleAutoClassIdMigration = scheduleAutoClassIdMigration;

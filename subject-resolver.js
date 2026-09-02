@@ -201,6 +201,32 @@
     });
   }
 
+  // ── Class-first cascading filters (Class → Subject → Chapter) ──
+  // Poore app mein (Question Bank, Bulk Upload, Paper Generator, Question
+  // Generator tool) admin ko sabse pehle Class choose karna hota hai —
+  // uske baad Subject dropdown mein sirf wahi Subjects dikhne chahiye
+  // jinme us Class ke questions maujood hain, aur Chapter dropdown mein
+  // sirf wahi Chapters jo us Class + Subject combination ke hain.
+  //
+  // `classId` khaali/na diya gaya ho to koi bhi class-filtering nahi hoti
+  // (poora data dikhta hai) — taaki jab tak admin Class chunta nahi, purana
+  // behavior hi bana rahe.
+  function itemsForClass(items, classId) {
+    if (!classId) return items || [];
+    return (items || []).filter(q => q && q.classId === classId);
+  }
+
+  function getSubjectsForClass(items, classId, resolver) {
+    const scoped = itemsForClass(items, classId);
+    return getSubjectFilterOptions(scoped, resolver);
+  }
+
+  function getChaptersForClass(items, classId, subject, resolver) {
+    let scoped = itemsForClass(items, classId);
+    if (subject) scoped = scoped.filter(q => resolver(q) === subject);
+    return [...new Set(scoped.map(q => q && q.chapter).filter(Boolean))].sort();
+  }
+
   // v34: Question Bank doc ID scheme — Class + Chapter + Serial number.
   // e.g. classId "class_10", chapter "Number System" → serial 1 gives
   // "class10-Number-System-1". Chapter naam ko dash-separated slug mein
@@ -258,6 +284,9 @@
     SUBJECT_CHAPTERS,
     resolveQuestionSubject,
     getSubjectFilterOptions,
+    itemsForClass,
+    getSubjectsForClass,
+    getChaptersForClass,
     inferSubjectFromChapter,
     inferSubjectFromDocId,
     classIdToLabel,

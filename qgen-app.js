@@ -431,7 +431,7 @@ async function confirmBulkUpload_QG() {
       await saveBankQuestionToCloud(docId, { text: q.text, opts: q.opts, ans: q.ans, chapter, qType: q.qType, marks: q.marks, modelAnswer: q.modelAnswer || '', classId }, subject);
       // Also drop straight into the current paper so the whole batch is
       // ready to use immediately, without needing to re-find it in the bank.
-      const bankArr = [q.text, q.opts, q.ans, chapter, docId, subject, q.qType, q.marks, q.modelAnswer || ''];
+      const bankArr = [q.text, q.opts, q.ans, chapter, docId, subject, q.qType, q.marks, q.modelAnswer || '', null, classId];
       const bankIdx = window.QUESTION_BANK.length;
       window.QUESTION_BANK.push(bankArr);
       const newQ = addQFromBank(bankArr, bankIdx);
@@ -650,7 +650,7 @@ function fetchBankFromFirebase() {
       const marks   = (data.marks !== undefined && data.marks !== null) ? data.marks : null;
       const modelAnswer = data.modelAnswer || '';
       const difficulty  = (data.difficulty || '').toLowerCase();
-      return [text, options, ans, chapter, d.id, subject, qType, marks, modelAnswer, difficulty];
+      return [text, options, ans, chapter, d.id, subject, qType, marks, modelAnswer, difficulty, (data.classId || '')];
     });
   }
 
@@ -737,17 +737,23 @@ function getBankSubjectOptions(bank) {
 // or whatever's actually in the live bank) while still being free to
 // type a brand-new one. Kept separate from the strict bankSubject/
 // bankChapter <select> filters above, which only ever show existing data.
-function getAllKnownSubjects() {
+// v35: classId diya jaaye to sirf usi Class ke bank-questions se Subject/
+// Chapter list banti hai (Class → Subject → Chapter cascading) — Question
+// Generator tool mein ab Class field sabse pehle hai (qClass/bulkClass),
+// aur usi ke hisaab se ye datalists refresh hoti hain.
+function getAllKnownSubjects(classId) {
   const bank = window.QUESTION_BANK || [];
-  const fromBank = getBankSubjectOptions(bank);
-  const standard = window.SubjectResolver?.STANDARD_SUBJECTS || [];
+  const pool = classId ? bank.filter(q => q[10] === classId) : bank;
+  const fromBank = getBankSubjectOptions(pool);
+  const standard = classId ? [] : (window.SubjectResolver?.STANDARD_SUBJECTS || []);
   return [...new Set([...standard, ...fromBank])];
 }
 
-function getChaptersForSubject(subject) {
+function getChaptersForSubject(subject, classId) {
   const bank = window.QUESTION_BANK || [];
-  const predefined = (subject && window.SubjectResolver?.SUBJECT_CHAPTERS?.[subject]) || [];
-  const pool = subject ? bank.filter(q => getBankSubject(q) === subject) : bank;
+  let pool = classId ? bank.filter(q => q[10] === classId) : bank;
+  if (subject) pool = pool.filter(q => getBankSubject(q) === subject);
+  const predefined = (!classId && subject && window.SubjectResolver?.SUBJECT_CHAPTERS?.[subject]) || [];
   const fromBank = [...new Set(pool.map(q => q[3]).filter(Boolean))];
   return [...new Set([...predefined, ...fromBank])].sort();
 }
@@ -762,33 +768,64 @@ function fillDatalist(datalistId, values) {
 // bank data. Safe to call often — e.g. whenever the bank re-syncs, or a
 // side-panel tab that uses these fields is opened.
 function refreshSubjectDatalists() {
-  const subjects = getAllKnownSubjects();
-  fillDatalist('qSubjectList', subjects);
-  fillDatalist('bulkSubjectList', subjects);
+  const qClassId = document.getElementById('qClass')?.value || '';
+  const bulkClassId = document.getElementById('bulkClass')?.value || '';
+  fillDatalist('qSubjectList', getAllKnownSubjects(qClassId));
+  fillDatalist('bulkSubjectList', getAllKnownSubjects(bulkClassId));
 }
 
 // Repopulates a Chapter datalist based on whatever Subject is currently
 // typed into the paired Subject input, combining that subject's
-// predefined chapter list with any chapters already used in the bank.
+// predefined chapter list with any chapters already used in the bank —
+// scoped to whichever Class is currently chosen for that panel.
 function refreshChapterDatalist(subjectInputId, chapterListId) {
   const subj = document.getElementById(subjectInputId)?.value.trim();
-  fillDatalist(chapterListId, getChaptersForSubject(subj));
+  const classFieldId = subjectInputId === 'bulkSubject' ? 'bulkClass' : 'qClass';
+  const classId = document.getElementById(classFieldId)?.value || '';
+  fillDatalist(chapterListId, getChaptersForSubject(subj, classId));
 }
+
+// Class field badalte hi Subject/Chapter datalists ko us Class ke hisaab
+// se refresh karo, aur pehle se bhare Subject/Chapter ko reset karo taaki
+// galti se dusri Class ka chapter is Class mein na lag jaaye.
+function onQClassChange() {
+  const classId = document.getElementById('qClass')?.value || '';
+  fillDatalist('qSubjectList', getAllKnownSubjects(classId));
+  const subjInp = document.getElementById('qSubject');
+  if (subjInp) subjInp.value = '';
+  const chapInp = document.getElementById('qChapter');
+  if (chapInp) chapInp.value = '';
+  fillDatalist('qChapterList', getChaptersForSubject('', classId));
+}
+function onBulkQClassChange() {
+  const classId = document.getElementById('bulkClass')?.value || '';
+  fillDatalist('bulkSubjectList', getAllKnownSubjects(classId));
+  const subjInp = document.getElementById('bulkSubject');
+  if (subjInp) subjInp.value = '';
+  const chapInp = document.getElementById('bulkChapter');
+  if (chapInp) chapInp.value = '';
+  fillDatalist('bulkChapterList', getChaptersForSubject('', classId));
+}
+window.onQClassChange = onQClassChange;
+window.onBulkQClassChange = onBulkQClassChange;
 
 function buildBankList() {
   const bank = window.QUESTION_BANK || [];
   refreshSubjectDatalists();
+  const classSel = document.getElementById('bankClassFilter');
   const subjSel = document.getElementById('bankSubject');
   const chapSel = document.getElementById('bankChapter');
+  const curClass = classSel?.value || '';
   const curSubj = subjSel?.value || '';
   const curChap = chapSel?.value || '';
 
-  const subjects = getBankSubjectOptions(bank);
+  const classPool = curClass ? bank.filter(q => q[10] === curClass) : bank;
+  const subjects = getBankSubjectOptions(classPool);
   subjSel.innerHTML = '<option value="">— कोई नहीं (Subject) —</option>' +
     subjects.map(s => `<option value="${escAttr(s)}">${escHtml(s)}</option>`).join('');
   subjSel.value = subjects.includes(curSubj) ? curSubj : '';
 
-  const pool = curSubj ? bank.filter(q => getBankSubject(q) === curSubj) : bank;
+  const pool = subjSel.value ? classPool.filter(q => getBankSubject(q) === subjSel.value) : classPool;
   const chapters = [...new Set(pool.map(q => q[3]).filter(Boolean))].sort();
   chapSel.innerHTML = '<option value="">— कोई नहीं (Chapter) —</option>' +
     chapters.map(c => `<option value="${escAttr(c)}">${escHtml(c)}</option>`).join('');
@@ -796,6 +833,26 @@ function buildBankList() {
 
   filterBankDebounced();
 }
+
+// Reuse-from-Bank list ke "Class" filter — Subject/Chapter dropdown ab
+// isi chuni gayi Class tak simit ho jaate hain (Class → Subject → Chapter).
+function onBankClassFilterChange() {
+  const classId = document.getElementById('bankClassFilter')?.value || '';
+  const bank = window.QUESTION_BANK || [];
+  const classPool = classId ? bank.filter(q => q[10] === classId) : bank;
+  const subjSel = document.getElementById('bankSubject');
+  const chapSel = document.getElementById('bankChapter');
+  const subjects = getBankSubjectOptions(classPool);
+  subjSel.innerHTML = '<option value="">— कोई नहीं (Subject) —</option>' +
+    subjects.map(s => `<option value="${escAttr(s)}">${escHtml(s)}</option>`).join('');
+  subjSel.value = '';
+  const chapters = [...new Set(classPool.map(q => q[3]).filter(Boolean))].sort();
+  chapSel.innerHTML = '<option value="">— कोई नहीं (Chapter) —</option>' +
+    chapters.map(c => `<option value="${escAttr(c)}">${escHtml(c)}</option>`).join('');
+  chapSel.value = '';
+  filterBank();
+}
+window.onBankClassFilterChange = onBankClassFilterChange;
 
 function toggleAutogenBox() {
   document.getElementById('autogenFields')?.classList.toggle('hidden');
@@ -860,9 +917,11 @@ function autoGenerateByDifficulty() {
 
 function onBankSubjectChange() {
   const bank = window.QUESTION_BANK || [];
+  const classId = document.getElementById('bankClassFilter')?.value || '';
   const subj = document.getElementById('bankSubject').value;
   const chapSel = document.getElementById('bankChapter');
-  const pool = subj ? bank.filter(q => getBankSubject(q) === subj) : bank;
+  let pool = classId ? bank.filter(q => q[10] === classId) : bank;
+  pool = subj ? pool.filter(q => getBankSubject(q) === subj) : pool;
   const chapters = [...new Set(pool.map(q => q[3]).filter(Boolean))].sort();
   chapSel.innerHTML = '<option value="">— कोई नहीं (Chapter) —</option>' +
     chapters.map(c => `<option value="${escAttr(c)}">${escHtml(c)}</option>`).join('');
@@ -981,6 +1040,7 @@ function getBankIdx(q) {
 
 function filterBank() {
   const search = document.getElementById('bankSearch').value.toLowerCase().trim();
+  const classId = document.getElementById('bankClassFilter')?.value || '';
   const subj   = document.getElementById('bankSubject').value;
   const chap   = document.getElementById('bankChapter').value;
   const qtype  = document.getElementById('bankQType')?.value || '';
@@ -997,6 +1057,7 @@ function filterBank() {
   // Use requestIdleCallback for large datasets if available
   const doFilter = () => {
     const filtered = bank.filter(q => {
+      const matchClass  = !classId || q[10] === classId;
       const matchSubj   = !subj || getBankSubject(q) === subj;
       const matchChap   = !chap || q[3] === chap;
       const matchSearch = !search || q[0].toLowerCase().includes(search) ||
@@ -1007,7 +1068,7 @@ function filterBank() {
       // marks field here), so it's a no-op unless "Subjective" type is
       // also selected — the UI hides the marks dropdown otherwise anyway.
       const matchMarks  = !marksSel || (qType === 'subjective' && String(q[7] ?? '') === marksSel);
-      return matchSubj && matchChap && matchSearch && matchQType && matchMarks;
+      return matchClass && matchSubj && matchChap && matchSearch && matchQType && matchMarks;
     });
 
     // Push questions already used in another saved test to the end —
@@ -1691,7 +1752,7 @@ async function saveToBank() {
   const serial = window.SubjectResolver.nextSerialForGroup(bankAsIdList, classId, chap);
   const docId = window.SubjectResolver.buildQuestionDocId(classId, chap, serial);
   const subject = subj || 'General';
-  const newQ = [text,[optA,optB,optC,optD],ans,chap, docId, subject, qType, marks, modelAnswer];
+  const newQ = [text,[optA,optB,optC,optD],ans,chap, docId, subject, qType, marks, modelAnswer, null, classId];
   
   window.QUESTION_BANK.unshift(newQ); // Add to top of local bank
   addCustomQuestion(); // Adds to paper
