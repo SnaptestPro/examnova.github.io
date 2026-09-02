@@ -1,4 +1,4 @@
-const CACHE_NAME = 'examnova-v98-owner-disable-msgs-otp-remove-20260901';
+const CACHE_NAME = 'examnova-v99-questionbank-class-tagging-20260902';
 
 // App-shell files — sab kuch jo student ko app chalane ke liye chahiye
 // (code + question-bank data + icons). Pehli visit par yeh sab download

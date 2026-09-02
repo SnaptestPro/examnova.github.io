@@ -685,12 +685,19 @@
      hai. ─────────────────────────────────────────────────────────── */
 
   const TOP_STUDENTS_CACHE_KEY = "savya_top_students_cache_v1";
-
-  function loadTopStudentsCache() {
-    try { return JSON.parse(localStorage.getItem(TOP_STUDENTS_CACHE_KEY) || "null"); } catch (e) { return null; }
+  // FIX: cache key ab instituteId se bhi scoped hai — pehle ek hi
+  // (shared) key thi, isliye agar ek hi device/browser par alag-alag
+  // institute ke students login karte (jaise shared computer), to
+  // doosre institute ka purana cached podium ek pal ke liye flash ho
+  // sakta tha, jab tak fresh (sahi) data na aa jaaye.
+  function topStudentsCacheKey(instituteId) {
+    return TOP_STUDENTS_CACHE_KEY + ":" + (instituteId || "none");
   }
-  function saveTopStudentsCache(list) {
-    try { localStorage.setItem(TOP_STUDENTS_CACHE_KEY, JSON.stringify({ ts: Date.now(), list })); } catch (e) {}
+  function loadTopStudentsCache(instituteId) {
+    try { return JSON.parse(localStorage.getItem(topStudentsCacheKey(instituteId)) || "null"); } catch (e) { return null; }
+  }
+  function saveTopStudentsCache(list, instituteId) {
+    try { localStorage.setItem(topStudentsCacheKey(instituteId), JSON.stringify({ ts: Date.now(), list })); } catch (e) {}
   }
   function podiumInitials(name) {
     return (name || "S").trim().split(/\s+/).map(w => w[0]).filter(Boolean).slice(0, 2).join("").toUpperCase();
@@ -776,19 +783,28 @@
     }
   }
 
-  async function computeFullLeaderboard(onlyCurrentAdminInstitute) {
+  async function computeFullLeaderboard(filterInstituteId) {
     // Same aggregation as pehle — bas ab poori collection ki jagah ek
     // bounded + TTL-cached recent-records set par (upar dekhein).
     let all = await fetchRecentStudentRecordsForLeaderboard();
     const excludedTestIds = getLeaderboardExcludedTestIds(typeof tests !== "undefined" ? tests : null);
 
-    // Multi-tenant: Admin ke "Top Performers" tab mein sirf apne institute
-    // ke tests ke records count hone chahiye — kisi doosre admin ka data
-    // nahi. Student ka apna dashboard-podium (renderTopStudentsPodium)
-    // isse ALAG hai — ye flag pass nahi karta, isliye student ko hamesha
-    // poori (sabhi institutes ki) list dikhti rehti hai jaisa pehle thi.
-    if (onlyCurrentAdminInstitute && typeof isOwnedByCurrentAdmin === "function" && typeof tests !== "undefined") {
-      all = all.filter(r => r.testId && isOwnedByCurrentAdmin(tests[r.testId]));
+    // ── Multi-tenant isolation (FIX) ───────────────────────────────
+    // PEHLE: Admin ke "Top Performers" tab mein to apne institute ka
+    // filter tha, lekin STUDENT ke apne dashboard-podium mein NAHI —
+    // matlab har student ko poori site (SAARE coaching institutes) ka
+    // combined leaderboard dikhta tha, jisme kisi bilkul alag coaching
+    // ka student bhi "top performer" dikh sakta tha. Ab dono jagah
+    // (admin aur student) explicit institute ID pass karte hain, aur
+    // sirf USI institute ke tests ke records count hote hain.
+    // `filterInstituteId` na milna (undefined) — matlab caller ka
+    // apna institute abhi resolve hi nahi hua — us case mein safest
+    // default KHAALI list hai, kisi aur ka data dikhana nahi.
+    if (typeof tests === "undefined" || filterInstituteId === undefined) {
+      all = []; // apna institute abhi pata nahi / tests object hi nahi mila — kuch mat dikhao
+    } else {
+      const wanted = filterInstituteId || null;
+      all = all.filter(r => r.testId && tests[r.testId] && (tests[r.testId].instituteId || null) === wanted);
     }
 
     // STEP 1 — Agar koi student wahi test kai baar de chuka hai (retake),
@@ -867,7 +883,9 @@
     box.innerHTML = '<p class="muted-text">Loading…</p>';
     let list = [];
     try {
-      list = await computeFullLeaderboard(true);
+      list = await computeFullLeaderboard(
+        (typeof getCurrentAdminInstituteId === "function") ? getCurrentAdminInstituteId() : undefined
+      );
     } catch (e) {
       box.innerHTML = `<p style="color:#dc2626;">Load nahi ho paya: ${escHtml(e.message || String(e))}</p>`;
       return;
@@ -1006,12 +1024,16 @@
   async function renderTopStudentsPodium() {
     const wrap = document.getElementById("cd-podium-wrap");
     if (!wrap) return;
-    const cached = loadTopStudentsCache();
+    // FIX: student ko sirf apne institute ka leaderboard dikhna chahiye,
+    // kisi doosre coaching ka nahi — dekhein computeFullLeaderboard()
+    // comment upar.
+    const myInstituteId = (typeof ensureMyInstituteId === "function") ? await ensureMyInstituteId() : undefined;
+    const cached = loadTopStudentsCache(myInstituteId);
     if (cached && Array.isArray(cached.list) && cached.list.length) paintPodium(cached.list, wrap);
     try {
-      const fresh = await computeFullLeaderboard();
+      const fresh = await computeFullLeaderboard(myInstituteId);
       if (fresh.length) {
-        saveTopStudentsCache(fresh);
+        saveTopStudentsCache(fresh, myInstituteId);
         paintPodium(fresh, wrap);
       } else if (!cached) {
         wrap.innerHTML = "";

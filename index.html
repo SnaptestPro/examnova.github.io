@@ -1172,6 +1172,12 @@
                 <option value="hard">🔴 Hard</option>
               </select>
             </div>
+            <div class="field-row"><label>Class (कक्षा)</label>
+              <select id="bank-classid">
+                <option value="">-- Class chunein --</option>
+              </select>
+              <small style="color:#6b7280;font-size:.78rem;margin-top:2px;display:block;">Ye question kis Class ke liye hai</small>
+            </div>
             <div class="field-row"><label>Explanation (HI)</label><textarea id="bank-explanation-hi" rows="2"></textarea></div>
             <div style="display:flex;gap:10px;flex-wrap:wrap;">
               <button type="submit" id="save-bank-question" class="btn-primary">💾 Update Question</button>
@@ -1188,6 +1194,7 @@
             <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
               <span id="bank-question-count" style="background:#dbeafe;color:#1e40af;font-weight:700;font-size:.82rem;padding:3px 10px;border-radius:20px;">0 questions</span>
               <button type="button" onclick="syncBank();" style="background:linear-gradient(135deg,#059669,#047857);color:#fff;border:none;border-radius:8px;padding:5px 12px;font-size:.8rem;cursor:pointer;font-weight:600;">🔄 Refresh from Firebase</button>
+              <button type="button" id="bank-migrate-class10-btn" onclick="migrateQuestionBankToClass10();" style="display:none;background:linear-gradient(135deg,#0284c7,#0369a1);color:#fff;border:none;border-radius:8px;padding:5px 12px;font-size:.8rem;cursor:pointer;font-weight:600;" title="Jin questions mein abhi Class set nahi hai unhe Class 10 assign karein (one-time, safe to re-run)">🎓 Class 10 Assign Karein</button>
               <button type="button" onclick="showDuplicateReport();" style="background:linear-gradient(135deg,#d97706,#b45309);color:#fff;border:none;border-radius:8px;padding:5px 12px;font-size:.8rem;cursor:pointer;font-weight:600;" title="Duplicate questions dhundho">🔁 Duplicates Check</button>
               <button type="button" onclick="testFirebaseDelete();" style="background:linear-gradient(135deg,#7c3aed,#6d28d9);color:#fff;border:none;border-radius:8px;padding:5px 12px;font-size:.8rem;cursor:pointer;font-weight:600;" title="Firebase delete permission test karo">🔧 Test Delete</button>
             </div>
@@ -1263,6 +1270,13 @@ Model Answer: समाजवाद एक आर्थिक व्यवस्
           <p class="muted-text" style="font-size:.76rem;margin-top:-8px;">💡 Subjective sawaal ke liye options ki jagah <strong>"Marks: 5"</strong> aur <strong>"Model Answer: ..."</strong> line likhein.</p>
 
           <div class="field-row" style="display:flex;gap:14px;flex-wrap:wrap;">
+            <div style="flex:1;min-width:160px;">
+              <label>Class (कक्षा) <span style="color:#dc2626;">*</span></label>
+              <select id="bulk-class-select" required style="border:1px solid #cbd5e1;">
+                <option value="">-- Class chunein --</option>
+              </select>
+              <small style="color:#6b7280;font-size:.78rem;margin-top:2px;display:block;">Zaroori — ye poora batch isi Class ke liye save hoga</small>
+            </div>
             <div style="flex:1;min-width:200px;">
               <label>Subject (विषय)</label>
               <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
@@ -2689,6 +2703,8 @@ function parseSeparateBoxesQuestions() {
 }
 
 function previewBulkQuestions() {
+  const classIdChosen = (document.getElementById('bulk-class-select')?.value || '').trim();
+  if (!classIdChosen) { alert('⚠️ Kripya pehle Class chunein — kis Class ke liye ye questions hain, ye batana zaroori hai.'); return; }
   let parsed;
   if (bulkInputMode === 'separate') {
     parsed = parseSeparateBoxesQuestions();
@@ -2812,12 +2828,12 @@ function setBulkProgress(done, total) {
 
 let bulkLastUploadedIds = [];
 
-async function uploadOneBulkQuestion(q, subject, chapter, difficulty, idx) {
+async function uploadOneBulkQuestion(q, subject, chapter, difficulty, classId, idx) {
   const docId = `bulk-${Date.now()}-${idx}-${Math.floor(Math.random() * 1000)}`;
   const imageUrl = await uploadBulkImageIfAny(q, idx);
   const isSub = q.qType === 'subjective';
   let qObj = {
-    subject, chapter, difficulty,
+    subject, chapter, difficulty, classId,
     textHI: q.text, textEN: q.textEN || "", text: q.text,
     optionsHI: isSub ? ["", "", "", ""] : q.options, optionsEN: q.optionsEN || ["", "", "", ""], options: isSub ? ["", "", "", ""] : q.options,
     answer: isSub ? 0 : q.answer,
@@ -2847,6 +2863,13 @@ async function confirmBulkUpload() {
   const subject = (document.getElementById('bulk-subject')?.value || '').trim() || 'General';
   const chapter = (document.getElementById('bulk-chapter')?.value || '').trim() || 'General';
   const difficulty = document.getElementById('bulk-difficulty')?.value || 'medium';
+  const classId = (document.getElementById('bulk-class-select')?.value || '').trim();
+  // Class ab mandatory hai (v32) — bina iske questionBank mein koi bhi
+  // naya question save nahi hota, taaki har question hamesha kisi na
+  // kisi Class se tagged rahe (previewBulkQuestions() mein bhi wahi
+  // check hai, ye yahan ek dusri safety-net hai — kabhi kisi ne seedha
+  // confirmBulkUpload() call kar diya bina Preview ke to bhi bach jaaye).
+  if (!classId) { alert('⚠️ Kripya Class chunein — kis Class ke liye ye questions hain, ye batana zaroori hai.'); return; }
   if (typeof saveCustomSubject === 'function' && subject) saveCustomSubject(subject);
   if (typeof saveCustomChapter === 'function' && subject && chapter) saveCustomChapter(subject, chapter);
 
@@ -2868,7 +2891,7 @@ async function confirmBulkUpload() {
   for (let i = 0; i < toUpload.length; i++) {
     const q = toUpload[i];
     try {
-      const docId = await uploadOneBulkQuestion(q, subject, chapter, difficulty, i);
+      const docId = await uploadOneBulkQuestion(q, subject, chapter, difficulty, classId, i);
       uploadedIds.push(docId);
       successCount++;
       q._uploaded = true; // preview table se hatane ke liye mark kar rahe hain
@@ -3301,6 +3324,33 @@ window.setBankSubject=function(subject){
   if (window.updateMathPreview) window.updateMathPreview();
 };
 
+// ── Class dropdowns (v32) — Bulk Upload tab (mandatory, koi default nahi
+// hai taaki har bulk upload se pehle admin ko active choice karni pade)
+// aur Bank Edit modal (existing question ki Class dikhane/badalne ke
+// liye), dono yahi ek hi shared list use karte hain. SAVYA_CLASS_OPTIONS
+// owner-panel.js mein define hoti hai (Owner Panel ki "Allowed Classes"
+// wali hi list — Class 9/10/11/12), isliye poore app mein ek hi jagah se
+// Class options control hote hain.
+function fillClassSelectOptions(sel, sel_val) {
+  if (!sel) return;
+  var opts = window.SAVYA_CLASS_OPTIONS || [
+    { id: "class_9", label: "Class 9" }, { id: "class_10", label: "Class 10" },
+    { id: "class_11", label: "Class 11" }, { id: "class_12", label: "Class 12" }
+  ];
+  sel.innerHTML = '<option value="">-- Class chunein --</option>';
+  opts.forEach(function (c) {
+    var o = document.createElement('option');
+    o.value = c.id; o.textContent = c.label;
+    if (c.id === sel_val) o.selected = true;
+    sel.appendChild(o);
+  });
+}
+function populateBulkClassDropdown(sel_val) {
+  fillClassSelectOptions(document.getElementById('bulk-class-select'), sel_val);
+}
+function populateBankClassDropdown(sel_val) {
+  fillClassSelectOptions(document.getElementById('bank-classid'), sel_val);
+}
 // ── Bulk Upload: Subject/Chapter dropdowns (existing subjects/chapters dikhane ke liye) ──
 function populateBulkSubjectDropdown(sel_val) {
   var sel=document.getElementById('bulk-subject-select'); if(!sel)return;
@@ -3376,6 +3426,7 @@ function onBulkSubjectInputChange() {
 document.addEventListener('DOMContentLoaded', function(){
   populateBulkSubjectDropdown('Mathematics');
   populateBulkChapterDropdown('Mathematics');
+  populateBulkClassDropdown(); // koi sel_val nahi — blank hi rehta hai, admin ko khud chunna hoga
 });
 var bulkUploadTabBtn=document.getElementById('bulk-upload-tab');
 if(bulkUploadTabBtn){

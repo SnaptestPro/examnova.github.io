@@ -914,6 +914,40 @@ function getStudentSession() {
 function setStudentSession(data) { localStorage.setItem(STUDENT_SESSION_KEY, JSON.stringify(data)); }
 function clearStudentSession() { localStorage.removeItem(STUDENT_SESSION_KEY); }
 
+// ── Student's own instituteId (MULTI-TENANT ISOLATION FIX) ──────────
+// Student ko sirf apne institute ke tests/leaderboard dikhne chahiye,
+// kisi doosre coaching ke nahi. Naya register/login se ab instituteId
+// session mein hi cache ho jaata hai (neeche registerStudent/loginStudent
+// dekhein). PURANE (is fix se pehle ke) sessions mein ye field nahi
+// hoga — us case mein ek baar (chhota, single-doc) Firestore read se
+// nikaal ke session mein add kar dete hain, taaki agli baar se turant
+// mil jaaye, bina dobara fetch kiye.
+let _myInstituteIdPromise = null;
+async function ensureMyInstituteId() {
+  const session = getStudentSession();
+  if (!session) return null;
+  if (session.instituteId !== undefined) return session.instituteId; // already cached (null bhi ek valid cached value hai)
+  if (_myInstituteIdPromise) return _myInstituteIdPromise;
+  const db = getDB();
+  if (!db) return null;
+  _myInstituteIdPromise = (async () => {
+    try {
+      const mobile = normalizeMobile(session.mobile);
+      const snap = await db.collection(STUDENTS_COLLECTION).doc(mobile).get();
+      const instituteId = snap.exists ? (snap.data().instituteId || null) : null;
+      setStudentSession({ ...session, instituteId });
+      return instituteId;
+    } catch (e) {
+      console.warn("[ensureMyInstituteId] failed", e);
+      return null;
+    } finally {
+      _myInstituteIdPromise = null;
+    }
+  })();
+  return _myInstituteIdPromise;
+}
+window.ensureMyInstituteId = ensureMyInstituteId;
+
 function populateStudentFormFromSession(session) {
   const nameEl = $("#student-name");
   const mobileEl = $("#student-mobile");
@@ -1070,7 +1104,7 @@ async function registerStudent(e) {
       hash, pinHash, updatedAt: firebase.firestore.FieldValue.serverTimestamp()
     });
     await ref.set({ name, mobile, hasPin: true, instituteId, classId, createdAt: firebase.firestore.FieldValue.serverTimestamp() });
-    setStudentSession({ name, mobile });
+    setStudentSession({ name, mobile, instituteId: instituteId || null });
     showMode("student");
   } catch (err) {
     console.error(err);
@@ -1115,7 +1149,7 @@ async function loginStudent(e) {
       } catch (migErr) {
         console.error("Legacy secret migration failed:", migErr);
       }
-      setStudentSession({ name: data.name, mobile });
+      setStudentSession({ name: data.name, mobile, instituteId: data.instituteId || null });
       showMode("student");
       if (!data.pinHash) setTimeout(() => promptSetSecurityPin(mobile), 400);
       return;
@@ -1135,7 +1169,7 @@ async function loginStudent(e) {
       return;
     }
 
-    setStudentSession({ name: data.name, mobile });
+    setStudentSession({ name: data.name, mobile, instituteId: data.instituteId || null });
     showMode("student");
     // Purane accounts jinme Security PIN set nahi hai — ab jab pass sahi pata
     // hai (matlab ye account ka asli malik hai), to ek PIN set karwa lete hain
@@ -1605,6 +1639,16 @@ function watchAdminActiveStatus() {
   if (!email || !db) return;
   _adminActiveWatchUnsub = db.collection("admins").doc(email).onSnapshot(
     snap => {
+      // BUG FIX: Firestore ka onSnapshot pehle turant LOCAL CACHE wala
+      // snapshot deta hai (server confirm hone se PEHLE), phir thodi der
+      // mein asli/fresh server snapshot. Agar admin ko kabhi PEHLE
+      // deactivate karke, kuch samay baad dobara activate kiya gaya ho,
+      // to is browser ka purana cached "active:false" turant (GALAT)
+      // dikh jaata tha — jisse admin ko fresh login karte hi turant
+      // "deactivated" bolkar force-logout kar diya jaata tha, chahe wo
+      // ab genuinely active ho. Fix: jab tak server se confirm na ho
+      // (fromCache === false), koi bhi deactivation decision mat lo.
+      if (snap.metadata.fromCache) return;
       if (snap.exists && snap.data().active === false) {
         forceAdminLogoutDeactivated(ADMIN_DEACTIVATED_MESSAGE);
         return;
@@ -1634,6 +1678,9 @@ function watchAdminInstituteStatus(instituteId) {
   if (!db || !instituteId) return;
   _adminInstituteWatchUnsub = db.collection("institutes").doc(instituteId).onSnapshot(
     snap => {
+      // Yahan bhi wahi fix — stale LOCAL CACHE snapshot par decision
+      // mat lo, sirf server-confirmed data par.
+      if (snap.metadata.fromCache) return;
       if (!snap.exists) { forceAdminLogoutDeactivated(ADMIN_INSTITUTE_REMOVED_MESSAGE); return; }
       if (snap.data().active === false) forceAdminLogoutDeactivated(ADMIN_INSTITUTE_DEACTIVATED_MESSAGE);
     },
@@ -2248,6 +2295,19 @@ function startTestWithId(testId) {
   current.testId = testId;
   current.test   = tests[testId];
   if (!current.test) { alert("Koi test nahi mila."); return; }
+  // SECURITY FIX: sirf list se hataana kaafi nahi hai — koi student
+  // seedha testId jaan kar (jaise browser console se) kisi DOOSRE
+  // institute ka test start karne ki koshish kar sakta tha, kyunki
+  // is function mein pehle koi institute-check nahi tha. Ab yahan bhi
+  // wahi check hai jo list mein hai.
+  const mySession = (typeof getStudentSession === "function") ? getStudentSession() : null;
+  const myOwnInstituteId = (mySession && mySession.instituteId !== undefined) ? mySession.instituteId : undefined;
+  if (myOwnInstituteId !== undefined && (current.test.instituteId || null) !== myOwnInstituteId) {
+    alert("Ye test aapke institute ka nahi hai.");
+    current.testId = null;
+    current.test = null;
+    return;
+  }
   const sched = checkTestSchedule(current.test);
   if (!sched.ok) { alert(sched.msg); return; }
   beginExam();
@@ -3167,8 +3227,27 @@ function renderStudentTestCards() {
   }
   const attemptsMap = (mobile && myTestAttemptsMobile === mobile) ? (myTestAttemptsCache || {}) : {};
 
+  // ── Institute isolation (MULTI-TENANT FIX) ─────────────────────────
+  // Har student sirf APNE coaching/institute ke tests dekhe — kisi
+  // doosre institute ka test kabhi na dikhe. instituteId session mein
+  // cached hota hai (naya login/register se); purane sessions ke liye
+  // ek baar background mein fetch karke cache kar lete hain (neeche
+  // ensureMyInstituteId() dekhein) — tab tak safety ke liye list khaali
+  // rakhte hain (kisi aur institute ka data ek pal ke liye bhi na dikhe).
+  let myInstituteId;
+  if (session && session.instituteId !== undefined) {
+    myInstituteId = session.instituteId;
+  } else if (session) {
+    ensureMyInstituteId().then(() => renderStudentTestCards());
+    tabsEl.innerHTML = "";
+    listEl.innerHTML = '<p class="muted-text">Loading...</p>';
+    return;
+  } else {
+    myInstituteId = null;
+  }
+
   const allTests = Object.entries(tests)
-    .filter(([, t]) => !t.isDraft)
+    .filter(([, t]) => !t.isDraft && ((t.instituteId || null) === myInstituteId))
     .map(([id, t]) => ({ ...t, id }));
 
   if (!allTests.length) {
@@ -4116,6 +4195,15 @@ function renderBank(page) {
   const countBadge = $("#bank-question-count");
   if (countBadge) countBadge.textContent = questionBank.length + " questions";
 
+  // v32: "Class 10 Assign Karein" button sirf tab dikhao jab kuch questions
+  // abhi bhi untagged hon — ek baar sab migrate ho jaayein to button khud
+  // gayab ho jaata hai (permanent UI clutter nahi banta, dobara code chhedne
+  // ya redeploy karne ki zaroorat nahi — jaise hi koi naya untagged question
+  // kabhi aaye (jaise kisi purani AppScript seed se), button khud wapas dikh
+  // jaayega).
+  const migrateBtn = $("#bank-migrate-class10-btn");
+  if (migrateBtn) migrateBtn.style.display = questionBank.some(q => !q.classId) ? "" : "none";
+
   // Reset page if filters changed or page not specified
   if (page === undefined) { bankCurrentPage = 0; page = 0; }
   bankCurrentPage = page;
@@ -4466,6 +4554,10 @@ function populateBankForm(q) {
   if ($("#bank-marks")) $("#bank-marks").value = (q.marks !== undefined && q.marks !== null) ? q.marks : "";
   onBankQTypeChange();
   if ($("#bank-difficulty")) $("#bank-difficulty").value = q.difficulty || "";
+  if ($("#bank-classid")) {
+    if (typeof populateBankClassDropdown === "function") populateBankClassDropdown(q.classId || "");
+    else $("#bank-classid").value = q.classId || "";
+  }
   if ($("#bank-manual-latex")) $("#bank-manual-latex").checked = !!q.mathManual;
   if (window.updateMathPreview) window.updateMathPreview();
 }
@@ -4478,6 +4570,7 @@ function readBankForm() {
     textHI:  $("#bank-question-hi").value.trim(),
     qType,
     difficulty: $("#bank-difficulty") ? $("#bank-difficulty").value : "",
+    classId: $("#bank-classid") ? $("#bank-classid").value : "",
     explanationHI: $("#bank-explanation-hi").value.trim(),
     mathManual: !!($("#bank-manual-latex") && $("#bank-manual-latex").checked)
   };
@@ -5698,8 +5791,24 @@ function renderRecords() {
 function renderClasswideWeakChapters(testsList) {
   const box = document.getElementById('classwide-analytics-box');
   if (!box) return;
-  const testIds = new Set((testsList || []).map(t => t.testId));
-  const relevantRecords = (records || []).filter(r => testIds.has(r.testId) && Array.isArray(r.details) && r.details.length);
+  const testIds = (testsList || []).map(t => t.testId);
+  // CORRECTNESS FIX: records[] sirf site-wide sabse recent 200 tak
+  // limited hai (dekhein ensureFullRecordsForTest() comment upar) —
+  // "poori class" ka analysis dena hai, isliye har test ka poora
+  // (cached, ya abhi fetch ho raha) data use karte hain, sirf jo
+  // records[] mein bache hain wo nahi.
+  testIds.forEach(id => ensureFullRecordsForTest(id));
+  const seen = new Set();
+  const relevantRecords = [];
+  testIds.forEach(id => {
+    const src = _fullTestRecordsCache[id] || records.filter(r => r.testId === id);
+    src.forEach(r => {
+      if (!Array.isArray(r.details) || !r.details.length) return;
+      const key = r.id || r._localId;
+      if (key) { if (seen.has(key)) return; seen.add(key); }
+      relevantRecords.push(r);
+    });
+  });
 
   if (!relevantRecords.length) {
     box.innerHTML = '<p class="muted-text" style="margin:0;">Chapter-wise class analysis ke liye abhi koi detailed record nahi hai.</p>';
@@ -6871,6 +6980,58 @@ function syncBank() {
     }, 3000);
   });
 }
+
+// v32: One-time utility — jin questionBank docs mein `classId` field set
+// nahi hai (yani Class Eligibility System se pehle ke, ya bina-Class
+// select kiye upload hue purane questions), unhe sabko "class_10" assign
+// kar deta hai — kyunki abhi tak jitna bhi Question Bank data hai wo sab
+// Class 10 ka hi hai (bilkul wahi assumption jo naye institute banate
+// waqt allowedClasses:["class_10"] mein already use ho rahi hai).
+// Already-tagged questions (jinme classId already set hai, chahe
+// "class_10" ho ya koi aur Class) ko bilkul touch nahi kiya jaata — taaki
+// Bulk Upload se agar kisi ne pehle hi kisi doosri Class ke liye questions
+// daale hon, wo galti se overwrite na ho jayein. Isi wajah se ye button
+// baar-baar (safely) dabaya ja sakta hai — jo ek baar migrate ho chuke
+// hain unhe dobara chhuayega hi nahi.
+// Firestore ka 500-ops/batch limit dhyan mein rakhte hue 490/batch ke
+// chunks mein commit karta hai (poore codebase mein jahan bhi bulk writes
+// hain, wahi safe-margin convention follow ki gayi hai — dekho
+// deleteSelectedBankQuestions() waghera).
+async function migrateQuestionBankToClass10() {
+  const db = getDB();
+  if (!db) { alert("Firebase connected nahi hai. Page refresh karo."); return; }
+  const untagged = questionBank.filter(q => !q.classId);
+  if (!untagged.length) {
+    alert("✅ Sabhi questions mein pehle se hi Class set hai — kuch karne ki zaroorat nahi.");
+    return;
+  }
+  if (!confirm(`${untagged.length} question(s) mein abhi Class set nahi hai. Sabko "Class 10" assign kar diya jaaye?\n\n(Jin questions mein pehle se koi Class set hai unhe touch nahi kiya jayega.)`)) return;
+
+  const CHUNK = 490;
+  let done = 0;
+  try {
+    for (let i = 0; i < untagged.length; i += CHUNK) {
+      const slice = untagged.slice(i, i + CHUNK);
+      const batch = db.batch();
+      slice.forEach(q => {
+        batch.update(db.collection("questionBank").doc(q.id), { classId: "class_10" });
+      });
+      await batch.commit();
+      done += slice.length;
+    }
+    // syncBank() ke onSnapshot ka wapas aane ka wait kiye bina local cache
+    // ko turant update kar do, taaki list/badges turant sahi dikhein.
+    questionBank.forEach(q => { if (!q.classId) q.classId = "class_10"; });
+    window.questionBank = questionBank;
+    saveBankCacheQuietly(questionBank);
+    renderBank();
+    alert(`✅ ${done} question(s) ko "Class 10" assign kar diya gaya!`);
+  } catch (err) {
+    console.error("[migrateQuestionBankToClass10] failed:", err);
+    alert(`⚠️ Kuch questions update nahi ho paaye (${done}/${untagged.length} ho chuke the). Error: ` + (err.message || err) + "\n\nDobara button dabao — jo ho chuke hain unhe dobara touch nahi karega.");
+  }
+}
+window.migrateQuestionBankToClass10 = migrateQuestionBankToClass10;
 
 
 function syncTrashBin() {
