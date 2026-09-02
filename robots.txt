@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://magnificent-malabi-e6a752.netlify.app/sitemap.xml
+Sitemap: https://examnova.github.io/sitemap.xml
