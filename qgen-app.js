@@ -402,6 +402,11 @@ async function confirmBulkUpload_QG() {
 
   const subject = document.getElementById('bulkSubject')?.value.trim() || 'General';
   const chapter = document.getElementById('bulkChapter')?.value.trim() || 'Custom';
+  // v33: Class ab yahan bhi mandatory hai (bilkul Admin Panel ke Bulk
+  // Upload tab jaisa) — bina chune upload nahi hone dete, taaki har naya
+  // question hamesha kisi Class se tagged rahe.
+  const classId = document.getElementById('bulkClass')?.value || '';
+  if (!classId) { toast('⚠️ Kripya Class chunein'); return; }
   const log = document.getElementById('bulkUploadLog');
   log.classList.remove('hidden');
   log.innerHTML = '';
@@ -413,14 +418,17 @@ async function confirmBulkUpload_QG() {
 
   let ok = 0, failed = 0;
   const thisBatch = [];
+  // v34: Doc ID ab readable hai — Class + Chapter + Serial (jaise
+  // "class10-Number-System-1"). Poore batch mein Class+Chapter same hai,
+  // isliye serial ek hi baar compute karke phir har question ke liye
+  // badhate jaate hain.
+  const bankAsIdList = window.QUESTION_BANK.map(arr => ({ id: arr[4] }));
+  let nextSerial = window.SubjectResolver.nextSerialForGroup(bankAsIdList, classId, chapter);
   for (let i = 0; i < bulkParsedQG.length; i++) {
     const q = bulkParsedQG[i];
-    // Same collision-safe naming pattern the Admin Bulk Upload tab already
-    // uses (timestamp + index + random) — never collides with anything
-    // else uploaded, past or future.
-    const docId = `bulk-${Date.now()}-${i}-${Math.floor(Math.random()*1000)}`;
+    const docId = window.SubjectResolver.buildQuestionDocId(classId, chapter, nextSerial++);
     try {
-      await saveBankQuestionToCloud(docId, { text: q.text, opts: q.opts, ans: q.ans, chapter, qType: q.qType, marks: q.marks, modelAnswer: q.modelAnswer || '' }, subject);
+      await saveBankQuestionToCloud(docId, { text: q.text, opts: q.opts, ans: q.ans, chapter, qType: q.qType, marks: q.marks, modelAnswer: q.modelAnswer || '', classId }, subject);
       // Also drop straight into the current paper so the whole batch is
       // ready to use immediately, without needing to re-find it in the bank.
       const bankArr = [q.text, q.opts, q.ans, chapter, docId, subject, q.qType, q.marks, q.modelAnswer || ''];
@@ -1527,6 +1535,7 @@ async function saveBankQuestionToCloud(docId, data, subject) {
     qType: data.qType === 'subjective' ? 'subjective' : 'mcq',
     marks: data.qType === 'subjective' ? (data.marks ?? null) : null,
     modelAnswer: data.qType === 'subjective' ? (data.modelAnswer || '') : '',
+    ...(data.classId ? { classId: data.classId } : {}),
     updatedAt: firebase.firestore.FieldValue.serverTimestamp()
   }, { merge: true });
   return true;
@@ -1672,8 +1681,15 @@ async function saveToBank() {
     return;
   }
 
+  // v33: Class mandatory hai Bank mein save karne ke liye (Add to Paper
+  // ke liye zaroori nahi — wo bank mein likhta hi nahi).
+  const classId = document.getElementById('qClass')?.value || '';
+  if (!classId) { toast('⚠️ Kripya Class chunein (Save to Bank ke liye zaroori)'); return; }
+
   const { text, opts: [optA, optB, optC, optD], ans, chapter: chap, subject: subj, qType, marks, modelAnswer } = data;
-  const docId = `custom-${Date.now()}`;
+  const bankAsIdList = window.QUESTION_BANK.map(arr => ({ id: arr[4] }));
+  const serial = window.SubjectResolver.nextSerialForGroup(bankAsIdList, classId, chap);
+  const docId = window.SubjectResolver.buildQuestionDocId(classId, chap, serial);
   const subject = subj || 'General';
   const newQ = [text,[optA,optB,optC,optD],ans,chap, docId, subject, qType, marks, modelAnswer];
   
@@ -1698,6 +1714,7 @@ async function saveToBank() {
         qType:   { stringValue: qType === 'subjective' ? 'subjective' : 'mcq' },
         marks:   qType === 'subjective' && marks !== null ? { integerValue: String(marks) } : { nullValue: null },
         modelAnswer: { stringValue: qType === 'subjective' ? (modelAnswer || '') : '' },
+        classId: { stringValue: classId },
         seededBy: { stringValue: "QuestionGeneratorUI" }
       }
     };

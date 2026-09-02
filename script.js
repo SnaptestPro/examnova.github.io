@@ -4229,6 +4229,11 @@ function renderBank(page) {
   const migrateBtn = $("#bank-migrate-class10-btn");
   if (migrateBtn) migrateBtn.style.display = questionBank.some(q => !q.classId) ? "" : "none";
 
+  // v34 (auto): pehle yahaan ek "ID mein Class Tag Karein" button ka
+  // show/hide tha — ab button hai hi nahi. Migration ab background mein
+  // khud-ba-khud chalti hai (dekho scheduleAutoClassIdMigration, jo bank
+  // data load/refresh hone par call hoti hai).
+
   // Reset page if filters changed or page not specified
   if (page === undefined) { bankCurrentPage = 0; page = 0; }
   bankCurrentPage = page;
@@ -4963,7 +4968,18 @@ function editPdfDraft(id) {
 async function verifyPdfDraftToBank(id) {
   const d = pdfDraftQuestions.find(x => x.id === id);
   if (!d) return;
-  const bankId = `pdf-bank-${Date.now()}`;
+  // v34: agar draft mein classId hai (future mein koi UI add kare to)
+  // to readable ID (Class+Chapter+Serial) banega — abhi classId ka koi
+  // field is draft object mein bharta nahi hai, isliye zyaadatar yahan
+  // se upload hue questions untagged hi rahenge, aur "🎓 Class 10 Assign
+  // Karein" button unhe baad mein pick kar lega (par tab ID purani style
+  // ki hi rahegi jab tak "🏷️ ID mein Class Tag Karein" na chalaya jaaye).
+  const bankId = (window.SubjectResolver && d.classId)
+    ? window.SubjectResolver.buildQuestionDocId(
+        d.classId, d.chapter || "General",
+        window.SubjectResolver.nextSerialForGroup(questionBank, d.classId, d.chapter || "General")
+      )
+    : `pdf-bank-${Date.now()}`;
   try {
     const q = cloneQ(d);
     if (window.autoFormatMathFields) window.autoFormatMathFields(q);
@@ -6984,6 +7000,7 @@ function syncBank() {
     // chapters turant dikhne lagein (pehle sirf localStorage/builtin dikhte the).
     if (typeof refreshExistingSubjectChapterDropdowns === "function") refreshExistingSubjectChapterDropdowns();
     if (window.scheduleAutoDuplicateCheck) window.scheduleAutoDuplicateCheck();
+    if (window.scheduleAutoClassIdMigration) window.scheduleAutoClassIdMigration();
     if (window.SavyaExtras && window.SavyaExtras.syncPracticeFilters) window.SavyaExtras.syncPracticeFilters();
   }, (err) => {
     console.warn("[syncBank] Firestore error:", err);
@@ -7000,6 +7017,7 @@ function syncBank() {
         console.log("[syncBank] Retry loaded", questionBank.length, "questions");
         renderBank();
         if (window.scheduleAutoDuplicateCheck) window.scheduleAutoDuplicateCheck();
+        if (window.scheduleAutoClassIdMigration) window.scheduleAutoClassIdMigration();
         if (window.SavyaExtras && window.SavyaExtras.syncPracticeFilters) window.SavyaExtras.syncPracticeFilters();
       }).catch(e => { console.warn("[syncBank] Retry failed:", e); renderBank(); });
     }, 3000);
@@ -7057,6 +7075,122 @@ async function migrateQuestionBankToClass10() {
   }
 }
 window.migrateQuestionBankToClass10 = migrateQuestionBankToClass10;
+
+// v34-auto: Ab koi button nahi hai — purani questionBank doc IDs jinme
+// abhi readable "Class-Chapter-Serial" format nahi hai (jaise
+// "class10-Number-System-1"), unke liye ye function khud-ba-khud
+// (background mein, chup-chaap) NAYI ID banata hai aur data ko us nayi
+// ID par copy karke purani ID delete kar deta hai. Firestore mein doc ID
+// seedha "rename" nahi hota — isliye ye copy (set) + delete karta hai
+// (data same rehta hai, sirf ID badalti hai).
+// - Sirf un questions ko touch karta hai jinme classId already set hai —
+//   jin questions mein abhi bhi koi Class set nahi hai unhe chhod deta
+//   hai (pehle "🎓 Class 10 Assign Karein" se tag hona chahiye, uske
+//   baad ye khud unhe bhi utha lega agli auto-run mein).
+// - Har (Class, Chapter) group ke andar questions ko createdAt (agar
+//   available ho) ke hisaab se order mein sequential serial (1,2,3...)
+//   diya jaata hai, jo pehle se us group mein maujood highest serial ke
+//   aage se shuru hota hai — taaki kisi existing sahi-format ID se
+//   takraav (collision) na ho.
+// - 245 renames/batch (har rename = 1 set + 1 delete = 2 ops, isliye
+//   490/2 = 245 — wahi 500-ops/batch safe-margin convention jo poore
+//   codebase mein use hoti hai).
+// - Beech mein fail ho jaaye to jo ho chuke hain wo save rahenge — agli
+//   baar bank data refresh hone par sirf baaki bache hue questions
+//   process honge (resume-safe), kyunki jo ho chuke unki ID hi badal
+//   chuki hoti hai. Koi alert/confirm popup nahi aata — sab kuch chup-
+//   chaap console.log mein dikhta hai taaki debugging mein help mile
+//   lekin admin ka kaam disturb na ho.
+let _classIdAutoMigrateRunning = false;
+async function autoMigrateClassIdIntoDocId() {
+  if (_classIdAutoMigrateRunning) return; // ek waqt mein sirf ek run
+  const db = getDB();
+  if (!db) return;
+  const SR = window.SubjectResolver;
+  if (!SR) return;
+
+  const needsRename = questionBank.filter(q => q.classId && !SR.docIdMatchesScheme(q.id, q.classId, q.chapter));
+  if (!needsRename.length) return; // sab pehle se sahi format mein hain, kuch karne ki zaroorat nahi
+
+  _classIdAutoMigrateRunning = true;
+  console.log(`[autoMigrateClassIdIntoDocId] ${needsRename.length} question(s) ki ID background mein "Class-Chapter-Number" format mein migrate ho rahi hai...`);
+
+  // Group by (classId, chapter-slug) so each group's serials are assigned
+  // independently, continuing from whatever's already correctly-named in
+  // that same group.
+  const groups = new Map();
+  needsRename.forEach(q => {
+    const key = SR.classIdToLabel(q.classId) + "||" + SR.slugifyChapter(q.chapter);
+    if (!groups.has(key)) groups.set(key, { classId: q.classId, chapter: q.chapter, items: [] });
+    groups.get(key).items.push(q);
+  });
+
+  const renamePairs = [];
+  groups.forEach(({ classId, chapter, items }) => {
+    items.sort((a, b) => {
+      const at = (a.createdAt && a.createdAt.toMillis) ? a.createdAt.toMillis() : 0;
+      const bt = (b.createdAt && b.createdAt.toMillis) ? b.createdAt.toMillis() : 0;
+      if (at !== bt) return at - bt;
+      return String(a.id).localeCompare(String(b.id));
+    });
+    let serial = SR.nextSerialForGroup(questionBank, classId, chapter);
+    items.forEach(q => {
+      renamePairs.push({ oldId: q.id, newId: SR.buildQuestionDocId(classId, chapter, serial++), data: q });
+    });
+  });
+
+  const CHUNK = 245;
+  let done = 0;
+  try {
+    for (let i = 0; i < renamePairs.length; i += CHUNK) {
+      const slice = renamePairs.slice(i, i + CHUNK);
+      const batch = db.batch();
+      slice.forEach(({ oldId, newId, data }) => {
+        if (!newId || newId === oldId) return; // safety net, shouldn't happen
+        const { id, ...rest } = data;
+        batch.set(db.collection("questionBank").doc(newId), rest);
+        batch.delete(db.collection("questionBank").doc(oldId));
+      });
+      await batch.commit();
+      // Firestore ke onSnapshot listener ka wait kiye bina local cache ko
+      // turant update kar do, taaki list/badges turant sahi dikhein.
+      slice.forEach(({ oldId, newId }) => {
+        const idx = questionBank.findIndex(x => x.id === oldId);
+        if (idx >= 0) questionBank[idx] = { ...questionBank[idx], id: newId };
+      });
+      done += slice.length;
+    }
+    window.questionBank = questionBank;
+    saveBankCacheQuietly(questionBank);
+    renderBank();
+    console.log(`[autoMigrateClassIdIntoDocId] ✅ ${done} question(s) ki ID auto-migrate ho gayi.`);
+  } catch (err) {
+    console.error(`[autoMigrateClassIdIntoDocId] ${done} ho chuke, baaki mein error aayi (agli auto-run mein resume hoga):`, err);
+  } finally {
+    _classIdAutoMigrateRunning = false;
+  }
+}
+window.autoMigrateClassIdIntoDocId = autoMigrateClassIdIntoDocId;
+
+// Har baar jab bank data Firestore se load/refresh hota hai, ye check
+// karta hai ki kuch migrate karne layak hai ya nahi — agar hai to thodi
+// si delay (debounce) ke baad khud migration shuru kar deta hai. Isse
+// admin ko koi button dabana nahi padta, aur agar ek hi snapshot update
+// mein ye baar-baar trigger ho to bhi sirf ek hi run chalti hai.
+let _classIdAutoMigrateScheduled = false;
+function scheduleAutoClassIdMigration() {
+  if (_classIdAutoMigrateScheduled || _classIdAutoMigrateRunning) return;
+  const SR = window.SubjectResolver;
+  if (!SR) return;
+  const hasPending = questionBank.some(q => q.classId && !SR.docIdMatchesScheme(q.id, q.classId, q.chapter));
+  if (!hasPending) return;
+  _classIdAutoMigrateScheduled = true;
+  setTimeout(() => {
+    _classIdAutoMigrateScheduled = false;
+    autoMigrateClassIdIntoDocId();
+  }, 800);
+}
+window.scheduleAutoClassIdMigration = scheduleAutoClassIdMigration;
 
 
 function syncTrashBin() {

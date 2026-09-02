@@ -201,12 +201,69 @@
     });
   }
 
+  // v34: Question Bank doc ID scheme — Class + Chapter + Serial number.
+  // e.g. classId "class_10", chapter "Number System" → serial 1 gives
+  // "class10-Number-System-1". Chapter naam ko dash-separated slug mein
+  // convert kiya jaata hai (Hindi chapter names bhi as-is chalte hain,
+  // Firestore doc IDs Unicode support karte hain).
+  function classIdToLabel(classId) {
+    const m = String(classId || "").match(/(\d+)/);
+    return m ? "class" + m[1] : "class";
+  }
+
+  function slugifyChapter(chapter) {
+    let s = String(chapter || "General").trim();
+    s = s.replace(/\s+/g, "-");
+    s = s.replace(/[\/.#\[\]]/g, ""); // Firestore-unsafe / risky characters
+    s = s.replace(/-+/g, "-").replace(/^-+|-+$/g, "");
+    if (!s) s = "General";
+    if (s.length > 60) s = s.slice(0, 60).replace(/-+$/, "");
+    return s;
+  }
+
+  function escapeRegExp(s) {
+    return String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }
+
+  function buildQuestionDocId(classId, chapter, serial) {
+    return `${classIdToLabel(classId)}-${slugifyChapter(chapter)}-${serial}`;
+  }
+
+  // True if docId already follows "<classLabel>-<chapterSlug>-<serial>"
+  // for this exact classId + chapter.
+  function docIdMatchesScheme(docId, classId, chapter) {
+    const label = classIdToLabel(classId);
+    const slug = slugifyChapter(chapter);
+    const re = new RegExp(`^${escapeRegExp(label)}-${escapeRegExp(slug)}-\\d+$`);
+    return re.test(String(docId || ""));
+  }
+
+  // Scans `items` (array of {id, classId, chapter, ...}) for the highest
+  // existing serial already used for this classId+chapter, and returns
+  // the next free serial number (1 if none exist yet).
+  function nextSerialForGroup(items, classId, chapter) {
+    const label = classIdToLabel(classId);
+    const slug = slugifyChapter(chapter);
+    const re = new RegExp(`^${escapeRegExp(label)}-${escapeRegExp(slug)}-(\\d+)$`);
+    let max = 0;
+    (items || []).forEach(q => {
+      const m = String(q?.id || "").match(re);
+      if (m) { const n = parseInt(m[1], 10); if (n > max) max = n; }
+    });
+    return max + 1;
+  }
+
   window.SubjectResolver = {
     STANDARD_SUBJECTS,
     SUBJECT_CHAPTERS,
     resolveQuestionSubject,
     getSubjectFilterOptions,
     inferSubjectFromChapter,
-    inferSubjectFromDocId
+    inferSubjectFromDocId,
+    classIdToLabel,
+    slugifyChapter,
+    buildQuestionDocId,
+    docIdMatchesScheme,
+    nextSerialForGroup
   };
 })();

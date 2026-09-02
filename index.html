@@ -2828,8 +2828,12 @@ function setBulkProgress(done, total) {
 
 let bulkLastUploadedIds = [];
 
-async function uploadOneBulkQuestion(q, subject, chapter, difficulty, classId, idx) {
-  const docId = `bulk-${Date.now()}-${idx}-${Math.floor(Math.random() * 1000)}`;
+async function uploadOneBulkQuestion(q, subject, chapter, difficulty, classId, idx, serial) {
+  // v34: Doc ID ab readable format mein hai — Class + Chapter + Serial,
+  // jaise "class10-Number-System-1". `serial` confirmBulkUpload() se
+  // aata hai (poore batch ke liye ek baar compute hota hai, phir har
+  // question ke liye ek-ek karke badhta hai).
+  const docId = window.SubjectResolver.buildQuestionDocId(classId, chapter, serial);
   const imageUrl = await uploadBulkImageIfAny(q, idx);
   const isSub = q.qType === 'subjective';
   let qObj = {
@@ -2887,11 +2891,16 @@ async function confirmBulkUpload() {
 
   let successCount = 0, failCount = 0;
   const uploadedIds = [];
+  // v34: Poore batch ke liye Class+Chapter same hai, isliye serial number
+  // ek hi baar compute karke phir har question ke liye badhate jaate hain
+  // (jaise chapter mein 5 questions pehle se hain to ye batch 6,7,8...
+  // se shuru hoga).
+  let nextSerial = window.SubjectResolver.nextSerialForGroup(questionBank, classId, chapter);
   setBulkProgress(0, toUpload.length);
   for (let i = 0; i < toUpload.length; i++) {
     const q = toUpload[i];
     try {
-      const docId = await uploadOneBulkQuestion(q, subject, chapter, difficulty, classId, i);
+      const docId = await uploadOneBulkQuestion(q, subject, chapter, difficulty, classId, i, nextSerial++);
       uploadedIds.push(docId);
       successCount++;
       q._uploaded = true; // preview table se hatane ke liye mark kar rahe hain
@@ -2953,13 +2962,16 @@ async function retryFailedBulk() {
   const subject = (document.getElementById('bulk-subject')?.value || '').trim() || 'General';
   const chapter = (document.getElementById('bulk-chapter')?.value || '').trim() || 'General';
   const difficulty = document.getElementById('bulk-difficulty')?.value || 'medium';
+  const classId = (document.getElementById('bulk-class-select')?.value || '').trim();
+  if (!classId) { alert('⚠️ Kripya Class chunein — retry ke liye bhi Class zaroori hai.'); return; }
   const retryList = bulkFailedQuestions; bulkFailedQuestions = [];
   document.getElementById('bulk-failed-area').style.display = 'none';
   setBulkProgress(0, retryList.length);
   let ok = 0, fail = 0;
+  let nextSerial = window.SubjectResolver.nextSerialForGroup(questionBank, classId, chapter);
   for (let i = 0; i < retryList.length; i++) {
     try {
-      await uploadOneBulkQuestion(retryList[i], subject, chapter, difficulty, i);
+      await uploadOneBulkQuestion(retryList[i], subject, chapter, difficulty, classId, i, nextSerial++);
       ok++;
       bulkLog(`✔️ Retry Q${i + 1} ho gaya.`);
     } catch (e) {

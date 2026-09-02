@@ -151,6 +151,16 @@
         <input id="qChapter" type="text" list="qChapterList" placeholder="e.g. Samajwad" value="Custom"/>
         <datalist id="qChapterList"></datalist>
       </div>
+      <div class="form-group">
+        <label>Class (सिर्फ "Save to Bank" ke liye zaroori)</label>
+        <select id="qClass">
+          <option value="">— Select Class —</option>
+          <option value="class_9">Class 9</option>
+          <option value="class_10">Class 10</option>
+          <option value="class_11">Class 11</option>
+          <option value="class_12">Class 12</option>
+        </select>
+      </div>
       <button class="btn btn-primary full" id="addQuestionBtn" onclick="addCustomQuestion()">➕ Add to Paper</button>
       <button class="btn btn-outline full mt6" onclick="clearAddForm()">↩️ Cancel Edit</button>
       <button class="btn btn-outline full mt6" onclick="saveToBank()">💾 Save to Bank Also</button>
@@ -167,6 +177,16 @@
         <label>Chapter (agar text mein na diya ho to ye use hoga)</label>
         <input id="bulkChapter" type="text" list="bulkChapterList" placeholder="e.g. Samajwad" value="Custom"/>
         <datalist id="bulkChapterList"></datalist>
+      </div>
+      <div class="form-group">
+        <label>Class (mandatory)</label>
+        <select id="bulkClass">
+          <option value="">— Select Class —</option>
+          <option value="class_9">Class 9</option>
+          <option value="class_10">Class 10</option>
+          <option value="class_11">Class 11</option>
+          <option value="class_12">Class 12</option>
+        </select>
       </div>
       <div class="form-group">
         <label>Questions Paste Karein</label>
