@@ -353,7 +353,7 @@ function ownerAdminRowHtml(a) {
         <span class="owner-badge ${disabled ? "owner-badge-off" : "owner-badge-on"}">${disabled ? "Disabled" : "Active"}</span>
       </div>
       <div class="owner-admin-actions">
-        <button type="button" class="owner-mini-btn" onclick="ownerToggleAdmin('${ownerEscAttr(a.email)}', ${!disabled}, this)">${disabled ? "✅ Enable" : "⛔ Disable"}</button>
+        <button type="button" class="owner-mini-btn" onclick="ownerToggleAdmin('${ownerEscAttr(a.email)}', ${disabled}, this)">${disabled ? "✅ Enable" : "⛔ Disable"}</button>
         <button type="button" class="owner-mini-btn" onclick="ownerResetAdminPassword('${ownerEscAttr(a.email)}')">🔑 Password Reset Email</button>
         <button type="button" class="owner-mini-btn owner-mini-danger" onclick="ownerRemoveAdminRecord('${ownerEscAttr(a.email)}')">🗑️ Remove</button>
       </div>

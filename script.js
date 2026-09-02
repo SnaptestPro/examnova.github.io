@@ -1569,8 +1569,8 @@ const ADMIN_INSTITUTE_REMOVED_MESSAGE =
   "🗑️ Aapka institute Owner Panel se remove kar diya gaya hai (Your institute has been removed).\n\n" +
   "Owner se contact karein: 📞 " + ADMIN_DEACTIVATION_CONTACT_MOBILE;
 const ADMIN_NOT_AUTHORIZED_MESSAGE =
-  "⚠️ Ye email admin ke roop mein authorize nahi hai (ho sakta hai record hata diya gaya ho).\n\n" +
-  "Owner se contact karein: 📞 " + ADMIN_DEACTIVATION_CONTACT_MOBILE;
+  "❌ Is email se koi admin account nahi banaya gaya hai (No admin account exists with this email).\n\n" +
+  "Naya admin account banwane ke liye Owner se contact karein: 📞 " + ADMIN_DEACTIVATION_CONTACT_MOBILE;
 
 // FIX (v26): pehle "admin khud disable" aur "poora institute deactivate/
 // remove" — dono cases mein Firestore se sirf ek generic "permission-
