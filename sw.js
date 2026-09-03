@@ -1,4 +1,4 @@
-const CACHE_NAME = 'examnova-v104-login-authready-fix';
+const CACHE_NAME = 'examnova-v107-prevent-duplicate-chapters';
 
 // App-shell files — sab kuch jo student ko app chalane ke liye chahiye
 // (code + question-bank data + icons). Pehli visit par yeh sab download
