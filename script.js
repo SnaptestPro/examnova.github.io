@@ -1128,6 +1128,7 @@ async function registerStudent(e) {
 
   const db = getDB();
   if (!db) { alert("⚠️ Internet/Firebase connection nahi hai. Thodi der baad try karein."); return; }
+  await waitAuthReady();
   try {
     const ref = db.collection(STUDENTS_COLLECTION).doc(mobile);
     const snap = await ref.get();
@@ -1162,6 +1163,7 @@ async function loginStudent(e) {
 
   const db = getDB();
   if (!db) { alert("⚠️ Internet/Firebase connection nahi hai. Thodi der baad try karein."); return; }
+  await waitAuthReady();
   try {
     const ref = db.collection(STUDENTS_COLLECTION).doc(mobile);
     const snap = await ref.get();
@@ -1257,6 +1259,7 @@ async function resetStudentPassword(e) {
 
   const db = getDB();
   if (!db) { alert("⚠️ Internet/Firebase connection nahi hai."); return; }
+  await waitAuthReady();
   try {
     const ref = db.collection(STUDENTS_COLLECTION).doc(mobile);
     const snap = await ref.get();
@@ -2104,6 +2107,7 @@ async function loginAdmin(e) {
   if (candidateEmail) {
     try {
       await auth.signInWithEmailAndPassword(candidateEmail, enteredPass);
+      await waitAuthReady();
       // Owner ne is admin ko khud disable kiya ho, YA uska poora
       // institute deactivate/remove kiya ho — dono cases mein yahin
       // rok do, aur sahi-sahi (alag-alag) wajah dikhao — login hone hi
@@ -6993,6 +6997,31 @@ async function clearRecords() {
    FIREBASE SYNC HELPERS
 ══════════════════════════════════════════ */
 function getDB() { return window.vishnuFirebase?.enabled ? window.vishnuFirebase.db : null; }
+
+// v103-fix: Login/Register/Reset-password jaise "sabse pehle click hone
+// waale" buttons app load hote hi bahut jaldi dabaye ja sakte hain — us
+// waqt tak background anonymous sign-in (firebase-config.js) complete
+// nahi hua hota. request.auth null hone se Firestore Security Rules
+// read/write ko silently retry/queue karti rehti hain (turant error nahi
+// deti) — isi wajah se login "kabhi kabhi bahut slow, kabhi hota hi
+// nahi, bina kisi error ke" jaisa mehsoos hota tha. Iska exact wahi fix
+// jo loadRegisterInstitutes() aur resolveCurrentAdminInstitute() mein
+// pehle se hai — yahan ek reusable helper mein.
+async function waitAuthReady() {
+  try {
+    if (window.vishnuFirebase && window.vishnuFirebase.authReady) {
+      // Safety timeout — agar bahut kharaab network par anonymous
+      // sign-in kabhi resolve/reject hi na ho, to bhi login form 8
+      // second baad aage badh jaata hai (Firestore call fir bhi fail ho
+      // sakta hai, lekin kam se kam UI hamesha ke liye atki nahi rehti,
+      // aur asli error — jo bhi ho — turant dikh jaata hai).
+      await Promise.race([
+        window.vishnuFirebase.authReady,
+        new Promise((resolve) => setTimeout(resolve, 8000))
+      ]);
+    }
+  } catch (e) {}
+}
 
 async function testFirebaseDelete() {
   const db = getDB();
