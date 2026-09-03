@@ -7170,6 +7170,7 @@ function syncBank() {
     // chapters turant dikhne lagein (pehle sirf localStorage/builtin dikhte the).
     if (typeof refreshExistingSubjectChapterDropdowns === "function") refreshExistingSubjectChapterDropdowns();
     if (window.scheduleAutoDuplicateCheck) window.scheduleAutoDuplicateCheck();
+    if (window.scheduleAutoChapterMerge) window.scheduleAutoChapterMerge();
     if (window.scheduleAutoClassIdMigration) window.scheduleAutoClassIdMigration();
     if (window.SavyaExtras && window.SavyaExtras.syncPracticeFilters) window.SavyaExtras.syncPracticeFilters();
   }, (err) => {
@@ -7187,6 +7188,7 @@ function syncBank() {
         console.log("[syncBank] Retry loaded", questionBank.length, "questions");
         renderBank();
         if (window.scheduleAutoDuplicateCheck) window.scheduleAutoDuplicateCheck();
+        if (window.scheduleAutoChapterMerge) window.scheduleAutoChapterMerge();
         if (window.scheduleAutoClassIdMigration) window.scheduleAutoClassIdMigration();
         if (window.SavyaExtras && window.SavyaExtras.syncPracticeFilters) window.SavyaExtras.syncPracticeFilters();
       }).catch(e => { console.warn("[syncBank] Retry failed:", e); renderBank(); });
@@ -7264,33 +7266,148 @@ async function autoAssignMissingClassId() {
 
   _autoTagRunning = true;
   console.log(`[autoAssignMissingClassId] ${untagged.length} untagged question(s) ko background mein "Class 10" assign kiya ja raha hai...`);
-  const CHUNK = 490;
-  let done = 0;
-  try {
-    for (let i = 0; i < untagged.length; i += CHUNK) {
-      const slice = untagged.slice(i, i + CHUNK);
-      const batch = db.batch();
-      slice.forEach(q => {
-        batch.update(db.collection("questionBank").doc(q.id), { classId: "class_10" });
-      });
-      await batch.commit();
-      done += slice.length;
-    }
-    questionBank.forEach(q => { if (!q.classId) q.classId = "class_10"; });
-    window.questionBank = questionBank;
-    saveBankCacheQuietly(questionBank);
-    console.log(`[autoAssignMissingClassId] ✅ ${done} question(s) ko "Class 10" auto-assign ho gaya.`);
-    _debugBadge(`[tag] ✅ done=${done}/${untagged.length}`);
-    return done > 0;
-  } catch (err) {
-    console.error(`[autoAssignMissingClassId] ${done} ho chuke, baaki mein error aayi (agli auto-run mein resume hoga):`, err);
-    _debugBadge(`[tag] ❌ ERROR after done=${done}: ${err.message || err}`);
-    return done > 0;
-  } finally {
-    _autoTagRunning = false;
+  // v104-fix: Pehle ye ek hi atomic db.batch() mein sab updates daalta
+  // tha — Firestore batch "sab ya kuch nahi" hota hai, isliye agar in
+  // 490 questions mein se EK bhi doc beech mein kahin aur se delete ho
+  // jaaye (jaise Duplicate Check merge, ya khud ye hi function doosre
+  // tab mein chal raha ho), to POORA batch fail ho jaata tha — baaki
+  // saare (sahi-salamat) questions bhi untagged reh jaate the, aur agli
+  // baar phir se "Class 10 assign" try hota, phir fail hota — isi se
+  // "baar baar assign karne ke liye aata hai" wali complaint aati thi.
+  // Ab har question individually update hota hai (CONCURRENCY se, batch
+  // mein nahi) — ek doc fail ho (kyunki wo already delete ho chuka hai)
+  // to sirf wahi skip hota hai, baaki sab sahi se ho jaate hain.
+  const CONCURRENCY = 40;
+  let done = 0, skipped = 0;
+  for (let i = 0; i < untagged.length; i += CONCURRENCY) {
+    const slice = untagged.slice(i, i + CONCURRENCY);
+    const results = await Promise.allSettled(
+      slice.map(q => db.collection("questionBank").doc(q.id).update({ classId: "class_10" }))
+    );
+    results.forEach((r, idx) => {
+      if (r.status === "fulfilled") {
+        done++;
+        slice[idx].classId = "class_10"; // in-memory turant reflect ho jaaye
+      } else {
+        skipped++; // doc already deleted/renamed elsewhere — safe to ignore
+      }
+    });
   }
+  window.questionBank = questionBank;
+  saveBankCacheQuietly(questionBank);
+  console.log(`[autoAssignMissingClassId] ✅ ${done} question(s) ko "Class 10" auto-assign ho gaya${skipped ? ` (${skipped} pehle se hat chuke the, skip kiye)` : ""}.`);
+  _debugBadge(`[tag] ✅ done=${done}/${untagged.length}${skipped ? ` skip=${skipped}` : ""}`);
+  _autoTagRunning = false;
+  return done > 0;
 }
 window.autoAssignMissingClassId = autoAssignMissingClassId;
+
+// v106: Do chapters "exactly same" honi chahiye lekin alag-alag entries
+// ban jaati hain jab unke naam mein sirf INVISIBLE farak ho — extra space
+// (aage/peeche/beech mein double-space), ya Hindi typing se aaya hua
+// zero-width/invisible character (alag keyboard/IME se ek hi shabd type
+// karne par kabhi-kabhi ho jaata hai) — screen par dono bilkul same
+// dikhte hain, isliye koi noti nahi karta, lekin code ke liye ye do
+// ALAG strings hain, isliye Filter-by-Chapter mein 2 baar dikhti hain
+// aur Class-Chapter-Serial ID migration bhi unhe 2 alag groups maan leti
+// hai. Ye canonical (normalized) form banata hai taaki asli "exact same"
+// chapters pakde ja sakein.
+// v107: Ye ab SubjectResolver.canonicalizeChapterName ka hi alias hai
+// (dono script.js aur qgen-app.js — jo alag page hai, script.js load
+// nahi karta — isi shared helper ko use karte hain, taaki logic ek hi
+// jagah maintain ho aur PREVENT (v107) aur MERGE (v106) dono ek hi
+// tareeke se "exact same" define karein).
+function canonicalizeChapterName(s) {
+  return window.SubjectResolver ? window.SubjectResolver.canonicalizeChapterName(s) : String(s || "").trim();
+}
+window.canonicalizeChapterName = canonicalizeChapterName;
+
+// Jaise hi bank sync hoti hai, khud-ba-khud (bina button/confirm ke,
+// isliye "koi time nahi lagta") check karta hai ki kisi Class ke andar
+// do ya zyada chapter-name variants hain jo canonicalize karne ke baad
+// EXACTLY same nikalte hain. Sabse zyada questions jis variant mein hon
+// use "asli" (canonical display) maan kar baaki sabko usi mein badal
+// deta hai — matlab wo saare questions ab ek hi chapter ke neeche aa
+// jaate hain. Individual writes (batch nahi) use karta hai — wahi safe
+// pattern jo autoAssignMissingClassId/autoMigrateClassIdIntoDocId mein
+// hai — taaki koi ek concurrent delete poore group ko fail na kar de.
+let _chapterMergeRunning = false;
+async function autoMergeDuplicateChapters() {
+  if (_chapterMergeRunning) return false;
+  const db = getDB();
+  if (!db) return false;
+
+  const bank = questionBank.filter(q => q && !q._test && q.chapter);
+  const groups = new Map(); // key: classId||canonicalChapter -> Map(rawChapter -> items[])
+  bank.forEach(q => {
+    const canon = canonicalizeChapterName(q.chapter);
+    if (!canon) return;
+    const key = (q.classId || "?") + "||" + canon;
+    if (!groups.has(key)) groups.set(key, new Map());
+    const variants = groups.get(key);
+    if (!variants.has(q.chapter)) variants.set(q.chapter, []);
+    variants.get(q.chapter).push(q);
+  });
+
+  const toFix = []; // { item, canonicalDisplay }
+  groups.forEach((variants) => {
+    if (variants.size < 2) return; // sirf ek hi variant hai, kuch merge karne ko nahi
+    // Sabse zyada questions wale variant ko "asli" spelling maan lo.
+    let canonicalDisplay = null, maxCount = -1;
+    variants.forEach((items, rawChapter) => {
+      if (items.length > maxCount) { maxCount = items.length; canonicalDisplay = rawChapter; }
+    });
+    variants.forEach((items, rawChapter) => {
+      if (rawChapter === canonicalDisplay) return;
+      items.forEach(item => toFix.push({ item, canonicalDisplay }));
+    });
+  });
+
+  if (!toFix.length) return false;
+  _chapterMergeRunning = true;
+  console.log(`[autoMergeDuplicateChapters] ${toFix.length} question(s) ki chapter-spelling ek jaisi (merge) ki ja rahi hai...`);
+
+  const CONCURRENCY = 40;
+  let done = 0, skipped = 0;
+  for (let i = 0; i < toFix.length; i += CONCURRENCY) {
+    const slice = toFix.slice(i, i + CONCURRENCY);
+    const results = await Promise.allSettled(
+      slice.map(({ item, canonicalDisplay }) =>
+        db.collection("questionBank").doc(item.id).update({ chapter: canonicalDisplay })
+      )
+    );
+    results.forEach((r, idx) => {
+      if (r.status === "fulfilled") {
+        slice[idx].item.chapter = slice[idx].canonicalDisplay; // in-memory turant reflect
+        done++;
+      } else {
+        skipped++; // doc concurrently delete/rename ho chuka — safe skip
+      }
+    });
+  }
+  window.questionBank = questionBank;
+  saveBankCacheQuietly(questionBank);
+  renderBank();
+  if (typeof refreshExistingSubjectChapterDropdowns === "function") refreshExistingSubjectChapterDropdowns();
+  console.log(`[autoMergeDuplicateChapters] ✅ ${done} question(s) ek hi chapter mein merge ho gaye${skipped ? ` (${skipped} skip)` : ""}.`);
+  _debugBadge(`[chapter-merge] ✅ done=${done}/${toFix.length}${skipped ? ` skip=${skipped}` : ""}`);
+  _chapterMergeRunning = false;
+  return done > 0;
+}
+window.autoMergeDuplicateChapters = autoMergeDuplicateChapters;
+
+let _chapterMergeScheduled = false;
+function scheduleAutoChapterMerge() {
+  if (_chapterMergeScheduled || _chapterMergeRunning) return;
+  _chapterMergeScheduled = true;
+  setTimeout(async () => {
+    _chapterMergeScheduled = false;
+    await autoMergeDuplicateChapters();
+  }, 400); // Class-10-assign/ID-migrate se PEHLE chalta hai (chhota delay), taaki
+           // rename step ko already-merged (sahi) chapter naam mil jaaye — do baar
+           // rename na karna pade.
+}
+window.scheduleAutoChapterMerge = scheduleAutoChapterMerge;
 
 // v34-auto: Ab koi button nahi hai — purani questionBank doc IDs jinme
 // abhi readable "Class-Chapter-Serial" format nahi hai (jaise
@@ -7355,38 +7472,55 @@ async function autoMigrateClassIdIntoDocId() {
     });
   });
 
-  const CHUNK = 245;
-  let done = 0;
-  try {
-    for (let i = 0; i < renamePairs.length; i += CHUNK) {
-      const slice = renamePairs.slice(i, i + CHUNK);
-      const batch = db.batch();
-      slice.forEach(({ oldId, newId, data }) => {
-        if (!newId || newId === oldId) return; // safety net, shouldn't happen
-        const { id, ...rest } = data;
-        batch.set(db.collection("questionBank").doc(newId), rest);
-        batch.delete(db.collection("questionBank").doc(oldId));
-      });
-      await batch.commit();
-      // Firestore ke onSnapshot listener ka wait kiye bina local cache ko
-      // turant update kar do, taaki list/badges turant sahi dikhein.
-      slice.forEach(({ oldId, newId }) => {
+  const CONCURRENCY = 40;
+  let done = 0, skipped = 0;
+  // v104-fix (2 bugs fixed together):
+  // 1) Pehle ye bhi ek atomic db.batch() tha — same "ek doc fail =
+  //    poora batch fail" problem jo autoAssignMissingClassId() mein thi.
+  // 2) ASLI wajah jiski wajah se Duplicate Check ke baad questions
+  //    "wapas aa jaate the" / count badh jaata tha: rename batch.set()
+  //    us purane in-memory `data` se naya doc bana deta tha BINA ye
+  //    check kiye ki oldId abhi bhi Firestore mein maujood hai ya nahi.
+  //    Agar tumne isi doc ko Duplicate Check se merge/delete kar diya
+  //    tha THEEK usi waqt jab ye background migration bhi chal rahi
+  //    thi, to delete ho chuke duplicate ko ye migration ek NAYI ID ke
+  //    saath firse bana (resurrect kar) deti thi — isliye delete karne
+  //    ke baad bhi wahi question phir se dikhne lagta tha aur total
+  //    count badh jaata tha.
+  // Fix: har pair ke liye pehle taaza .get() se confirm karte hain ki
+  // oldId abhi bhi maujood hai — agar kisi ne pehle hi hata diya hai
+  // (delete ho chuka), to us pair ko chup-chaap skip kar dete hain,
+  // resurrect nahi karte.
+  for (let i = 0; i < renamePairs.length; i += CONCURRENCY) {
+    const slice = renamePairs.slice(i, i + CONCURRENCY);
+    const results = await Promise.allSettled(slice.map(async ({ oldId, newId, data }) => {
+      if (!newId || newId === oldId) throw new Error("no-op");
+      const freshSnap = await db.collection("questionBank").doc(oldId).get();
+      if (!freshSnap.exists) throw new Error("already-deleted-elsewhere"); // resurrect mat karo
+      const newSnap = await db.collection("questionBank").doc(newId).get();
+      if (newSnap.exists) throw new Error("new-id-collision"); // kisi aur run/tab ne pehle hi ye ID le li — is pair ko agli baar naya serial milega
+      const { id, ...rest } = freshSnap.data();
+      await db.collection("questionBank").doc(newId).set(rest);
+      await db.collection("questionBank").doc(oldId).delete();
+      return { oldId, newId };
+    }));
+    results.forEach((r) => {
+      if (r.status === "fulfilled") {
+        const { oldId, newId } = r.value;
         const idx = questionBank.findIndex(x => x.id === oldId);
         if (idx >= 0) questionBank[idx] = { ...questionBank[idx], id: newId };
-      });
-      done += slice.length;
-    }
-    window.questionBank = questionBank;
-    saveBankCacheQuietly(questionBank);
-    renderBank();
-    console.log(`[autoMigrateClassIdIntoDocId] ✅ ${done} question(s) ki ID auto-migrate ho gayi.`);
-    _debugBadge(`[migrate] ✅ done=${done}/${renamePairs.length}`);
-  } catch (err) {
-    console.error(`[autoMigrateClassIdIntoDocId] ${done} ho chuke, baaki mein error aayi (agli auto-run mein resume hoga):`, err);
-    _debugBadge(`[migrate] ❌ ERROR after done=${done}: ${err.message || err}`);
-  } finally {
-    _classIdAutoMigrateRunning = false;
+        done++;
+      } else {
+        skipped++;
+      }
+    });
   }
+  window.questionBank = questionBank;
+  saveBankCacheQuietly(questionBank);
+  renderBank();
+  console.log(`[autoMigrateClassIdIntoDocId] ✅ ${done} question(s) ki ID auto-migrate ho gayi${skipped ? ` (${skipped} skip kiye — already deleted/renamed elsewhere)` : ""}.`);
+  _debugBadge(`[migrate] ✅ done=${done}/${renamePairs.length}${skipped ? ` skip=${skipped}` : ""}`);
+  _classIdAutoMigrateRunning = false;
 }
 window.autoMigrateClassIdIntoDocId = autoMigrateClassIdIntoDocId;
 
@@ -7974,6 +8108,11 @@ async function restoreDeletedTestOnline(id) {
 async function saveBankOnline(id, data) {
   // Auto-convert math equations before saving
   if (window.autoFormatMathFields && data) data = window.autoFormatMathFields(Object.assign({}, data)) || data;
+  // v107: existing chapter spelling reuse karo agar "exactly same" hai —
+  // taaki edit karte waqt bhi naya duplicate chapter kabhi bane hi na.
+  if (data && data.chapter && window.SubjectResolver) {
+    data = { ...data, chapter: window.SubjectResolver.resolveCanonicalChapterName(questionBank, data.classId, data.chapter) };
+  }
   const db = getDB(); if (!db) return;
   await db.collection("questionBank").doc(id).set({ ...data, updatedAt: firebase.firestore.FieldValue.serverTimestamp(), createdAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true });
 }

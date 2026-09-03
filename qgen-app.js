@@ -401,12 +401,15 @@ async function confirmBulkUpload_QG() {
   if (!db) { toast('❌ Firebase connected nahi hai'); return; }
 
   const subject = document.getElementById('bulkSubject')?.value.trim() || 'General';
-  const chapter = document.getElementById('bulkChapter')?.value.trim() || 'Custom';
-  // v33: Class ab yahan bhi mandatory hai (bilkul Admin Panel ke Bulk
-  // Upload tab jaisa) — bina chune upload nahi hone dete, taaki har naya
-  // question hamesha kisi Class se tagged rahe.
+  const rawChapter = document.getElementById('bulkChapter')?.value.trim() || 'Custom';
+  // v107: Naya chapter-naam save hone se PEHLE, dekh lo ki isi Class mein
+  // pehle se koi "exactly same" (sirf spacing/invisible-character farak
+  // wali) chapter maujood hai ya nahi — agar hai to uski EXACT purani
+  // spelling use karo, taaki naya duplicate chapter kabhi bane hi na.
   const classId = document.getElementById('bulkClass')?.value || '';
   if (!classId) { toast('⚠️ Kripya Class chunein'); return; }
+  const bankAsChapterList = window.QUESTION_BANK.map(arr => ({ chapter: arr[3], classId: arr[10] }));
+  const chapter = window.SubjectResolver.resolveCanonicalChapterName(bankAsChapterList, classId, rawChapter);
   const log = document.getElementById('bulkUploadLog');
   log.classList.remove('hidden');
   log.innerHTML = '';
@@ -1583,9 +1586,17 @@ function populateAddFormFromData(data) {
 async function saveBankQuestionToCloud(docId, data, subject) {
   const db = window.vishnuFirebase?.db;
   if (!db) return false;
+  // v107: final safety-net — jo bhi caller ho, save hone se pehle chapter
+  // ko existing spelling se resolve kar lo (agar "exactly same" chapter
+  // pehle se maujood hai) taaki edit ya kisi bhi rasty se naya duplicate
+  // chapter kabhi bane hi na.
+  const bankAsChapterList = (window.QUESTION_BANK || []).map(arr => ({ chapter: arr[3], classId: arr[10] }));
+  const resolvedChapter = window.SubjectResolver
+    ? window.SubjectResolver.resolveCanonicalChapterName(bankAsChapterList, data.classId, data.chapter)
+    : data.chapter;
   await db.collection("questionBank").doc(docId).set({
     subject: subject || "General",
-    chapter: data.chapter,
+    chapter: resolvedChapter,
     textHI: data.text,
     textEN: "",
     text: data.text,
@@ -1747,8 +1758,12 @@ async function saveToBank() {
   const classId = document.getElementById('qClass')?.value || '';
   if (!classId) { toast('⚠️ Kripya Class chunein (Save to Bank ke liye zaroori)'); return; }
 
-  const { text, opts: [optA, optB, optC, optD], ans, chapter: chap, subject: subj, qType, marks, modelAnswer } = data;
+  const { text, opts: [optA, optB, optC, optD], ans, chapter: rawChap, subject: subj, qType, marks, modelAnswer } = data;
   const bankAsIdList = window.QUESTION_BANK.map(arr => ({ id: arr[4] }));
+  const bankAsChapterList = window.QUESTION_BANK.map(arr => ({ chapter: arr[3], classId: arr[10] }));
+  // v107: existing chapter spelling reuse karo agar "exactly same" hai —
+  // taaki naya duplicate chapter kabhi bane hi na.
+  const chap = window.SubjectResolver.resolveCanonicalChapterName(bankAsChapterList, classId, rawChap);
   const serial = window.SubjectResolver.nextSerialForGroup(bankAsIdList, classId, chap);
   const docId = window.SubjectResolver.buildQuestionDocId(classId, chap, serial);
   const subject = subj || 'General';

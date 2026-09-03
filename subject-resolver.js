@@ -279,6 +279,38 @@
     return max + 1;
   }
 
+  // v107: Do chapter-name strings jo dikhne mein bilkul same hain lekin
+  // beech mein extra space / double-space / Hindi typing se aaya hua
+  // invisible zero-width character rakhte hain — dono "canonicalize"
+  // karne ke baad EXACTLY match kar jaate hain. Ye naye typo/duplicate
+  // chapters banne se ROKTA hai (sirf baad mein merge nahi karta).
+  function canonicalizeChapterName(s) {
+    return String(s || "")
+      .normalize("NFC")
+      .replace(/[\u200B-\u200D\uFEFF]/g, "") // zero-width space/joiner/BOM
+      .trim()
+      .replace(/\s+/g, " ");
+  }
+
+  // Naya question save hone se PEHLE call karo — agar isi Class mein
+  // (ya kisi bhi Class mein, agar isi Class mein na mile) pehle se koi
+  // chapter aisi maujood hai jiska canonical form match karta hai, to
+  // uski EXACT (pehle se establish) spelling wapas kar deta hai — taaki
+  // naya, thoda-alag-dikhne-wala variant kabhi bane hi na. Agar genuinely
+  // naya chapter hai, to sirf clean (trim/space-collapsed) version deta
+  // hai.
+  function resolveCanonicalChapterName(items, classId, rawChapter) {
+    const canon = canonicalizeChapterName(rawChapter);
+    if (!canon) return rawChapter;
+    const all = (items || []).filter(q => q && q.chapter);
+    const scoped = classId ? all.filter(q => q.classId === classId) : all;
+    const pool = scoped.length ? scoped : all;
+    for (const q of pool) {
+      if (canonicalizeChapterName(q.chapter) === canon) return q.chapter;
+    }
+    return canon;
+  }
+
   window.SubjectResolver = {
     STANDARD_SUBJECTS,
     SUBJECT_CHAPTERS,
@@ -293,6 +325,8 @@
     slugifyChapter,
     buildQuestionDocId,
     docIdMatchesScheme,
-    nextSerialForGroup
+    nextSerialForGroup,
+    canonicalizeChapterName,
+    resolveCanonicalChapterName
   };
 })();
