@@ -1058,14 +1058,38 @@ async function loadRegisterInstitutes() {
   if (!sel || _registerInstitutesCache) return; // ek hi baar load, cache se reuse
   const db = getDB();
   if (!db) return;
+  // FIX: pehle yahan Firebase anonymous sign-in (jo app load hote hi
+  // background mein shuru hota hai — firebase-config.js dekhein) ka
+  // wait nahi karte the. Agar student "Register" tab bahut jaldi
+  // (login screen khulte hi) khol de, to anonymous sign-in abhi tak
+  // complete nahi hua hota — request.auth null hone se Firestore
+  // Security Rules "institutes" read reject kar deti thi
+  // (permission-denied), aur dropdown khaali/error state mein reh
+  // jaata tha, chahe baad mein sign-in ho bhi jaaye. Ab yahan pehle
+  // authReady ka wait karte hain (jo normally milliseconds mein resolve
+  // ho jaata hai) taaki request.auth guaranteed set ho, phir hi query
+  // chalti hai.
+  try {
+    if (window.vishnuFirebase && window.vishnuFirebase.authReady) {
+      await window.vishnuFirebase.authReady;
+    }
+  } catch (e) {}
+  sel.innerHTML = `<option value="">Loading…</option>`;
   try {
     const snap = await db.collection("institutes").where("active", "==", true).get();
     _registerInstitutesCache = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     sel.innerHTML = `<option value="">— Select Karein —</option>` +
       _registerInstitutesCache.map(i => `<option value="${i.id}">${escHtml(i.name || i.id)}</option>`).join("");
+    if (!_registerInstitutesCache.length) {
+      sel.innerHTML = `<option value="">(koi institute available nahi — Owner se contact karein)</option>`;
+    }
   } catch (err) {
     console.warn("[register] institutes load failed", err);
-    sel.innerHTML = `<option value="">(list load nahi hui — reload karein)</option>`;
+    // Cache ko null hi rehne dein taaki agli baar Register tab kholne
+    // par (ya "Retry" par) dobara try ho sake — pehle yahan bhi ek
+    // failed load hone ke baad hamesha ke liye error text atka reh
+    // jaata tha jab tak page reload na ho.
+    sel.innerHTML = `<option value="">(list load nahi hui — dobara try karein)</option>`;
   }
 }
 
@@ -1346,6 +1370,7 @@ const ADMIN_TAB_BOX_IDS = {
 };
 function goAdmin(tab) {
   showAdminTab(tab);
+  if (tab === "settings") renderAdminSettingsEmail();
   const boxId = ADMIN_TAB_BOX_IDS[tab];
   const target = (boxId && document.getElementById(boxId)) || document.querySelector(".admin-tabs");
   target?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -1981,7 +2006,24 @@ function enterAdminPanel() {
   startAdminSyncs();
   backToAdminDashboard();
   renderAdminEmailVerifyBanner();
+  renderAdminSettingsEmail();
 }
+
+// ── Settings section mein admin ka apna logged-in email dikhana ──────
+// FIX: pehle Settings section mein sirf "Change Password"/"Logout"
+// jaise actions the — koi jagah nahi thi jahan admin confirm kar sake
+// ki wo ABHI kis email se login hai (khaaskar tab useful jab ek hi
+// device par alag-alag institutes ke admin baari-baari login karte
+// hon). Ab Settings khulte hi (aur login hote hi) ye Firebase Auth ke
+// currentUser.email se turant fill ho jaata hai.
+function renderAdminSettingsEmail() {
+  const el = $("#admin-settings-email");
+  if (!el) return;
+  const auth = getAuth();
+  const email = auth && auth.currentUser && auth.currentUser.email;
+  el.textContent = email || "—";
+}
+window.renderAdminSettingsEmail = renderAdminSettingsEmail;
 
 // ── Admin Email Verification banner (v25, Master Prompt Rule 2) ─────
 // NON-BLOCKING: sirf ek nudge banner dikhata hai, login ko kabhi rokta
@@ -7209,9 +7251,11 @@ async function autoAssignMissingClassId() {
     window.questionBank = questionBank;
     saveBankCacheQuietly(questionBank);
     console.log(`[autoAssignMissingClassId] ✅ ${done} question(s) ko "Class 10" auto-assign ho gaya.`);
+    _debugBadge(`[tag] ✅ done=${done}/${untagged.length}`);
     return done > 0;
   } catch (err) {
     console.error(`[autoAssignMissingClassId] ${done} ho chuke, baaki mein error aayi (agli auto-run mein resume hoga):`, err);
+    _debugBadge(`[tag] ❌ ERROR after done=${done}: ${err.message || err}`);
     return done > 0;
   } finally {
     _autoTagRunning = false;
@@ -7307,8 +7351,10 @@ async function autoMigrateClassIdIntoDocId() {
     saveBankCacheQuietly(questionBank);
     renderBank();
     console.log(`[autoMigrateClassIdIntoDocId] ✅ ${done} question(s) ki ID auto-migrate ho gayi.`);
+    _debugBadge(`[migrate] ✅ done=${done}/${renamePairs.length}`);
   } catch (err) {
     console.error(`[autoMigrateClassIdIntoDocId] ${done} ho chuke, baaki mein error aayi (agli auto-run mein resume hoga):`, err);
+    _debugBadge(`[migrate] ❌ ERROR after done=${done}: ${err.message || err}`);
   } finally {
     _classIdAutoMigrateRunning = false;
   }
@@ -7328,13 +7374,29 @@ window.autoMigrateClassIdIntoDocId = autoMigrateClassIdIntoDocId;
 // Ab pehle silently untagged questions ko bhi class assign kiya jaata hai
 // (autoAssignMissingClassId — dekho upar), phir rename step chalta hai —
 // dono chup-chaap background mein, kisi button ke bina.
+// TEMP DEBUG (phone par console nahi khulta, isliye on-screen dikhane ke
+// liye) — chhota floating badge jo 6 second baad khud hat jaata hai.
+// Isse Vishnu ko pata chal jaayega ki migration function chal bhi raha
+// hai ya nahi, aur agar error aaya to wo bhi dikh jaayega.
+// ⚠️ Isse hata dena jab migration reliably chalna confirm ho jaaye.
+function _debugBadge(msg) {
+  try {
+    const el = document.createElement("div");
+    el.textContent = msg;
+    el.style.cssText = "position:fixed;left:8px;right:8px;bottom:8px;z-index:999999;background:#111;color:#0f0;font:11px monospace;padding:6px 8px;border-radius:6px;white-space:pre-wrap;max-height:40vh;overflow:auto;box-shadow:0 2px 8px rgba(0,0,0,.4);";
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), 8000);
+  } catch (e) {}
+}
+
 let _classIdAutoMigrateScheduled = false;
 function scheduleAutoClassIdMigration() {
   if (_classIdAutoMigrateScheduled || _classIdAutoMigrateRunning || _autoTagRunning) return;
   const SR = window.SubjectResolver;
-  if (!SR) return;
+  if (!SR) { _debugBadge("[migrate] SubjectResolver missing!"); return; }
   const hasUntagged = questionBank.some(q => !q.classId);
   const hasPending = questionBank.some(q => q.classId && !SR.docIdMatchesScheme(q.id, q.classId, q.chapter));
+  _debugBadge(`[migrate check] untagged=${hasUntagged} pending=${hasPending} total=${questionBank.length}`);
   if (!hasUntagged && !hasPending) return;
   _classIdAutoMigrateScheduled = true;
   setTimeout(async () => {

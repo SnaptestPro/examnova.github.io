@@ -1,4 +1,4 @@
-const CACHE_NAME = 'examnova-v102-class-first-cascading-auto-migrate';
+const CACHE_NAME = 'examnova-v103-migrate-debug-badge';
 
 // App-shell files — sab kuch jo student ko app chalane ke liye chahiye
 // (code + question-bank data + icons). Pehli visit par yeh sab download
